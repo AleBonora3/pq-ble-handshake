@@ -152,11 +152,13 @@ async def test_write_fragmented_ciphertext_headers_valid():
     await central.write_fragmented_ciphertext(ct)
 
     for i, frag in enumerate(mock._written_fragments):
-        assert len(frag) >= FRAG_HEADER_SIZE, f"Fragment {i} too short"
-        f = Fragment.decode(frag)
-        assert f.idx == i, f"Fragment {i} has idx {f.idx}"
-        assert f.total == len(mock._written_fragments)
-        assert f.payload_len == len(frag) - FRAGMENT_HEADER_SIZE
+        assert len(frag) >= FRAGMENT_HEADER_SIZE, f"Fragment {i} too short"
+        decoded = Fragment.decode(frag)
+        assert decoded.index == i, (
+            f"Fragment {i} has index {decoded.index}"
+        )
+        assert decoded.total == len(mock._written_fragments)
+        assert len(decoded.payload) == len(frag) - FRAGMENT_HEADER_SIZE
 
 
 @pytest.mark.asyncio

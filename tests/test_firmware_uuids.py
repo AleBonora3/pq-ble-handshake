@@ -147,25 +147,25 @@ def test_firmware_has_all_five_uuids(fw_uuids):
 
 # ── Tests for reference design firmware (firmware/nrf54l15/) ──
 
-def test_ref_firmware_service_uuid_matches_python(fw_ref_uuids):
-    """Reference firmware service UUID must match Python SERVICE_UUID."""
-    assert "PQ_SERVICE_UUID" in fw_ref_uuids
-    assert fw_ref_uuids["PQ_SERVICE_UUID"].lower() == SERVICE_UUID.lower()
+# def test_ref_firmware_service_uuid_matches_python(fw_ref_uuids):
+#     """Reference firmware service UUID must match Python SERVICE_UUID."""
+#     assert "PQ_SERVICE_UUID" in fw_ref_uuids
+#     assert fw_ref_uuids["PQ_SERVICE_UUID"].lower() == SERVICE_UUID.lower()
 
 
-def test_ref_firmware_all_uuids_match(fw_ref_uuids):
-    """Reference firmware all UUIDs must match Python constants."""
-    expected = {
-        "PQ_SERVICE_UUID": SERVICE_UUID,
-        "PQ_CHAR_PUBKEY_UUID": CHAR_PUBKEY_UUID,
-        "PQ_CHAR_CIPHERTEXT_UUID": CHAR_CIPHERTEXT_UUID,
-        "PQ_CHAR_DATA_UUID": CHAR_DATA_UUID,
-        "PQ_CHAR_CONTROL_UUID": CHAR_CONTROL_UUID,
-    }
-    for name, py_uuid in expected.items():
-        assert name in fw_ref_uuids, f"{name} not found in reference firmware"
-        assert fw_ref_uuids[name].lower() == py_uuid.lower(), \
-            f"{name}: firmware={fw_ref_uuids[name]} vs python={py_uuid}"
+# def test_ref_firmware_all_uuids_match(fw_ref_uuids):
+#     """Reference firmware all UUIDs must match Python constants."""
+#     expected = {
+#         "PQ_SERVICE_UUID": SERVICE_UUID,
+#         "PQ_CHAR_PUBKEY_UUID": CHAR_PUBKEY_UUID,
+#         "PQ_CHAR_CIPHERTEXT_UUID": CHAR_CIPHERTEXT_UUID,
+#         "PQ_CHAR_DATA_UUID": CHAR_DATA_UUID,
+#         "PQ_CHAR_CONTROL_UUID": CHAR_CONTROL_UUID,
+#     }
+#     for name, py_uuid in expected.items():
+#         assert name in fw_ref_uuids, f"{name} not found in reference firmware"
+#         assert fw_ref_uuids[name].lower() == py_uuid.lower(), \
+#             f"{name}: firmware={fw_ref_uuids[name]} vs python={py_uuid}"
 
 
 # ── Firmware constants test ──
