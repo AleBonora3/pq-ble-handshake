@@ -1,0 +1,14 @@
+bleak>=0.21.0
+cryptography>=41.0.0
+matplotlib>=3.7.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+liboqs-python>=0.10.0
+# liboqs-python richiede liboqs compilato e installato nel sistema.
+# Procedura (Ubuntu/Debian):
+#   sudo apt install libssl-dev cmake build-essential
+#   git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git
+#   cd liboqs && mkdir build && cd build
+#   cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
+#   make -j$(nproc) && sudo make install && sudo ldconfig
+#   pip install liboqs-python

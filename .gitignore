@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.so
+
+# Virtualenv
+venv/
+.venv/
+activate_env.bat
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+liboqs/
+liboqs-python/
+liboqs/build/
+liboqs/install/
+
+# Windows
+*.dll
+*.lib
+*.exp
+
+# Benchmark results (generati)
+benchmarks/results/*.json
+
+# Keys (non committare chiavi reali!)
+data/keys/*
+!data/keys/README.md
+
+# LaTeX aux files
+tesina/*.aux
+tesina/*.log
+tesina/*.out
+tesina/*.pdf
+tesina/*.toc
+liboqs/
+liboqs-python/
