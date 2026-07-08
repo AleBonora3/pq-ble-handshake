@@ -66,9 +66,9 @@ async def main():
     level = getattr(logging, args.log_level)
     setup_logging(level)
 
-    logger.info("═" * 50)
+    logger.info("=" * 50)
     logger.info("PQ-BLE-HANDSHAKE — Central (Client)")
-    logger.info("═" * 50)
+    logger.info("=" * 50)
     logger.info("Device: %s | Demo: %s | MTU: %s",
                 args.device, args.demo, args.mtu or "auto")
 
@@ -115,7 +115,7 @@ async def main():
         if session_id:
             logger.info("Session ID: %s...", session_id.hex()[:16])
 
-        logger.info("✅ Handshake completato. Canale sicuro stabilito.")
+        logger.info("[OK] Handshake completato. Canale sicuro stabilito.")
 
         # ── Secure channel ──────────────────────────────────
         channel = CentralSecureChannel(session_key, client,
@@ -137,15 +137,15 @@ async def main():
 
             msg = await channel.receive(timeout=10.0)
             if msg:
-                logger.info("✅ Raw demo notification received: %d bytes", len(msg))
+                logger.info("[OK] Raw demo notification received: %d bytes", len(msg))
                 logger.debug("Raw demo notification hex: %s", msg.hex())
 
                 print()
-                print("📩 Raw demo notification received")
+                print("Raw demo notification received")
                 print(f"   Length: {len(msg)} bytes")
                 print(f"   HEX: {msg.hex()}")
                 print()
-                print("✅ BLE/GATT transport validation completed.")
+                print("[OK] BLE/GATT transport validation completed.")
             else:
                 logger.error("No notification received within timeout.")
 
@@ -166,7 +166,7 @@ async def main():
             while True:
                 msg = await channel.receive(timeout=0.5)
                 if msg:
-                    print(f"\n📩 Ricevuto: {msg.decode(errors='replace')}")
+                    print(f"\nRicevuto: {msg.decode(errors='replace')}")
 
         recv_task = asyncio.create_task(print_received())
 
