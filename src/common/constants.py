@@ -1,6 +1,5 @@
 """
 PQ-BLE-HANDSHAKE — Costanti di protocollo.
-
 Tutti i magic number, UUID GATT e dimensioni in un unico file.
 Modifica qui se cambi algoritmo PQ o parametri.
 """

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """
 PQ-BLE-HANDSHAKE — Central (Client) Entry Point.
-
 Usage:
     python -m src.central.main [options]
-
 Options:
     --device NAME        BLE device name to scan for (default: PQ-BLE-Device)
     --no-sas-confirm     Skip interactive SAS confirmation (auto-accept)
@@ -12,13 +10,11 @@ Options:
     --mtu SIZE           Request specific MTU (default: negotiated by stack)
     --log-level LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)
 """
-
 import argparse
 import asyncio
 import logging
 import sys
 import time
-
 from ..common.logging_config import setup_logging
 from ..common.constants import (
     DEVICE_NAME,
@@ -31,7 +27,6 @@ from .handshake import CentralHandshake
 from .secure_channel import CentralSecureChannel
 
 logger = logging.getLogger("pq-ble.central.main")
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -50,7 +45,7 @@ def parse_args():
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="Demo mode: send START on Control, wait for precomputed notify",
+        help="Demo mode: send START on Control and wait for raw firmware notify",
     )
     parser.add_argument(
         "--mtu",
@@ -65,7 +60,6 @@ def parse_args():
         help="Logging level (default: INFO)",
     )
     return parser.parse_args()
-
 
 async def main():
     args = parse_args()
@@ -125,23 +119,40 @@ async def main():
 
         # ── Secure channel ──────────────────────────────────
         channel = CentralSecureChannel(session_key, client,
-                                       session_id=session_id)
-        await channel.start_receiving()
+                                    session_id=session_id)
 
-        # ── Demo mode: send START, wait for precomputed notify ──
+        # ── Demo mode: send START, wait for raw firmware notify ──
         if args.demo:
             logger.info("=== DEMO MODE: Sending START on Control ===")
+            logger.info(
+                "Hardware demo mode: notifications are received as raw bytes. "
+                "The current nRF54L15 DK firmware validates BLE/GATT transport but "
+                "does not perform on-chip ML-KEM/AES-GCM yet."
+            )
+
+            await channel.start_receiving(decrypt_notifications=False)
+
             await client.send_control(b"START")
-            logger.info("START sent. Waiting for precomputed notification...")
+            logger.info("START sent. Waiting for raw demo notification...")
 
             msg = await channel.receive(timeout=10.0)
             if msg:
-                logger.info("✅ Received demo notification: %r",
-                            msg.decode(errors='replace'))
-                print(f"\n📩 Demo payload: {msg.decode(errors='replace')}")
+                logger.info("✅ Raw demo notification received: %d bytes", len(msg))
+                logger.debug("Raw demo notification hex: %s", msg.hex())
+
+                print()
+                print("📩 Raw demo notification received")
+                print(f"   Length: {len(msg)} bytes")
+                print(f"   HEX: {msg.hex()}")
+                print()
+                print("✅ BLE/GATT transport validation completed.")
             else:
                 logger.error("No notification received within timeout.")
+
             return 0
+
+        # Normal secure-channel mode
+        await channel.start_receiving(decrypt_notifications=True)
 
         # ── Interactive loop ────────────────────────────────
         logger.info("Secure channel ready. Type 'quit' to exit.")

@@ -1,20 +1,16 @@
 """
 GATT Fragmentation Protocol.
-
 BLE MTU defaults to 512 bytes (517 with ATT header). ML-KEM-768 keys
 are 1184 bytes (pk) and 1088 bytes (ct) — they don't fit in one packet.
 
 This module splits large payloads into fragments and reassembles them.
-
 Wire format (per fragment, up to 508 bytes payload):
     ┌──────────────┬──────────────┬────────────────┬──────────────────────┐
     │ fragment_idx │ total_frags  │ payload_length │ payload              │
     │ uint8        │ uint8        │ uint16 (BE)    │ up to 508 bytes      │
     └──────────────┴──────────────┴────────────────┴──────────────────────┘
-
 Total header: 4 bytes. Max fragment size: MTU - 4.
 """
-
 import struct
 from dataclasses import dataclass
 from typing import List
