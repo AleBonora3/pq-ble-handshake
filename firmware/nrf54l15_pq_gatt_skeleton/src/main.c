@@ -51,11 +51,20 @@ LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
  * BT_UUID_128_ENCODE(w32, w16_1, w16_2, w16_3, w48)
  * UUID: 12345678-1234-1234-1234-123456789abc
  */
-#define PQ_SERVICE_UUID BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abc)
-#define PQ_CHAR_PUBKEY_UUID BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abd)
-#define PQ_CHAR_CIPHERTEXT_UUID BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abe)
-#define PQ_CHAR_DATA_UUID BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abf)
-#define PQ_CHAR_CONTROL_UUID BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789ac0)
+#define PQ_SERVICE_UUID \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abc)
+
+#define PQ_CHAR_PUBKEY_UUID \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abd)
+
+#define PQ_CHAR_CIPHERTEXT_UUID \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abe)
+
+#define PQ_CHAR_DATA_UUID \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abf)
+
+#define PQ_CHAR_CONTROL_UUID \
+    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789ac0)
 
 /* ── Protocol constants (match Python constants.py) ── */
 #define ML_KEM_PK_SIZE       1184
@@ -218,7 +227,7 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 
     if (len < FRAG_HEADER_SIZE) {
         LOG_ERR("CT fragment too short: %u < %u", len, FRAG_HEADER_SIZE);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_VAL_LEN);
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
     /* Parse fragment header: [idx:1][total:1][payload_len:2 BE] */
@@ -231,18 +240,18 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
     if (idx >= MAX_FRAGMENTS || total > MAX_FRAGMENTS || total == 0) {
         LOG_ERR("CT fragment idx/total invalid: idx=%u total=%u",
                 idx, total);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_VAL_LEN);
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
     if (payload_len != (len - FRAG_HEADER_SIZE)) {
         LOG_ERR("CT payload_len mismatch: header=%u, actual=%u",
                 payload_len, len - FRAG_HEADER_SIZE);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_VAL_LEN);
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
     if (payload_len > MAX_FRAG_PAYLOAD) {
         LOG_ERR("CT payload too large: %u > %u", payload_len, MAX_FRAG_PAYLOAD);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_VAL_LEN);
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
     /* Store fragment */
@@ -270,7 +279,7 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
             if (offset_ct + ct_frag_lens[i] > ML_KEM_CT_SIZE) {
                 LOG_ERR("CT reassembly overflow: %u > %u",
                         offset_ct + ct_frag_lens[i], ML_KEM_CT_SIZE);
-                return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_VAL_LEN);
+                return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
             }
             memcpy(ct_buffer + offset_ct, ct_fragments[i], ct_frag_lens[i]);
             offset_ct += ct_frag_lens[i];
