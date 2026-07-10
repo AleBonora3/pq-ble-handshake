@@ -120,7 +120,9 @@ class CentralHandshake:
 
         for sid_hex, created_at, usage_count in self._store.list_ids():
             session_id = bytes.fromhex(sid_hex)
-            session_key = self._store.load(session_id)
+            session_key = self._store.load(
+                session_id, increment_usage=False
+            )
             if session_key is None:
                 continue
 
@@ -152,6 +154,13 @@ class CentralHandshake:
                 await self._client.stop_notify()
 
             if response == RESUME_OK_NOTIFY:
+                if not self._store.mark_used(session_id):
+                    logger.warning(
+                        "Peripheral accepted resume, but the local session "
+                        "is no longer resumable. Falling back to full handshake."
+                    )
+                    continue
+
                 logger.info("Peripheral accepted resume request.")
                 self._session_id = session_id
                 return session_key

@@ -211,19 +211,27 @@ def test_store_list_ids(store):
     assert entries[0][0] == sid.hex()
 
 
-def test_store_usage_counter(store):
+def test_store_usage_counter(store_path):
     sid = generate_session_id()
-    store.save(sid, b"a" * 32)
+    key = b"a" * 32
+    store = SessionStore(store_path, max_age_hours=24, max_uses=2)
+    store.save(sid, key)
 
-    # First load increments
-    store.load(sid)
+    # Reading during resume negotiation must not consume a use.
+    assert store.load(sid, increment_usage=False) == key
     entries = store.list_ids()
-    assert entries[0][2] == 1  # usage_count
+    assert entries[0][2] == 0
 
-    # Second load increments again
-    store.load(sid)
+    # Only an accepted resume increments the counter.
+    assert store.mark_used(sid)
     entries = store.list_ids()
-    assert entries[0][2] == 2
+    assert entries[0][2] == 1
+
+    # The second successful resume reaches the limit. The current resume is
+    # accepted, then the entry is removed so the next connection re-handshakes.
+    assert store.mark_used(sid)
+    assert not store.has(sid)
+    assert store.load(sid, increment_usage=False) is None
 
 
 # ─────────────────────────────────────────────────────────
@@ -364,7 +372,8 @@ def test_usage_counter_persists():
 
         store1 = SessionStore(store_path)
         store1.save(sid, b"x" * 32)
-        store1.load(sid)  # usage: 1
+        assert store1.load(sid, increment_usage=False) == b"x" * 32
+        assert store1.mark_used(sid)  # usage: 1
 
         store2 = SessionStore(store_path)
         entries = store2.list_ids()
