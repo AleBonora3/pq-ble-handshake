@@ -1,512 +1,346 @@
 # PQ-BLE-HANDSHAKE
 
-Canale sicuro post-quantum su BLE via GATT con SAS Numeric Comparison.
+**Post-quantum secure-channel proof of concept over Bluetooth Low Energy GATT.**
 
-Proof-of-concept per stabilire un canale cifrato post-quantum sopra Bluetooth Low Energy GATT, senza modificare lo stack BLE nativo.
+PQ-BLE-HANDSHAKE demonstrates how a post-quantum application-layer handshake can be transported over standard BLE GATT without modifying the native Bluetooth stack.
 
-Il protocollo usa:
+The protocol combines:
 
-- **ML-KEM-768** (NIST FIPS 203, security category 3) per derivare una shared secret post-quantum.
-- **SAS Numeric Comparison** a 6 cifre per rilevare MITM attivi tramite confronto umano.
-- **HKDF-SHA256** per derivare la session key.
-- **AES-256-GCM** con AAD e replay protection per cifrare e autenticare i payload applicativi.
-- **Session resumption** tramite `session_id` e store JSON, con re-handshake periodico.
+- **ML-KEM-768** — NIST FIPS 203, security category 3;
+- **6-digit SAS Numeric Comparison** — interactive MITM detection;
+- **HKDF-SHA256** — session-key derivation;
+- **AES-256-GCM** — authenticated encryption with AAD;
+- **monotonic sequence numbers** — replay and out-of-order protection;
+- **session resumption** — time- and usage-bounded cached sessions.
+
+> [!IMPORTANT]
+> The Python implementation validates the complete cryptographic protocol.
+> The current nRF54L15 DK firmware validates the real BLE/GATT transport path,
+> but it does **not** yet perform ML-KEM decapsulation, HKDF or AES-GCM on-chip.
 
 ---
 
-## Current validation status
+## Project status
 
-The project is currently validated at three levels:
-
-| Layer | Status |
+| Component | Status |
 |---|---|
-| Python cryptographic protocol | Validated |
-| PC central ↔ nRF54L15 DK BLE/GATT hardware demo | Validated |
-| nRF52840 Dongle + Wireshark passive capture | Validated |
-| Full on-chip ML-KEM/AES-GCM on nRF54L15 DK | Future work |
+| Python cryptographic protocol | ✅ Implemented and tested |
+| AES-256-GCM secure channel with AAD | ✅ Implemented and tested |
+| Replay and out-of-order protection | ✅ Implemented and tested |
+| Session resumption store | ✅ Implemented and tested |
+| Re-handshake after 24 hours or 100 successful resumes | ✅ Implemented and tested |
+| PC central ↔ nRF54L15 DK BLE/GATT demo | ✅ Validated on real hardware |
+| nRF Connect Mobile manual GATT inspection | ✅ Completed |
+| nRF52840 Dongle + Wireshark passive capture | ✅ Completed |
+| Wireshark screenshots and `.pcapng` evidence | ✅ Included |
+| Reproducible benchmark suite | ✅ Completed |
+| LaTeX report and compiled PDF | ✅ Included |
+| ML-KEM decapsulation on nRF54L15 DK | ⏳ Future work |
+| HKDF and AES-256-GCM on nRF54L15 DK | ⏳ Future work |
+| Persistent session storage on the DK | ⏳ Future work |
 
-Current active Python test suite:
+Current active automated test suite:
 
 ```text
 101 passed
 ```
 
-The firmware validates the real BLE/GATT transport path on hardware. It does **not** execute ML-KEM decapsulation or AES-GCM encryption on-chip yet.
-
 ---
 
-## Validation layers
+## Validation model
 
-### 1. Cryptographic validation — Python
+The project is validated at three distinct levels.
 
-The Python implementation validates:
+### 1. Cryptographic and protocol validation
+
+The Python implementation covers:
 
 - ML-KEM-768 key generation, encapsulation and decapsulation;
-- SAS Numeric Comparison;
-- HKDF-SHA256 session key derivation;
-- AES-256-GCM secure channel;
-- AAD binding with `session_id`, sender role, sequence number and message type;
-- replay protection;
-- fragmentation/reassembly;
-- session resumption.
+- SAS derivation and comparison;
+- HKDF-SHA256 session-key derivation;
+- AES-256-GCM encryption and decryption;
+- AAD binding;
+- direction separation;
+- session binding;
+- message-type binding;
+- replay and out-of-order rejection;
+- fragmentation and reassembly;
+- session persistence, expiry and bounded resumption;
+- MITM simulations;
+- mocked GATT transport.
 
-The active test suite currently contains:
-
-```text
-101 passed
-```
-
-Strict legacy tests that parsed firmware UUIDs automatically were disabled because they were tied to an older C declaration format. UUID consistency is currently verified through the firmware source, the firmware README, nRF Connect Mobile inspection, and the real PC central ↔ DK demo.
-
-### 2. BLE/GATT hardware validation — nRF54L15 DK
-
-The repository includes a Zephyr firmware for the **nRF54L15 DK** exposing the custom PQ-BLE GATT service.
+### 2. Real BLE/GATT hardware validation
 
 Validated setup:
 
 ```text
-PC Windows + Python/Bleak  ←── BLE/GATT ──→  nRF54L15 DK + Zephyr firmware
+Windows PC + Python/Bleak  <---- BLE/GATT ---->  nRF54L15 DK + Zephyr
 ```
 
-The firmware has been:
+The PC central successfully:
 
-- built with nRF Connect SDK 3.0.0;
-- flashed successfully on the nRF54L15 DK;
-- advertised as `PQ-BLE-Device`;
-- connected from nRF Connect Mobile;
-- connected from the Python/Bleak PC central on Windows;
-- validated for public key read, fragmented ciphertext write, control write and notification.
+1. discovers `PQ-BLE-Device`;
+2. connects to the nRF54L15 DK;
+3. uses an ATT MTU of 247;
+4. reads the 1184-byte ML-KEM public key;
+5. verifies the public-key SHA-256 fingerprint;
+6. performs ML-KEM encapsulation on the PC;
+7. generates a 1088-byte ciphertext;
+8. writes the ciphertext in 5 PQ-BLE fragments;
+9. derives the SAS and session key on the PC side;
+10. sends the `START` control command;
+11. receives a 57-byte raw notification from the DK.
 
-The current firmware mode is a **hardware transport demo**: it validates the BLE/GATT transport path, but it does not yet perform ML-KEM/AES-GCM on-chip.
-
-### 3. Observational validation — nRF52840 Dongle + Wireshark
-
-A passive BLE capture was performed with the **nRF52840 Dongle** and Wireshark/nRF Sniffer.
-
-The capture confirms the real ATT/GATT transport:
-
-- ATT MTU exchange;
-- ML-KEM public key long read;
-- ML-KEM ciphertext transfer over the Ciphertext characteristic;
-- `START` control write;
-- final Handle Value Notification from the DK.
-
-Observed handles in the capture:
-
-| GATT element | Handle | Evidence |
-|---|---:|---|
-| Public Key characteristic value | `0x0012` | ATT Read Request + ATT Read Blob Requests |
-| Ciphertext characteristic value | `0x0014` | ATT Prepare Write / Execute Write operations |
-| Notification CCCD | `0x0017` | Notification subscription |
-| Control characteristic value | `0x0019` | `START` write |
-| Data notification | `0x0015` / characteristic notify path | Handle Value Notification |
-
-The 1184-byte public key is read through a long GATT read sequence with offsets:
+Observed result:
 
 ```text
-0
-246
-492
-738
-984
+Read public key: 1184 bytes
+Encapsulate: ct=1088 bytes, ss=32 bytes
+Writing ciphertext: 1088 bytes in 5 fragments
+Raw demo notification received: 57 bytes
+BLE/GATT transport validation completed.
 ```
 
-The 1088-byte ML-KEM ciphertext is generated by the PC central and written to the DK as 5 application-level PQ-BLE fragments. On Windows, the BLE stack represents the long writes in Wireshark through ATT Prepare Write and Execute Write operations on handle `0x0014`.
+The complete execution log is available in
+[`docs/hardware-validation-log.txt`](docs/hardware-validation-log.txt).
+
+### 3. Passive packet-level validation
+
+The BLE exchange was captured with:
+
+- **nRF52840 Dongle**;
+- **nRF Sniffer for Bluetooth LE**;
+- **Wireshark**.
+
+The capture confirms:
+
+- ATT MTU negotiation;
+- public-key long read;
+- ciphertext transfer;
+- `START` control write;
+- final Handle Value Notification.
+
+Capture files:
+
+- [`docs/captures/Cattura_PQ_BLE.pcapng`](docs/captures/Cattura_PQ_BLE.pcapng)
+- [`docs/captures/Cattura_PQ_BLE_filtro_btatt.pcapng`](docs/captures/Cattura_PQ_BLE_filtro_btatt.pcapng)
 
 ---
 
 ## Hardware architecture
 
 ```text
-PC (Python + Bleak)     ←── BLE/GATT ──→     nRF54L15 DK (Zephyr firmware)
-  Central / Client                                 Peripheral / GATT Server
-         ↑
-         │ passively sniffed by
-    nRF52840 Dongle (Wireshark)
+                         passive capture
+                    +-----------------------+
+                    |                       v
+Windows PC          |                 nRF52840 Dongle
+Python + Bleak      |                 Wireshark / nRF Sniffer
+Central / Client    |
+        |
+        +------------- BLE/GATT ------------+
+                                           |
+                                           v
+                                  nRF54L15 DK
+                                  Zephyr Peripheral
+                                  Custom GATT Server
 ```
 
-| Role | Hardware | Software | Status |
+| Role | Hardware | Software | Purpose |
 |---|---|---|---|
-| Central | PC Windows | Python + Bleak | Implemented and hardware-tested |
-| Peripheral | nRF54L15 DK | Zephyr firmware | Built, flashed and hardware-tested |
-| Sniffer | nRF52840 Dongle | Wireshark / nRF Sniffer | Passive capture completed |
-| ML-KEM on-chip | nRF54L15 DK | Embedded PQC library / liboqs port | Future work |
+| Central | Windows PC | Python + Bleak | Protocol orchestration and ML-KEM encapsulation |
+| Peripheral | nRF54L15 DK | Zephyr / nRF Connect SDK | Real GATT transport validation |
+| Sniffer | nRF52840 Dongle | Wireshark + nRF Sniffer | Passive ATT/GATT observation |
 
-> The nRF52840 Dongle is **only a sniffer**. It is not used as central or peripheral.
->
-> The Python peripheral in `experimental/peripheral/` is **not part of the real BLE demo**. It is experimental, Linux-only, and untested on real BLE hardware.
+The nRF52840 Dongle is used **only as a passive sniffer**.
 
----
-
-## Current status
-
-- Cryptographic logic implemented and tested in Python.
-- AES-256-GCM secure channel hardened with AAD.
-- AAD includes `session_id`, sender role, sequence number and message type.
-- Replay protection implemented through monotonic sequence numbers.
-- Duplicated or out-of-order packets are rejected.
-- Python/Bleak central implements:
-  - BLE scan/connect;
-  - public-key read;
-  - ciphertext fragmentation/write;
-  - notify subscription;
-  - control writes;
-  - raw hardware demo notification mode.
-- nRF54L15 DK firmware implements:
-  - BLE advertising as `PQ-BLE-Device`;
-  - custom PQ-BLE GATT service;
-  - public-key READ characteristic;
-  - ciphertext WRITE characteristic;
-  - control WRITE characteristic;
-  - data NOTIFY characteristic;
-  - CCCD notification subscription;
-  - ciphertext fragment accumulation;
-  - real `bt_gatt_notify()`.
-- Firmware build validated on Windows with nRF Connect SDK 3.0.0.
-- Firmware flash validated on nRF54L15 DK.
-- Manual validation with nRF Connect Mobile completed.
-- PC central ↔ DK peripheral BLE/GATT demo completed.
-- Passive Wireshark capture with nRF52840 Dongle completed.
-- Active Python test suite: **101 tests passing**.
-- On-chip ML-KEM decapsulation and AES-GCM encryption on the DK are **future work**.
+The Python peripheral under `experimental/peripheral/` is not part of the real
+hardware demo.
 
 ---
 
-## Hardware validation result
+## Firmware public key
 
-A real hardware validation was performed using:
+The nRF54L15 firmware embeds a **valid ML-KEM-768 public key generated
+offline**.
 
-- **Windows PC** as BLE central;
-- **nRF54L15 DK** as BLE peripheral;
-- **nRF Connect Mobile** for manual GATT inspection;
-- **nRF52840 Dongle** as passive Wireshark sniffer.
+The key is generated with:
 
-The PC central successfully:
-
-1. discovered `PQ-BLE-Device`;
-2. connected to the nRF54L15 DK;
-3. negotiated MTU 247;
-4. read the 1184-byte public key characteristic;
-5. generated a 1088-byte ML-KEM ciphertext in Python;
-6. wrote the ciphertext to the DK in 5 GATT fragments;
-7. derived SAS and session key on the PC side;
-8. sent the `START` control command;
-9. received a 57-byte raw notification from the firmware.
-
-Observed central result:
-
-```text
-Raw demo notification received
-Length: 57 bytes
-BLE/GATT transport validation completed.
+```powershell
+python scripts\generate_firmware_public_key.py
 ```
 
-A raw execution log is stored in:
+The generated header is stored in:
 
 ```text
-docs/hardware-validation-log.txt
+firmware/nrf54l15_pq_gatt_skeleton/src/demo_public_key.h
 ```
 
-This validates the real BLE/GATT transport path on hardware.
+The PC central logs the SHA-256 fingerprint of the public key read over BLE.
+This fingerprint can be compared with the value recorded in the generated
+header.
 
-The current firmware does **not** perform on-chip ML-KEM decapsulation or AES-GCM encryption. Therefore, the final notification is handled as a raw hardware-demo payload instead of being decrypted as a real secure-channel message.
+> [!NOTE]
+> The corresponding ML-KEM secret key is intentionally not stored in the
+> repository or on the DK. Therefore, the current firmware cannot decapsulate
+> the ciphertext. The public key is real, while the embedded demo remains a
+> BLE/GATT transport validation rather than a complete embedded cryptographic
+> endpoint.
+
+The final 57-byte notification is explicitly a **raw demo payload** used to
+validate the GATT notification path. It is not an AES-GCM payload generated
+from a session key shared with the DK.
 
 ---
 
-## Wireshark capture result
+## GATT service
 
-The passive nRF52840/Wireshark capture confirms that PQ-BLE messages are transported over standard ATT/GATT operations.
-
-Useful Wireshark filters:
+Service UUID:
 
 ```text
-btatt
-btatt.handle == 0x0012
-btatt.handle == 0x0014 || btatt.opcode == 0x18 || btatt.opcode == 0x19
-btatt.handle == 0x0019 || btatt.opcode == 0x1b
+12345678-1234-1234-1234-123456789abc
 ```
 
-Observed evidence:
+| Characteristic | UUID suffix | Properties | Value handle | Purpose |
+|---|---|---|---:|---|
+| Public Key | `9abd` | READ | `0x0012` | Exposes the 1184-byte ML-KEM public key |
+| Ciphertext | `9abe` | WRITE | `0x0014` | Receives the 1088-byte ciphertext |
+| Secure Data | `9abf` | NOTIFY | `0x0016` | Sends the 57-byte raw demo notification |
+| Secure Data CCCD | — | READ/WRITE | `0x0017` | Enables notifications |
+| Control | `9ac0` | WRITE | `0x0019` | Receives `START` and resume messages |
 
-| Evidence | Wireshark interpretation |
-|---|---|
-| MTU negotiation | ATT Exchange MTU Request/Response |
-| Public key read | ATT Read Request + multiple ATT Read Blob Requests on handle `0x0012` |
-| Ciphertext transfer | ATT Prepare Write / Execute Write on handle `0x0014` |
-| START command | GATT write on handle `0x0019`, payload `53 54 41 52 54` |
-| Firmware notification | ATT Handle Value Notification |
+The observed handle layout is:
 
-The public key long read uses offsets:
+```text
+0x0010  Custom service
+0x0011  Public Key declaration
+0x0012  Public Key value
+0x0013  Ciphertext declaration
+0x0014  Ciphertext value
+0x0015  Secure Data declaration
+0x0016  Secure Data value / notification handle
+0x0017  Secure Data CCCD
+0x0018  Control declaration
+0x0019  Control value
+```
+
+---
+
+## Wireshark evidence
+
+### ATT MTU exchange
+
+![ATT MTU exchange](docs/images/wireshark_MTU_exchange.png)
+
+### ML-KEM public-key long read
+
+![ML-KEM public-key long read](docs/images/wireshark_public_key_read.png)
+
+The 1184-byte key is transferred through an ATT Read followed by Read Blob
+operations at offsets:
 
 ```text
 0, 246, 492, 738, 984
 ```
 
-With MTU 247, each read response carries approximately 246 bytes of public-key data. This is consistent with the 1184-byte ML-KEM public key.
+### ML-KEM ciphertext transfer
 
-The ciphertext is fragmented at the PQ-BLE application layer into 5 fragments. In the Wireshark capture, Windows/Bleak maps these long GATT writes to ATT Prepare Write and Execute Write operations.
+![ML-KEM ciphertext transfer](docs/images/wireshark_ciphertext_write.png)
 
----
-
-## Quickstart
-
-```bash
-# 1. Setup
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Run tests
-pytest tests/ -v
-
-# Expected current result:
-# 101 passed
-
-# 3. Benchmark
-bash benchmarks/run_all.sh
-
-# 4. Comparative sniffing simulation
-python tests/sniff_test.py
-```
-
-On Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-python -m pytest tests/ -v
-```
-
----
-
-## Real hardware demo
-
-### Prerequisites
-
-- nRF54L15 DK;
-- PC with Bluetooth adapter;
-- Windows with Python + Bleak, or Linux with BlueZ;
-- nRF Connect SDK compatible with nRF54L15 DK;
-- nRF Connect for VS Code;
-- nRF52840 Dongle for passive sniffing;
-- Wireshark + nRF Sniffer for Bluetooth LE.
-
-### Step 1 — Build and flash firmware
-
-From the firmware directory:
-
-```bash
-cd firmware/nrf54l15_pq_gatt_skeleton
-west build -b nrf54l15dk/nrf54l15/cpuapp -p always
-west flash
-```
-
-On Windows, to avoid path-length issues with Zephyr/NCS, copy the firmware project to a short path such as:
+The PC central splits the 1088-byte ciphertext into 5 application-level
+fragments with the validated MTU:
 
 ```text
-C:\myfw\pq
+ATT MTU              = 247 bytes
+PQ-BLE header        = 4 bytes
+Payload per fragment = 243 bytes
+Fragments            = ceil(1088 / 243) = 5
 ```
 
-Then build and flash from there:
+On Windows/Bleak, the writes may be represented by Wireshark as ATT Prepare
+Write and Execute Write procedures.
 
-```powershell
-cd C:\myfw\pq
-west build -b nrf54l15dk/nrf54l15/cpuapp -p always
-west flash
-```
+### `START` control write
 
-Expected flash result:
+![START control write](docs/images/wireshark_start_write.png)
+
+The payload:
 
 ```text
-Board with serial number ... flashed successfully.
+53 54 41 52 54
 ```
 
-### Step 2 — Manual phone validation
-
-Using nRF Connect Mobile:
-
-1. scan for `PQ-BLE-Device`;
-2. connect to the device;
-3. read the Public Key characteristic;
-4. enable notifications on the Secure Data characteristic;
-5. write `START` to the Control characteristic.
-
-Expected firmware log when `START` is sent before ciphertext:
+is the ASCII encoding of:
 
 ```text
-Received START command
-START received but ciphertext not yet written
+START
 ```
 
-This is expected behavior.
+### Final 57-byte notification
 
-### Step 3 — Run the PC central demo
+![Final 57-byte notification](docs/images/wireshark_start_notification_57_byte.png)
 
-From the project root:
+The notification is sent through the Secure Data value handle `0x0016`.
 
-```bash
-python -m src.central.main --device PQ-BLE-Device --demo --no-sas-confirm --log-level DEBUG
-```
-
-CLI options:
-
-```text
---device NAME        BLE device name (default: PQ-BLE-Device)
---no-sas-confirm     Skip interactive SAS confirmation
---demo               Demo mode: send START and wait for raw firmware notify
---mtu SIZE           Request specific MTU
---log-level LEVEL    DEBUG | INFO | WARNING | ERROR
-```
-
-Expected central behavior:
-
-```text
-Found PQ-BLE-Device
-Connected
-Read public key: 1184 bytes
-Encapsulate: ct=1088 bytes, ss=32 bytes
-Writing ciphertext: 1088 bytes in 5 fragments
-Ciphertext written
-SAS derived
-Session key: 32 bytes
-START sent
-Raw demo notification received: 57 bytes
-BLE/GATT transport validation completed.
-```
-
-### Step 4 — Wireshark capture
-
-Plug in the nRF52840 Dongle.
-
-Open Wireshark and select the `nRF Sniffer for Bluetooth LE` interface.
-
-Useful display filter:
+Useful display filters:
 
 ```text
 btatt
-```
-
-Expected BLE/GATT events:
-
-```text
-ADV_IND                       advertising: "PQ-BLE-Device"
-CONNECT_IND                   PC → DK connection
-ATT Exchange MTU              MTU negotiation
-ATT Read Request              Public Key characteristic
-ATT Read Blob                 public key long read
-ATT Write / Prepare Write     ciphertext transfer
-ATT Write Request             Control: START
-ATT Handle Value Notification raw demo payload
-```
-
-What the sniffer sees:
-
-- public ML-KEM public key;
-- public ML-KEM ciphertext;
-- GATT writes carrying ciphertext fragments;
-- control write carrying `START`;
-- notification from the DK.
-
-What should not be expected in the current firmware:
-
-- BLE SMP pairing;
-- link-layer encryption;
-- on-chip ML-KEM decapsulation;
-- on-chip AES-GCM encryption.
-
----
-
-## Test suite
-
-| File | Active tests | Scope |
-|---|---:|---|
-| `test_ml_kem.py` | 6 | ML-KEM keygen, encapsulation, decapsulation |
-| `test_fragmentation.py` | 14 | GATT fragmentation and reassembly |
-| `test_sas.py` | 12 | SAS Numeric Comparison |
-| `test_session.py` | 22 | HKDF, AES-GCM, AAD, replay protection, msg_type binding |
-| `test_session_store.py` | 23 | Session resumption and persistent store |
-| `test_handshake_mock.py` | 2 | Full pipeline without real BLE |
-| `test_mitm_simulation.py` | 2 | MITM detection via SAS mismatch |
-| `test_firmware_uuids.py` | 3 | Firmware device name, SMP disabled, `bt_gatt_notify()` present |
-| `test_central_transport_mock.py` | 17 | Fragmented read/write with mock GATT |
-| **Total** | **101** | Current proof-of-concept validation |
-
-Note: strict firmware UUID parser tests were disabled because they were tied to an older firmware UUID declaration style. UUID consistency is currently validated through the firmware source, nRF Connect Mobile GATT inspection, and the real PC central ↔ DK hardware demo.
-
----
-
-## Structure
-
-```text
-pq-ble-handshake/
-├── src/
-│   ├── common/           # ML-KEM, fragmentation, SAS, HKDF, AES-GCM, SessionStore
-│   └── central/          # BLE client + handshake (PC central with Bleak)
-├── experimental/
-│   └── peripheral/       # Python BleakServer peripheral (NOT used in real demo)
-├── firmware/
-│   ├── nrf54l15_pq_gatt_skeleton/  # Zephyr firmware for nRF54L15 DK
-│   │   ├── src/main.c
-│   │   ├── CMakeLists.txt
-│   │   ├── prj.conf
-│   │   └── README.md
-├── docs/
-│   ├── hardware-validation-log.txt
-│   ├── test-results.md
-│   ├── testing-guide.md
-│   ├── protocol-spec.md
-│   ├── security-analysis.md
-│   └── design-decisions.md
-├── tests/                # 101 active automated tests currently passing
-├── benchmarks/           # Latency/throughput/fragmentation benchmarks
-├── scripts/              # setup.sh, run_demo.sh, generate_demo_vectors.py
-└── data/keys/            # Session store JSON, auto-generated
-```
-
-Recommended additional evidence directories:
-
-```text
-docs/captures/            # Optional .pcapng Wireshark captures
-docs/images/              # Optional screenshots for report/tesina
-report/                   # Optional LaTeX/PDF tesina
+btatt.handle == 0x0012
+btatt.handle == 0x0014
+btatt.handle == 0x0019
+btatt.handle == 0x0016
+btatt.opcode == 0x1b
 ```
 
 ---
 
-## Protocol
+## Protocol overview
 
-### 1. ML-KEM-768 handshake
+### ML-KEM-768 exchange
 
-The peripheral exposes a public key `pk_A` via GATT. The central reads `pk_A`, runs `encapsulate(pk_A)`, and sends the resulting ciphertext `ct` to the peripheral.
+```text
+Peripheral / DK                         Central / PC
+
+exposes valid pk through GATT READ  --> read pk
+                                        encapsulate(pk) -> ct, ss
+receives ct through GATT WRITE      <-- write ct
+```
+
+In the complete protocol, the peripheral would decapsulate:
+
+```text
+decapsulate(sk, ct) -> ss
+```
+
+This final step is not yet executed on the nRF54L15 DK.
+
+ML-KEM-768 sizes:
 
 | Object | Size |
 |---|---:|
 | Public key | 1184 B |
+| Secret key | 2400 B |
 | Ciphertext | 1088 B |
 | Shared secret | 32 B |
 
-With 247-byte negotiated MTU and 4-byte fragment header, payload per fragment is 243 B.
 
-| Object | Raw size | Transport |
-|---|---:|---|
-| `pk_A` | 1184 B | ATT long read / Read Blob |
-| `ct` | 1088 B | 5 PQ-BLE fragments over GATT writes |
-
-In the current hardware firmware, the DK receives and reassembles the ciphertext but does not yet decapsulate it on-chip.
-
-### 2. SAS Numeric Comparison
+### SAS Numeric Comparison
 
 ```text
-transcript = pk_A || ct || shared_secret
+transcript = public_key || ciphertext || shared_secret
 sas = SHA256(transcript)[0:4] mod 1_000_000
 ```
 
-The 6-digit code must be compared by the user. If it does not match, the handshake is aborted.
+The six-digit value must be compared by the users or endpoints. A mismatch
+aborts the handshake.
 
-### 3. Secure channel — AES-256-GCM with AAD
+### Session-key derivation
 
-Session key is derived via HKDF-SHA256. Payloads are encrypted with AES-256-GCM.
+```text
+session_key = HKDF-SHA256(shared_secret)
+```
+
+### AES-256-GCM secure channel
 
 AAD:
 
@@ -520,61 +354,330 @@ Wire format:
 seq_num (8) || msg_type (1) || iv (12) || ciphertext || tag (16)
 ```
 
-Security properties:
+Authenticated metadata provides:
 
-- replay protection: monotonically increasing sequence number; receiver rejects `seq <= last accepted`;
-- direction separation: each side encrypts with its own role and decrypts expecting the peer role;
-- session binding: `session_id` in AAD prevents cross-session confusion;
-- message-type binding: `msg_type` in AAD prevents data/control substitution.
-
-### 4. Session resumption
-
-After the first handshake, both sides can persist `session_id → session_key`.
-
-On reconnect, the central sends `RESUME(session_id)`. If found, the encrypted channel is restored without repeating ML-KEM and SAS.
-
-In the current DK firmware, full on-device session resumption is future work.
+- replay protection;
+- out-of-order rejection;
+- direction separation;
+- cross-session protection;
+- message-type binding.
 
 ---
 
-## Limitations
+## Session resumption
 
-- ML-KEM-768 is post-quantum, but this protocol is not a Bluetooth SIG standard.
-- SAS requires human interaction and does not scale well for massive IoT deployments.
-- Encryption is application-layer; it does not replace every function of the BLE Security Manager.
-- SMP pairing is intentionally disabled (`CONFIG_BT_SMP=n`): link-layer encryption is absent by design.
-- The DK firmware does not execute ML-KEM decapsulation or AES-GCM encryption on-chip.
-- The current hardware demo validates BLE/GATT transport and raw notification delivery, not full on-chip cryptographic processing.
-- The Python peripheral in `experimental/` uses BleakServer and is not part of the real hardware demo.
-- MTU is negotiated by the BLE backend and cannot be assumed to be 512. In the validated Windows demo, the central used MTU 247.
-- The Wireshark capture validates packet-level ATT/GATT transport, not secure-channel decryption on the DK.
+The Python implementation stores:
+
+```text
+session_id -> session_key
+```
+
+A cached session is valid until the first of these limits is reached:
+
+- **24 hours**;
+- **100 successful resumptions**.
+
+The usage counter is incremented only after a positive `RESUME_OK` response.
+Timeouts and failed resume attempts do not consume the counter.
+
+After the 100th successful resume, the cached entry is removed and the next
+connection requires a full ML-KEM handshake.
+
+The current nRF54L15 firmware does not yet implement on-device session
+resumption, so hardware resume attempts fall back to the full transport demo.
+
+### Forward-secrecy trade-off
+
+Resumption reuses an existing session key and therefore does not provide full
+forward secrecy for resumed sessions. Compromise of the cached key exposes all
+traffic protected with that key until the next full handshake. Time- and
+usage-based re-handshake limits reduce this exposure window.
+
+---
+
+## Automated tests
+
+Run the complete suite:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Expected result:
+
+```text
+101 passed
+```
+
+| Test module | Tests | Scope |
+|---|---:|---|
+| `test_ml_kem.py` | 6 | ML-KEM key generation, encapsulation and decapsulation |
+| `test_fragmentation.py` | 14 | Fragmentation and reassembly |
+| `test_sas.py` | 12 | SAS derivation, comparison and formatting |
+| `test_session.py` | 22 | HKDF, AES-GCM, AAD, replay and tampering |
+| `test_session_store.py` | 23 | Persistence, expiry, usage limit and resumption |
+| `test_handshake_mock.py` | 2 | Complete mocked handshake |
+| `test_mitm_simulation.py` | 2 | SAS-based MITM detection |
+| `test_firmware_uuids.py` | 3 | Firmware name, SMP configuration and notification path |
+| `test_central_transport_mock.py` | 17 | Mocked GATT read/write transport |
+| **Total** | **101** | Active automated suite |
+
+Strict legacy UUID-parser tests remain disabled because they target an older
+firmware declaration format. UUID consistency is additionally verified through
+the source code, nRF Connect Mobile, the hardware log and the Wireshark capture.
+
+---
+
+## Benchmarks
+
+The repository includes reproducible benchmarks for:
+
+- ML-KEM key generation, encapsulation and decapsulation;
+- SAS and HKDF latency;
+- AES-256-GCM CPU throughput;
+- fragmentation and reassembly;
+- MTU 247 versus MTU 512;
+- application-layer wire overhead.
+
+### Windows PowerShell
+
+```powershell
+.\.venv\Scripts\activate
+.\benchmarks\run_all.ps1
+```
+
+### Linux
+
+```bash
+source .venv/bin/activate
+bash benchmarks/run_all.sh
+```
+
+Results are stored in [`benchmarks/results/`](benchmarks/results/):
+
+```text
+environment.txt
+handshake.txt
+handshake_latency.json
+throughput.txt
+throughput.json
+fragmentation.txt
+fragmentation_overhead.json
+latest.txt
+```
+
+Interpretation:
+
+- the handshake benchmark measures **cryptographic CPU latency**, excluding BLE
+  scan, connection and GATT transfer;
+- the throughput benchmark measures **AES-256-GCM CPU throughput**, not BLE
+  radio throughput;
+- the fragmentation benchmark compares the hardware-validated MTU 247 with
+  MTU 512;
+- the secure-channel wire overhead is 37 bytes:
+  `seq(8) + msg_type(1) + IV(12) + tag(16)`.
+
+---
+
+## Report
+
+The complete Italian academic report is available in LaTeX and PDF format:
+
+- [LaTeX source](report/tesina_pq_ble_handshake_finale.tex)
+- [Compiled PDF](report/tesina_pq_ble_handshake_finale.pdf)
+
+The report includes the protocol design, threat model, implementation,
+automated tests, hardware validation, Wireshark evidence, limitations and future
+work.
+
+---
+
+## Quick start
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/AleBonora3/pq-ble-handshake.git
+cd pq-ble-handshake
+
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+
+python -m pytest tests\ -v
+```
+
+Run the hardware central:
+
+```powershell
+python -m src.central.main `
+    --device PQ-BLE-Device `
+    --demo `
+    --no-sas-confirm `
+    --log-level DEBUG
+```
+
+Run all benchmarks:
+
+```powershell
+.\benchmarks\run_all.ps1
+```
+
+### Linux
+
+```bash
+git clone https://github.com/AleBonora3/pq-ble-handshake.git
+cd pq-ble-handshake
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+python -m pytest tests/ -v
+```
+
+---
+
+## nRF54L15 DK firmware
+
+Firmware directory:
+
+```text
+firmware/nrf54l15_pq_gatt_skeleton/
+```
+
+Build and flash:
+
+```bash
+cd firmware/nrf54l15_pq_gatt_skeleton
+west build -b nrf54l15dk/nrf54l15/cpuapp -p always
+west flash
+```
+
+On Windows, a short path is recommended to avoid Zephyr/NCS path-length
+problems:
+
+```powershell
+Copy-Item -Recurse `
+    firmware\nrf54l15_pq_gatt_skeleton `
+    C:\myfw\pq
+
+cd C:\myfw\pq
+west build -b nrf54l15dk/nrf54l15/cpuapp -p always
+west flash
+```
+
+Validated environment:
+
+```text
+Board: nrf54l15dk/nrf54l15/cpuapp
+SDK:   nRF Connect SDK 3.0.0
+```
+
+---
+
+## Repository structure
+
+```text
+pq-ble-handshake/
+├── src/
+│   ├── common/                  # ML-KEM, SAS, HKDF, AES-GCM, sessions
+│   └── central/                 # Bleak central and hardware demo
+├── experimental/
+│   └── peripheral/              # Experimental Python peripheral
+├── firmware/
+│   └── nrf54l15_pq_gatt_skeleton/
+│       ├── src/
+│       │   ├── main.c
+│       │   └── demo_public_key.h
+│       ├── CMakeLists.txt
+│       ├── prj.conf
+│       └── README.md
+├── scripts/
+│   ├── generate_firmware_public_key.py
+│   └── generate_demo_vectors.py
+├── tests/                       # 101 active tests
+├── benchmarks/
+│   ├── results/                 # Measured TXT/JSON artifacts
+│   └── run_all.ps1
+├── docs/
+│   ├── captures/                # Wireshark .pcapng files
+│   ├── images/                  # Wireshark screenshots
+│   ├── hardware-validation-log.txt
+│   ├── protocol-spec.md
+│   ├── security-analysis.md
+│   ├── test-results.md
+│   └── testing-guide.md
+├── report/
+│   ├── tesina_pq_ble_handshake_finale.tex
+│   └── tesina_pq_ble_handshake_finale.pdf
+└── README.md
+```
+
+---
+
+## Security scope and limitations
+
+- The protocol is a research proof of concept, not a Bluetooth SIG standard.
+- BLE SMP is intentionally disabled in the DK firmware:
+  `CONFIG_BT_SMP=n`.
+- The current demo provides application-layer design and transport validation,
+  not BLE link-layer encryption.
+- The nRF54L15 DK does not yet perform ML-KEM decapsulation.
+- The nRF54L15 DK does not yet derive the session key or produce AES-GCM
+  ciphertext.
+- The final DK notification is a raw transport-demo payload.
+- SAS requires human comparison and does not scale to large unattended IoT
+  deployments.
+- Session resumption reduces the frequency of full handshakes but weakens
+  forward secrecy until re-handshake.
+- Side-channel resistance, energy measurements and embedded RNG evaluation are
+  outside the current implementation scope.
 
 ---
 
 ## Roadmap
 
-Completed:
+### Completed
 
-- AAD with `session_id + role + seq_num + msg_type`.
-- Replay protection.
-- Direction separation.
-- Fragmentation integrated in central transport path.
-- BLE central transport mock test.
-- 101 active automated tests passing.
-- nRF54L15 DK firmware build on Windows.
-- nRF54L15 DK flash.
-- nRF Connect Mobile manual validation.
-- PC Windows central ↔ nRF54L15 DK BLE/GATT transport demo.
-- Raw notification hardware-demo mode.
-- nRF52840 Dongle + Wireshark passive capture.
-- Packet-level confirmation of MTU exchange, public key read, ciphertext transfer, `START` and notification.
+- [x] ML-KEM-768 Python implementation through liboqs
+- [x] SAS Numeric Comparison
+- [x] HKDF-SHA256 session-key derivation
+- [x] AES-256-GCM with authenticated metadata
+- [x] replay and out-of-order protection
+- [x] session resumption store
+- [x] 24-hour re-handshake limit
+- [x] 100-successful-resume limit
+- [x] GATT fragmentation and reassembly
+- [x] 101 automated tests
+- [x] nRF54L15 DK Zephyr firmware build
+- [x] firmware flash and phone inspection
+- [x] Windows PC ↔ nRF54L15 DK demo
+- [x] valid offline-generated ML-KEM public key in firmware
+- [x] public-key fingerprint verification over BLE
+- [x] nRF52840/Wireshark passive capture
+- [x] `.pcapng` evidence
+- [x] five Wireshark screenshots
+- [x] reproducible benchmark suite and measured result files
+- [x] LaTeX report and compiled PDF
 
-Planned:
+### Future work
 
-- Add Wireshark screenshots and/or `.pcapng` under `docs/images/` and `docs/captures/`.
-- Add final LaTeX/PDF tesina under `report/`.
-- Port ML-KEM to nRF54L15/Cortex-M33.
-- Replace demo/raw notification with on-chip key derivation and AES-GCM encryption.
-- Persistent session store on the DK.
-- ML-DSA (NIST FIPS 204) for non-interactive authentication.
-- Hybrid ECDH + ML-KEM handshake.
+- [ ] ML-KEM decapsulation on the nRF54L15 DK
+- [ ] HKDF and AES-256-GCM on-chip
+- [ ] persistent session store in DK flash
+- [ ] end-to-end encrypted DK notification
+- [ ] ML-DSA-based non-interactive authentication
+- [ ] hybrid ECDH + ML-KEM handshake
+- [ ] embedded latency, RAM, flash and energy benchmarks
+- [ ] side-channel evaluation
+- [ ] formal verification with ProVerif or Tamarin
+
+---
+
+## Author
+
+**Alessio Bonora**
+
+Project developed for the *Network Security* course, M.Sc. in Computer
+Security, A.Y. 2025/2026.
