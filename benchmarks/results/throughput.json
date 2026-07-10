@@ -1,0 +1,118 @@
+{
+  "generated_at_utc": "2026-07-10T15:35:06.303971+00:00",
+  "cipher": "AES-256-GCM",
+  "aad": "session_id || sender_role || seq_num || msg_type",
+  "wire_format": "seq_num(8) || msg_type(1) || iv(12) || ciphertext || tag(16)",
+  "wire_overhead_bytes": 37,
+  "measurement_scope": "CPU SecureChannel throughput; BLE excluded",
+  "results": [
+    {
+      "payload_size_bytes": 64,
+      "wire_size_bytes": 101,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 57.8125,
+      "iterations_per_trial": 5000,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 44491.410211173396,
+        "median": 42032.06542206919,
+        "stddev": 5028.235051851602
+      },
+      "decrypt_kbps": {
+        "mean": 40616.24592138994,
+        "median": 40729.87943955686,
+        "stddev": 1984.716994737025
+      }
+    },
+    {
+      "payload_size_bytes": 256,
+      "wire_size_bytes": 293,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 14.453125,
+      "iterations_per_trial": 3000,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 162761.33030631678,
+        "median": 188002.90777830695,
+        "stddev": 41702.09028938856
+      },
+      "decrypt_kbps": {
+        "mean": 139633.88360124358,
+        "median": 156530.45039028258,
+        "stddev": 27543.71722596526
+      }
+    },
+    {
+      "payload_size_bytes": 512,
+      "wire_size_bytes": 549,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 7.2265625,
+      "iterations_per_trial": 2000,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 354791.66475252097,
+        "median": 355467.0837480449,
+        "stddev": 6389.694952693369
+      },
+      "decrypt_kbps": {
+        "mean": 281455.30358500744,
+        "median": 304775.8373716132,
+        "stddev": 44243.74921067664
+      }
+    },
+    {
+      "payload_size_bytes": 1024,
+      "wire_size_bytes": 1061,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 3.61328125,
+      "iterations_per_trial": 1000,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 628395.6606197384,
+        "median": 650279.6202367018,
+        "stddev": 61481.223943524325
+      },
+      "decrypt_kbps": {
+        "mean": 562429.3688589985,
+        "median": 555987.9906594018,
+        "stddev": 25106.45866982304
+      }
+    },
+    {
+      "payload_size_bytes": 4096,
+      "wire_size_bytes": 4133,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 0.9033203125,
+      "iterations_per_trial": 500,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 1833930.3012455339,
+        "median": 1936670.8627868695,
+        "stddev": 241154.8986808177
+      },
+      "decrypt_kbps": {
+        "mean": 1465357.3684212642,
+        "median": 1585665.5831285182,
+        "stddev": 191612.31067300658
+      }
+    },
+    {
+      "payload_size_bytes": 16384,
+      "wire_size_bytes": 16421,
+      "wire_overhead_bytes": 37,
+      "wire_overhead_percent": 0.225830078125,
+      "iterations_per_trial": 200,
+      "trials": 5,
+      "encrypt_kbps": {
+        "mean": 3509020.5286309305,
+        "median": 3541389.9955732627,
+        "stddev": 84090.41969597725
+      },
+      "decrypt_kbps": {
+        "mean": 2731483.5622625607,
+        "median": 2799895.003937352,
+        "stddev": 161726.04349505206
+      }
+    }
+  ]
+}
