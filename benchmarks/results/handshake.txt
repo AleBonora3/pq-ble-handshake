@@ -1,0 +1,27 @@
+liboqs-python faulthandler is disabled
+PQ-BLE-HANDSHAKE ÔÇö Cryptographic Handshake Benchmark
+Scope: crypto only; BLE scan/connect/GATT are excluded.
+Warm-up: 20; measured iterations: 1000
+    1/1000: total=296.40 us
+  100/1000: total=273.70 us
+  200/1000: total=232.20 us
+  300/1000: total=238.00 us
+  400/1000: total=239.80 us
+  500/1000: total=241.20 us
+  600/1000: total=246.50 us
+  700/1000: total=252.80 us
+  800/1000: total=244.20 us
+  900/1000: total=433.60 us
+ 1000/1000: total=401.30 us
+
+========================================================================
+keygen             mean=   104.93 us median=    91.70 us p99=   275.40 us
+encaps             mean=   108.54 us median=    93.45 us p99=   324.10 us
+decaps             mean=    50.77 us median=    43.50 us p99=   156.80 us
+sas_derivation     mean=     5.62 us median=     4.20 us p99=    21.70 us
+hkdf_derivation    mean=     9.67 us median=     7.00 us p99=    36.50 us
+------------------------------------------------------------------------
+TOTAL              mean=   0.2795 ms median=   0.2422 ms p99=   0.6808 ms
+Derived throughput: 3577.3 crypto handshakes/s
+========================================================================
+JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\handshake_latency.json

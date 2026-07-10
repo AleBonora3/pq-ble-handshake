@@ -1,33 +1,53 @@
-# Benchmarks Results
+# Benchmark results
 
-Placeholder directory per gli output reali dei benchmark.
+Questa directory contiene risultati misurati sulla macchina descritta in
+`environment.txt`.
 
-## Come generare
+## Esecuzione Windows PowerShell
 
-Nella VM Ubuntu:
+Dalla root della repository, con il virtual environment attivo:
 
-```bash
-cd pq-ble-handshake
-source venv/bin/activate
-
-# Benchmark handshake crittografico (100 iterazioni)
-PYTHONPATH=. python benchmarks/benchmark_handshake.py | tee benchmarks/results/handshake.txt
-
-# Benchmark throughput AES-GCM
-PYTHONPATH=. python benchmarks/benchmark_throughput.py | tee benchmarks/results/throughput.txt
-
-# Benchmark frammentazione
-PYTHONPATH=. python benchmarks/benchmark_fragmentation.py | tee benchmarks/results/fragmentation.txt
-
-# Tutti insieme
-bash benchmarks/run_all.sh | tee benchmarks/results/latest.txt
+```powershell
+.\benchmarks\run_all.ps1
 ```
 
-## Output attesi
+La configurazione predefinita usa:
+
+- 1000 handshake crittografici misurati;
+- 20 iterazioni di warm-up;
+- 5 trial per dimensione nel benchmark AES-GCM;
+- 10000 iterazioni per la frammentazione/riassemblaggio CPU.
+
+Controllo rapido:
+
+```powershell
+.\benchmarks\run_all.ps1 `
+    -HandshakeIterations 100 `
+    -HandshakeWarmup 10 `
+    -ThroughputTrials 2 `
+    -FragmentationIterations 1000
+```
+
+## File generati
 
 | File | Contenuto |
 |---|---|
-| `handshake.txt` | Latenza keygen, encaps, decaps, SAS, HKDF in µs (100 iterazioni) |
-| `throughput.txt` | Throughput AES-256-GCM a varie dimensioni payload |
-| `fragmentation.txt` | Overhead frammentazione per diverse dimensioni dati |
-| `latest.txt` | Output completo di `run_all.sh` |
+| `environment.txt` | Commit Git, Python, OS, CPU, RAM e dipendenze |
+| `handshake.txt` | Output ML-KEM/SAS/HKDF |
+| `handshake_latency.json` | Statistiche strutturate della latenza |
+| `throughput.txt` | Output throughput CPU AES-256-GCM |
+| `throughput.json` | Risultati strutturati per payload |
+| `fragmentation.txt` | MTU 247 e 512, overhead e tempi CPU |
+| `fragmentation_overhead.json` | Risultati strutturati |
+| `latest.txt` | Ambiente e output aggregato |
+
+## Interpretazione
+
+Il benchmark handshake esclude scan BLE, connessione e trasferimenti GATT.
+
+Il benchmark throughput misura il `SecureChannel` AES-256-GCM sulla CPU del
+PC, non il throughput radio BLE.
+
+Il benchmark di frammentazione confronta l'MTU 247 osservato nella demo reale
+con l'MTU 512 di confronto. Nel demo hardware la public key usa ATT Long
+Read/Read Blob; la relativa riga di frammentazione applicativa è teorica.

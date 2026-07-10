@@ -1,0 +1,28 @@
+PQ-BLE-HANDSHAKE ÔÇö Fragmentation Benchmark
+MTU 247: validated hardware value; MTU 512: comparison.
+CPU timings exclude BLE transfer latency.
+The public key uses ATT Long Read/Read Blob in the hardware demo; its app-fragmentation row is theoretical.
+
+====================================================================================================
+MTU 247 ÔÇö application payload 243 bytes
+====================================================================================================
+Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
+---------------------------------------------------------------------------------------------------------
+ML-KEM-768 ciphertext (actual application write)          1088    1108     5    1.84%      3.28      4.18
+ML-KEM-768 public key (theoretical app fragmentation)     1184    1204     5    1.69%      3.33      4.20
+ML-KEM-768 shared secret                                    32      36     1   12.50%      0.83      1.46
+ECDH-P256 public key comparison                             64      68     1    6.25%      0.73      1.32
+ML-DSA signature comparison                               2420    2460    10    1.65%      5.79      6.92
+
+====================================================================================================
+MTU 512 ÔÇö application payload 508 bytes
+====================================================================================================
+Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
+---------------------------------------------------------------------------------------------------------
+ML-KEM-768 ciphertext (actual application write)          1088    1100     3    1.10%      2.19      2.85
+ML-KEM-768 public key (theoretical app fragmentation)     1184    1196     3    1.01%      2.46      3.15
+ML-KEM-768 shared secret                                    32      36     1   12.50%      0.89      1.56
+ECDH-P256 public key comparison                             64      68     1    6.25%      0.95      1.54
+ML-DSA signature comparison                               2420    2440     5    0.83%      3.96      4.75
+
+JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\fragmentation_overhead.json

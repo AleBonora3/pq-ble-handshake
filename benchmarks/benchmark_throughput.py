@@ -1,127 +1,146 @@
 #!/usr/bin/env python3
-"""
-Benchmark: Throughput of AES-256-GCM encrypted channel.
+"""Benchmark CPU del SecureChannel AES-256-GCM; non misura il link BLE."""
 
-Measures KB/s for different payload sizes, with and without encryption.
-Compares plaintext throughput vs AES-256-GCM overhead.
-"""
+from __future__ import annotations
 
+import argparse
 import json
-import os
+import statistics
 import time
-from dataclasses import dataclass
-from typing import List
+from datetime import datetime, timezone
+from pathlib import Path
 
-from src.common.session import derive_session_key, SecureChannel
+from src.common.constants import CENTRAL_ROLE, PERIPHERAL_ROLE
+from src.common.session import SecureChannel, derive_session_key, generate_session_id
 
-
-@dataclass
-class ThroughputResult:
-    payload_size: int
-    iterations: int
-    encrypt_total_s: float
-    decrypt_total_s: float
-    total_bytes: int
-
-    @property
-    def encrypt_kbps(self) -> float:
-        return (self.total_bytes / 1024) / self.encrypt_total_s if self.encrypt_total_s > 0 else 0
-
-    @property
-    def decrypt_kbps(self) -> float:
-        return (self.total_bytes / 1024) / self.decrypt_total_s if self.decrypt_total_s > 0 else 0
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+WIRE_OVERHEAD_BYTES = 8 + 1 + 12 + 16  # seq + msg_type + IV + GCM tag
 
 
-def benchmark_throughput() -> List[ThroughputResult]:
-    """Test throughput at various payload sizes."""
-    session_key = derive_session_key(b"benchmark_throughput_32bytes!")
-    channel = SecureChannel(session_key)
+def kbps(total_plaintext_bytes: int, elapsed_seconds: float) -> float:
+    return (total_plaintext_bytes / 1024) / elapsed_seconds
 
-    payload_sizes = [64, 256, 512, 1024, 4096, 16384]
-    iterations_per_size = {
-        64: 1000,
-        256: 500,
-        512: 200,
-        1024: 100,
-        4096: 50,
-        16384: 20,
+
+def one_trial(payload: bytes, iterations: int) -> tuple[float, float]:
+    key = derive_session_key(b"PQ-BLE throughput benchmark shared secret")
+    session_id = generate_session_id()
+
+    sender = SecureChannel(key, session_id=session_id, role=CENTRAL_ROLE)
+    start = time.perf_counter_ns()
+    for _ in range(iterations):
+        sender.encrypt(payload)
+    encrypt_seconds = (time.perf_counter_ns() - start) / 1_000_000_000
+
+    sender = SecureChannel(key, session_id=session_id, role=CENTRAL_ROLE)
+    receiver = SecureChannel(key, session_id=session_id, role=PERIPHERAL_ROLE)
+    ciphertexts = [sender.encrypt(payload) for _ in range(iterations)]
+
+    start = time.perf_counter_ns()
+    for ciphertext in ciphertexts:
+        if receiver.decrypt(ciphertext) != payload:
+            raise RuntimeError("AES-GCM decrypt mismatch")
+    decrypt_seconds = (time.perf_counter_ns() - start) / 1_000_000_000
+
+    total_bytes = len(payload) * iterations
+    return (
+        kbps(total_bytes, encrypt_seconds),
+        kbps(total_bytes, decrypt_seconds),
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trials", type=int, default=5)
+    args = parser.parse_args()
+    if args.trials <= 0:
+        raise ValueError("trials must be > 0")
+
+    sizes = [64, 256, 512, 1024, 4096, 16384]
+    iterations_map = {
+        64: 5000,
+        256: 3000,
+        512: 2000,
+        1024: 1000,
+        4096: 500,
+        16384: 200,
     }
 
-    results = []
+    print("PQ-BLE-HANDSHAKE — AES-256-GCM CPU Throughput")
+    print("Scope: SecureChannel CPU only; BLE radio/GATT excluded.")
+    print(f"Trials per payload: {args.trials}")
+    print(f"Wire overhead: {WIRE_OVERHEAD_BYTES} bytes/message")
+    print()
+    print(
+        f"{'Payload':>9} {'Iters':>8} "
+        f"{'Enc mean':>12} {'Dec mean':>12} {'Overhead':>10}"
+    )
+    print("-" * 60)
 
-    print(f"{'Size':>6}  {'Iters':>6}  {'Enc KB/s':>10}  {'Dec KB/s':>10}")
-    print("-" * 42)
+    rows = []
+    for size in sizes:
+        payload = b"x" * size
+        iterations = iterations_map[size]
 
-    for size in payload_sizes:
-        n = iterations_per_size[size]
-        plaintext = b"x" * size
-        total_bytes = size * n
+        # Warm-up excluded from measurements.
+        one_trial(payload, min(100, iterations))
 
-        # Encrypt benchmark
-        t0 = time.perf_counter()
-        for _ in range(n):
-            channel.encrypt(plaintext)
-        encrypt_time = time.perf_counter() - t0
+        encrypt_values = []
+        decrypt_values = []
+        for _ in range(args.trials):
+            enc, dec = one_trial(payload, iterations)
+            encrypt_values.append(enc)
+            decrypt_values.append(dec)
 
-        # Decrypt benchmark — pre-generate ciphertexts
-        ciphertexts = [channel.encrypt(plaintext) for _ in range(n)]
+        overhead_percent = WIRE_OVERHEAD_BYTES / size * 100
+        row = {
+            "payload_size_bytes": size,
+            "wire_size_bytes": size + WIRE_OVERHEAD_BYTES,
+            "wire_overhead_bytes": WIRE_OVERHEAD_BYTES,
+            "wire_overhead_percent": overhead_percent,
+            "iterations_per_trial": iterations,
+            "trials": args.trials,
+            "encrypt_kbps": {
+                "mean": statistics.mean(encrypt_values),
+                "median": statistics.median(encrypt_values),
+                "stddev": statistics.stdev(encrypt_values)
+                if len(encrypt_values) > 1
+                else 0.0,
+            },
+            "decrypt_kbps": {
+                "mean": statistics.mean(decrypt_values),
+                "median": statistics.median(decrypt_values),
+                "stddev": statistics.stdev(decrypt_values)
+                if len(decrypt_values) > 1
+                else 0.0,
+            },
+        }
+        rows.append(row)
 
-        t0 = time.perf_counter()
-        for ct in ciphertexts:
-            channel.decrypt(ct)
-        decrypt_time = time.perf_counter() - t0
-
-        result = ThroughputResult(
-            payload_size=size,
-            iterations=n,
-            encrypt_total_s=encrypt_time,
-            decrypt_total_s=decrypt_time,
-            total_bytes=total_bytes,
+        print(
+            f"{size:>7} B {iterations:>8} "
+            f"{row['encrypt_kbps']['mean']:>10.0f} KB/s "
+            f"{row['decrypt_kbps']['mean']:>10.0f} KB/s "
+            f"{overhead_percent:>8.1f}%"
         )
-        results.append(result)
 
-        print(f"{size:>6}  {n:>6}  {result.encrypt_kbps:>8.0f}   {result.decrypt_kbps:>8.0f}")
-
-    return results
-
-
-def main():
-    results = benchmark_throughput()
-
-    # Summary
-    print("\n" + "═" * 50)
-    print("  THROUGHPUT SUMMARY")
-    print("═" * 50)
-
-    output = {
-        "session_key_algorithm": "HKDF-SHA256",
+    result = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "cipher": "AES-256-GCM",
-        "results": []
+        "aad": "session_id || sender_role || seq_num || msg_type",
+        "wire_format": (
+            "seq_num(8) || msg_type(1) || iv(12) || ciphertext || tag(16)"
+        ),
+        "wire_overhead_bytes": WIRE_OVERHEAD_BYTES,
+        "measurement_scope": "CPU SecureChannel throughput; BLE excluded",
+        "results": rows,
     }
 
-    for r in results:
-        output["results"].append({
-            "payload_size": r.payload_size,
-            "iterations": r.iterations,
-            "encrypt_kbps": round(r.encrypt_kbps, 1),
-            "decrypt_kbps": round(r.decrypt_kbps, 1),
-            "overhead_percent": round(
-                ((r.payload_size + 28) / r.payload_size - 1) * 100, 1
-            ),  # 12 IV + 16 tag = 28 bytes overhead
-        })
-        print(f"  {r.payload_size:>6}B payload:  "
-              f"encrypt {r.encrypt_kbps:>8.0f} KB/s  "
-              f"decrypt {r.decrypt_kbps:>8.0f} KB/s")
-
-    output_dir = os.path.join(os.path.dirname(__file__), "results")
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "throughput.json")
-
-    with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)
-
-    print(f"\nResults saved to: {output_path}")
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output = RESULTS_DIR / "throughput.json"
+    output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print(f"\nJSON saved to: {output}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

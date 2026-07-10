@@ -1,0 +1,15 @@
+PQ-BLE-HANDSHAKE ÔÇö AES-256-GCM CPU Throughput
+Scope: SecureChannel CPU only; BLE radio/GATT excluded.
+Trials per payload: 5
+Wire overhead: 37 bytes/message
+
+  Payload    Iters     Enc mean     Dec mean   Overhead
+------------------------------------------------------------
+     64 B     5000      44491 KB/s      40616 KB/s     57.8%
+    256 B     3000     162761 KB/s     139634 KB/s     14.5%
+    512 B     2000     354792 KB/s     281455 KB/s      7.2%
+   1024 B     1000     628396 KB/s     562429 KB/s      3.6%
+   4096 B      500    1833930 KB/s    1465357 KB/s      0.9%
+  16384 B      200    3509021 KB/s    2731484 KB/s      0.2%
+
+JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\throughput.json
