@@ -20,6 +20,7 @@ Flow:
 
 import asyncio
 import logging
+import hashlib
 from typing import Optional
 
 from ..common.ml_kem import encapsulate
@@ -183,12 +184,15 @@ class CentralHandshake:
         logger.info("=== PHASE 1: Reading public key ===")
         public_key = await self._client.read_fragmented_public_key()
 
+        pk_fingerprint = hashlib.sha256(public_key).hexdigest()
+        logger.info("Public key SHA-256: %s", pk_fingerprint)
+
         if len(public_key) != PK_SIZE:
             raise RuntimeError(
                 f"Public key size mismatch: expected {PK_SIZE}, "
                 f"got {len(public_key)}"
             )
-        logger.info("Public key: %d bytes ✓", len(public_key))
+        logger.info("Public key: %d bytes [OK]", len(public_key))
 
         # ── Step 2: ML-KEM encapsulate ───────────────────────
         logger.info("=== PHASE 2: ML-KEM-768 encapsulate ===")
@@ -199,13 +203,13 @@ class CentralHandshake:
                 f"Shared secret size mismatch: expected {SS_SIZE}, "
                 f"got {len(shared_secret)}"
             )
-        logger.info("Encapsulate: ct=%d bytes, ss=%d bytes ✓",
+        logger.info("Encapsulate: ct=%d bytes, ss=%d bytes [OK]",
                      len(ciphertext), len(shared_secret))
 
         # ── Step 3: Write ciphertext ─────────────────────────
         logger.info("=== PHASE 3: Writing ciphertext ===")
         await self._client.write_fragmented_ciphertext(ciphertext)
-        logger.info("Ciphertext written ✓")
+        logger.info("Ciphertext written [OK]")
 
         # ── Step 4: SAS derivation & user confirmation ───────
         logger.info("=== PHASE 4: SAS Numeric Comparison ===")
@@ -220,7 +224,7 @@ class CentralHandshake:
         # ── Step 5: Session key derivation ───────────────────
         logger.info("=== PHASE 5: Session key derivation ===")
         session_key = derive_session_key(shared_secret)
-        logger.info("Session key: %d bytes ✓", len(session_key))
+        logger.info("Session key: %d bytes [OK]", len(session_key))
 
         self._shared_secret = shared_secret
         self._session_key = session_key

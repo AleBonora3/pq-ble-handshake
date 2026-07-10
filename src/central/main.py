@@ -115,7 +115,13 @@ async def main():
         if session_id:
             logger.info("Session ID: %s...", session_id.hex()[:16])
 
-        logger.info("[OK] Handshake completato. Canale sicuro stabilito.")
+        if args.demo:
+            logger.info(
+                "[OK] Central-side ML-KEM encapsulation and session-key "
+                "derivation completed. BLE/GATT transport demo ready."
+            )
+        else:
+            logger.info("[OK] Handshake completato. Canale sicuro stabilito.")
 
         # ── Secure channel ──────────────────────────────────
         channel = CentralSecureChannel(session_key, client,

@@ -140,7 +140,7 @@ class BLECentralClient:
             logger.debug("  Fragment %d/%d sent (%d bytes)",
                          i + 1, len(fragments), len(frag))
 
-        logger.info("Ciphertext written ✓ (%d fragments)", len(fragments))
+        logger.info("Ciphertext written [OK] (%d fragments)", len(fragments))
 
     # Backward-compatible alias
     async def write_ciphertext(self, data: bytes) -> None:

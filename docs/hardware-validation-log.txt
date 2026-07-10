@@ -1,63 +1,67 @@
-﻿liboqs-python faulthandler is disabled
-18:18:12 [INFO   ] pq-ble.central.main: ==================================================
-18:18:12 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
-18:18:12 [INFO   ] pq-ble.central.main: ==================================================
-18:18:12 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: True | MTU: auto
-18:18:12 [INFO   ] pq-ble.central.main: Session store: 3 cached session(s).
-18:18:12 [INFO   ] pq-ble.central.main:   Cached session 63090924... (0.2 h old)
-18:18:12 [INFO   ] pq-ble.central.main:   Cached session c74b5e23... (0.2 h old)
-18:18:12 [INFO   ] pq-ble.central.main:   Cached session f12c201f... (0.1 h old)
-18:18:12 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
-18:18:12 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
-18:18:13 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
-18:18:13 [INFO   ] pq-ble.central.client: Connected. MTU: 23
-18:18:13 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
-18:18:13 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=63090924..., created=1783526656, used=2)
-18:18:14 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
-18:18:17 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
-18:18:17 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=c74b5e23..., created=1783526740, used=1)
-18:18:17 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
-18:18:21 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
-18:18:21 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=f12c201f..., created=1783527010, used=0)
-18:18:21 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
-18:18:24 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
-18:18:24 [INFO   ] pq-ble.central.handshake: Resume failed or no cached sessions; falling back to full handshake.
-18:18:24 [INFO   ] pq-ble.central.handshake: === PHASE 1: Reading public key ===
-18:18:25 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
-18:18:25 [INFO   ] pq-ble.central.handshake: Public key: 1184 bytes ✓
-18:18:25 [INFO   ] pq-ble.central.handshake: === PHASE 2: ML-KEM-768 encapsulate ===
-18:18:25 [INFO   ] pq-ble.central.handshake: Encapsulate: ct=1088 bytes, ss=32 bytes ✓
-18:18:25 [INFO   ] pq-ble.central.handshake: === PHASE 3: Writing ciphertext ===
-18:18:25 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (MTU=247, payload=243)
-18:18:25 [DEBUG  ] pq-ble.central.client:   Fragment 1/5 sent (247 bytes)
-18:18:25 [DEBUG  ] pq-ble.central.client:   Fragment 2/5 sent (247 bytes)
-18:18:26 [DEBUG  ] pq-ble.central.client:   Fragment 3/5 sent (247 bytes)
-18:18:26 [DEBUG  ] pq-ble.central.client:   Fragment 4/5 sent (247 bytes)
-18:18:26 [DEBUG  ] pq-ble.central.client:   Fragment 5/5 sent (120 bytes)
-18:18:26 [INFO   ] pq-ble.central.client: Ciphertext written ✓ (5 fragments)
-18:18:26 [INFO   ] pq-ble.central.handshake: Ciphertext written ✓
-18:18:26 [INFO   ] pq-ble.central.handshake: === PHASE 4: SAS Numeric Comparison ===
-18:18:26 [INFO   ] pq-ble.central.handshake: SAS derived.
-18:18:26 [INFO   ] pq-ble.central.main: SAS: 259374 (auto-accepted via --no-sas-confirm)
-18:18:26 [INFO   ] pq-ble.central.handshake: === PHASE 5: Session key derivation ===
-18:18:26 [INFO   ] pq-ble.central.handshake: Session key: 32 bytes ✓
-18:18:26 [INFO   ] pq-ble.central.handshake: Session saved (id=6436a519...) for future resumption.
-18:18:26 [INFO   ] pq-ble.central.main: Session ID: 6436a519eb7f192f...
-18:18:26 [INFO   ] pq-ble.central.main: [OK] Handshake completato. Canale sicuro stabilito.
-18:18:26 [INFO   ] pq-ble.central.main: === DEMO MODE: Sending START on Control ===
-18:18:26 [INFO   ] pq-ble.central.main: Hardware demo mode: notifications are received as raw bytes. The current nRF54L15 DK firmware validates BLE/GATT transport but does not perform on-chip ML-KEM/AES-GCM yet.
-18:18:26 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
-18:18:26 [INFO   ] pq-ble.central.secure_channel: Raw notification received from 12345678-1234-1234-1234-123456789abf (Handle: 21): Unknown: 57 bytes
-18:18:26 [DEBUG  ] pq-ble.central.secure_channel: Raw notification hex: 000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-18:18:26 [INFO   ] pq-ble.central.main: START sent. Waiting for raw demo notification...
-18:18:26 [INFO   ] pq-ble.central.main: [OK] Raw demo notification received: 57 bytes
-18:18:26 [DEBUG  ] pq-ble.central.main: Raw demo notification hex: 000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+liboqs-python faulthandler is disabled
+15:17:41 [INFO   ] pq-ble.central.main: ==================================================
+15:17:41 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE ÔÇö Central (Client)
+15:17:41 [INFO   ] pq-ble.central.main: ==================================================
+15:17:41 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: True | MTU: auto
+15:17:41 [INFO   ] pq-ble.central.main: Session store: 4 cached session(s).
+15:17:41 [INFO   ] pq-ble.central.main:   Cached session ebe8f4b2... (0.2 h old)
+15:17:41 [INFO   ] pq-ble.central.main:   Cached session 07ccbb68... (0.2 h old)
+15:17:41 [INFO   ] pq-ble.central.main:   Cached session ce891c18... (0.1 h old)
+15:17:41 [INFO   ] pq-ble.central.main:   Cached session 5dc7f19a... (0.1 h old)
+15:17:41 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+15:17:41 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+15:17:42 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+15:17:43 [INFO   ] pq-ble.central.client: Connected. MTU: 23
+15:17:43 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found ÔÇö it may appear after connection.
+15:17:43 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=ebe8f4b2..., created=1783688578, used=3)
+15:17:44 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+15:17:47 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
+15:17:47 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=07ccbb68..., created=1783688747, used=2)
+15:17:48 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+15:17:51 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
+15:17:51 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=ce891c18..., created=1783689046, used=1)
+15:17:51 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+15:17:54 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
+15:17:54 [INFO   ] pq-ble.central.handshake: Attempting session resume (id=5dc7f19a..., created=1783689195, used=0)
+15:17:54 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+15:17:58 [INFO   ] pq-ble.central.handshake: No resume response (timeout or unknown: None)
+15:17:58 [INFO   ] pq-ble.central.handshake: Resume failed or no cached sessions; falling back to full handshake.
+15:17:58 [INFO   ] pq-ble.central.handshake: === PHASE 1: Reading public key ===
+15:17:58 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+15:17:58 [INFO   ] pq-ble.central.handshake: Public key SHA-256: 660da9e73485e45ac35a3a6cd4d65fe39efe161bb01444893733c102566ee912
+15:17:58 [INFO   ] pq-ble.central.handshake: Public key: 1184 bytes [OK]
+15:17:58 [INFO   ] pq-ble.central.handshake: === PHASE 2: ML-KEM-768 encapsulate ===
+15:17:58 [INFO   ] pq-ble.central.handshake: Encapsulate: ct=1088 bytes, ss=32 bytes [OK]
+15:17:58 [INFO   ] pq-ble.central.handshake: === PHASE 3: Writing ciphertext ===
+15:17:58 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (MTU=247, payload=243)
+15:17:58 [DEBUG  ] pq-ble.central.client:   Fragment 1/5 sent (247 bytes)
+15:17:59 [DEBUG  ] pq-ble.central.client:   Fragment 2/5 sent (247 bytes)
+15:17:59 [DEBUG  ] pq-ble.central.client:   Fragment 3/5 sent (247 bytes)
+15:17:59 [DEBUG  ] pq-ble.central.client:   Fragment 4/5 sent (247 bytes)
+15:17:59 [DEBUG  ] pq-ble.central.client:   Fragment 5/5 sent (120 bytes)
+15:17:59 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+15:17:59 [INFO   ] pq-ble.central.handshake: Ciphertext written [OK]
+15:17:59 [INFO   ] pq-ble.central.handshake: === PHASE 4: SAS Numeric Comparison ===
+15:17:59 [INFO   ] pq-ble.central.handshake: SAS derived.
+15:17:59 [INFO   ] pq-ble.central.main: SAS: 239467 (auto-accepted via --no-sas-confirm)
+15:17:59 [INFO   ] pq-ble.central.handshake: === PHASE 5: Session key derivation ===
+15:17:59 [INFO   ] pq-ble.central.handshake: Session key: 32 bytes [OK]
+15:17:59 [INFO   ] pq-ble.central.handshake: Session saved (id=4f1ac48a...) for future resumption.
+15:17:59 [INFO   ] pq-ble.central.main: Session ID: 4f1ac48a84842cc3...
+15:17:59 [INFO   ] pq-ble.central.main: [OK] Central-side ML-KEM encapsulation and session-key derivation completed. BLE/GATT transport demo ready.
+15:17:59 [INFO   ] pq-ble.central.main: === DEMO MODE: Sending START on Control ===
+15:17:59 [INFO   ] pq-ble.central.main: Hardware demo mode: notifications are received as raw bytes. The current nRF54L15 DK firmware validates BLE/GATT transport but does not perform on-chip ML-KEM/AES-GCM yet.
+15:18:00 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+15:18:00 [INFO   ] pq-ble.central.secure_channel: Raw notification received from 12345678-1234-1234-1234-123456789abf (Handle: 21): Unknown: 57 bytes
+15:18:00 [DEBUG  ] pq-ble.central.secure_channel: Raw notification hex: 000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+15:18:00 [INFO   ] pq-ble.central.main: START sent. Waiting for raw demo notification...
+15:18:00 [INFO   ] pq-ble.central.main: [OK] Raw demo notification received: 57 bytes
+15:18:00 [DEBUG  ] pq-ble.central.main: Raw demo notification hex: 000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 Raw demo notification received
    Length: 57 bytes
    HEX: 000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 [OK] BLE/GATT transport validation completed.
-18:18:26 [WARNING] pq-ble.central.client: Unexpected disconnect from C0:48:FF:F5:9D:B8
-18:18:27 [INFO   ] pq-ble.central.client: Disconnected.
-
+15:18:00 [WARNING] pq-ble.central.client: Unexpected disconnect from C0:48:FF:F5:9D:B8
+15:18:00 [INFO   ] pq-ble.central.client: Disconnected.
