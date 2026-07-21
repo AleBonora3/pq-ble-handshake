@@ -34,6 +34,7 @@ The protocol combines:
 | nRF52840 Dongle + Wireshark passive capture | ✅ Completed |
 | Wireshark screenshots and `.pcapng` evidence | ✅ Included |
 | Reproducible benchmark suite | ✅ Completed |
+| Protocol-overhead validation | ✅ Implemented and tested |
 | LaTeX report and compiled PDF | ✅ Included |
 | ML-KEM decapsulation on nRF54L15 DK | ⏳ Future work |
 | HKDF and AES-256-GCM on nRF54L15 DK | ⏳ Future work |
@@ -42,7 +43,7 @@ The protocol combines:
 Current active automated test suite:
 
 ```text
-101 passed
+109 passed
 ```
 
 ---
@@ -56,6 +57,7 @@ The project is validated at three distinct levels.
 The Python implementation covers:
 
 - ML-KEM-768 key generation, encapsulation and decapsulation;
+- FIPS 203 size checks for public key, secret key, ciphertext and shared secret;
 - SAS derivation and comparison;
 - HKDF-SHA256 session-key derivation;
 - AES-256-GCM encryption and decryption;
@@ -65,6 +67,7 @@ The Python implementation covers:
 - message-type binding;
 - replay and out-of-order rejection;
 - fragmentation and reassembly;
+- fixed SecureChannel overhead and full-handshake application-size checks;
 - session persistence, expiry and bounded resumption;
 - MITM simulations;
 - mocked GATT transport.
@@ -81,12 +84,12 @@ The PC central successfully:
 
 1. discovers `PQ-BLE-Device`;
 2. connects to the nRF54L15 DK;
-3. uses an ATT MTU of 247;
+3. negotiates an ATT MTU of 247;
 4. reads the 1184-byte ML-KEM public key;
 5. verifies the public-key SHA-256 fingerprint;
 6. performs ML-KEM encapsulation on the PC;
 7. generates a 1088-byte ciphertext;
-8. writes the ciphertext in 5 PQ-BLE fragments;
+8. writes the ciphertext in 5 logical PQ-BLE fragments;
 9. derives the SAS and session key on the PC side;
 10. sends the `START` control command;
 11. receives a 57-byte raw notification from the DK.
@@ -246,18 +249,21 @@ operations at offsets:
 
 ![ML-KEM ciphertext transfer](docs/images/wireshark_ciphertext_write.png)
 
-The PC central splits the 1088-byte ciphertext into 5 application-level
-fragments with the validated MTU:
+The application fragmentation layer uses a validated logical fragment size of
+247 bytes. Each logical fragment includes a 4-byte PQ-BLE header, leaving
+243 bytes for ciphertext data:
 
 ```text
-ATT MTU              = 247 bytes
-PQ-BLE header        = 4 bytes
-Payload per fragment = 243 bytes
-Fragments            = ceil(1088 / 243) = 5
+Logical fragment size = 247 bytes
+PQ-BLE header         = 4 bytes
+Ciphertext payload    = 243 bytes
+Fragments             = ceil(1088 / 243) = 5
 ```
 
-On Windows/Bleak, the writes may be represented by Wireshark as ATT Prepare
-Write and Execute Write procedures.
+The 247-byte value is the budget passed to the PQ-BLE fragmentation function;
+it must not be interpreted as the raw payload of a single ATT Write PDU.
+On Windows/Bleak, the stack can map each logical write to ATT Prepare Write
+and Execute Write procedures and can apply further lower-layer fragmentation.
 
 ### `START` control write
 
@@ -323,6 +329,10 @@ ML-KEM-768 sizes:
 | Ciphertext | 1088 B |
 | Shared secret | 32 B |
 
+ML-KEM is a key-encapsulation mechanism, not a signature algorithm. It is
+used only to establish the shared secret. The current proof of concept
+authenticates the handshake interactively through the SAS; ML-DSA-based
+authentication remains future work.
 
 ### SAS Numeric Comparison
 
@@ -365,25 +375,58 @@ Authenticated metadata provides:
 ---
 ## Where the post-quantum overhead is paid
 
-The large post-quantum objects are exchanged only during a full
-handshake:
+The large post-quantum objects are exchanged only during a full handshake:
 
 | Object | Size |
 |---|---:|
 | ML-KEM-768 public key | 1184 B |
 | ML-KEM-768 ciphertext | 1088 B |
 | Cryptographic material | 2272 B |
-| Application material at MTU 247 | 2292 B |
+| Application material with 247-byte logical fragments | 2292 B |
 
-After the session key has been derived, ML-KEM is no longer used for
-ordinary application data.
+The 2292-byte figure consists of:
 
-The AES-256-GCM secure-channel wire format adds a fixed 37-byte
-overhead:
+```text
+1184 B public key
+1088 B ciphertext
+  20 B five application-fragment headers
+------
+2292 B
+```
+
+It does not include ATT, L2CAP, Link Layer or radio retransmission overhead.
+
+After the session key has been derived, ML-KEM is no longer used for ordinary
+application data. The channel switches to AES-256-GCM, whose wire format adds
+a fixed 37-byte overhead:
 
 ```text
 seq_num (8) || msg_type (1) || IV (12) ||
 ciphertext || GCM tag (16)
+```
+
+Therefore:
+
+```text
+protected_message_size = plaintext_size + 37
+```
+
+| Plaintext | Protected message | Overhead |
+|---:|---:|---:|
+| 20 B | 57 B | 185.00% |
+| 64 B | 101 B | 57.81% |
+| 256 B | 293 B | 14.45% |
+| 512 B | 549 B | 7.23% |
+| 1024 B | 1061 B | 3.61% |
+
+The 37-byte cost is not an ML-KEM or post-quantum object. It comes from the
+application-layer secure-channel format, authenticated-encryption tag and
+replay-protection metadata.
+
+A Python session-resumption exchange uses 21 bytes for the request and 9 bytes
+for `RESUME_OK`, for 30 application bytes before ATT/GATT overhead. A successful
+resume avoids retransmitting the 1184-byte public key and the 1088-byte
+ciphertext.
 
 ---
 
@@ -429,12 +472,12 @@ python -m pytest tests/ -v
 Expected result:
 
 ```text
-101 passed
+109 passed
 ```
 
 | Test module | Tests | Scope |
 |---|---:|---|
-| `test_ml_kem.py` | 6 | ML-KEM key generation, encapsulation and decapsulation |
+| `test_ml_kem.py` | 6 | FIPS 203 sizes, key generation, encapsulation, decapsulation and roundtrip |
 | `test_fragmentation.py` | 14 | Fragmentation and reassembly |
 | `test_sas.py` | 12 | SAS derivation, comparison and formatting |
 | `test_session.py` | 22 | HKDF, AES-GCM, AAD, replay and tampering |
@@ -443,7 +486,17 @@ Expected result:
 | `test_mitm_simulation.py` | 2 | SAS-based MITM detection |
 | `test_firmware_uuids.py` | 3 | Firmware name, SMP configuration and notification path |
 | `test_central_transport_mock.py` | 17 | Mocked GATT read/write transport |
-| **Total** | **101** | Active automated suite |
+| `test_protocol_overhead.py` | 8 | Fixed 37-byte overhead, 2292-byte full handshake and 30-byte resume exchange |
+| **Total** | **109** | Active automated suite |
+
+The protocol-overhead tests verify that:
+
+- the SecureChannel adds exactly 37 bytes to every plaintext;
+- the 1088-byte ciphertext becomes five logical fragments with the
+  247-byte configuration;
+- the fragmented ciphertext occupies 1108 application bytes;
+- public key plus fragmented ciphertext occupy 2292 application bytes;
+- the Python resume request and positive response occupy 30 application bytes.
 
 Strict legacy UUID-parser tests remain disabled because they target an older
 firmware declaration format. UUID consistency is additionally verified through
@@ -458,8 +511,8 @@ The repository includes reproducible benchmarks for:
 - ML-KEM key generation, encapsulation and decapsulation;
 - SAS and HKDF latency;
 - AES-256-GCM CPU throughput;
-- fragmentation and reassembly;
-- MTU 247 versus MTU 512;
+- application fragmentation and reassembly;
+- 247-byte versus 512-byte logical fragment sizes;
 - application-layer wire overhead.
 
 ### Windows PowerShell
@@ -467,6 +520,7 @@ The repository includes reproducible benchmarks for:
 ```powershell
 .\.venv\Scripts\activate
 .\benchmarks\run_all.ps1
+python scripts\generate_benchmark_latex.py
 ```
 
 ### Linux
@@ -474,9 +528,11 @@ The repository includes reproducible benchmarks for:
 ```bash
 source .venv/bin/activate
 bash benchmarks/run_all.sh
+python scripts/generate_benchmark_latex.py
 ```
 
-Results are stored in [`benchmarks/results/`](benchmarks/results/):
+Measured results are stored in
+[`benchmarks/results/`](benchmarks/results/):
 
 ```text
 environment.txt
@@ -489,14 +545,22 @@ fragmentation_overhead.json
 latest.txt
 ```
 
+The generator reads the JSON artifacts and writes:
+
+```text
+report/benchmark_values.tex
+```
+
 Interpretation:
 
 - the handshake benchmark measures **cryptographic CPU latency**, excluding BLE
   scan, connection and GATT transfer;
 - the throughput benchmark measures **AES-256-GCM CPU throughput**, not BLE
   radio throughput;
-- the fragmentation benchmark compares the hardware-validated MTU 247 with
-  MTU 512;
+- the fragmentation benchmark measures the ciphertext with 247-byte and
+  512-byte logical fragment sizes;
+- the public key is not application-fragmented in the hardware demo and is
+  transferred through ATT Long Read / Read Blob;
 - the secure-channel wire overhead is 37 bytes:
   `seq(8) + msg_type(1) + IV(12) + tag(16)`.
 
@@ -506,8 +570,9 @@ Interpretation:
 
 The complete Italian academic report is available in LaTeX and PDF format:
 
-- [LaTeX source](report/tesina_pq_ble_handshake_finale.tex)
-- [Compiled PDF](report/tesina_pq_ble_handshake_finale.pdf)
+- [LaTeX source](report/tesina.tex)
+- [Generated benchmark values](report/benchmark_values.tex)
+- [Compiled PDF](report/tesina.pdf)
 
 The report includes the protocol design, threat model, implementation,
 automated tests, hardware validation, Wireshark evidence, limitations and future
@@ -540,10 +605,11 @@ python -m src.central.main `
     --log-level DEBUG
 ```
 
-Run all benchmarks:
+Run all benchmarks and regenerate the LaTeX values:
 
 ```powershell
 .\benchmarks\run_all.ps1
+python scripts\generate_benchmark_latex.py
 ```
 
 ### Linux
@@ -618,11 +684,18 @@ pq-ble-handshake/
 │       └── README.md
 ├── scripts/
 │   ├── generate_firmware_public_key.py
-│   └── generate_demo_vectors.py
-├── tests/                       # 101 active tests
+│   ├── generate_demo_vectors.py
+│   └── generate_benchmark_latex.py
+├── tests/
+│   ├── test_protocol_overhead.py
+│   └── ...                      # 109 active tests
 ├── benchmarks/
 │   ├── results/                 # Measured TXT/JSON artifacts
-│   └── run_all.ps1
+│   ├── benchmark_handshake.py
+│   ├── benchmark_throughput.py
+│   ├── benchmark_fragmentation.py
+│   ├── run_all.ps1
+│   └── run_all.sh
 ├── docs/
 │   ├── captures/                # Wireshark .pcapng files
 │   ├── images/                  # Wireshark screenshots
@@ -632,8 +705,9 @@ pq-ble-handshake/
 │   ├── test-results.md
 │   └── testing-guide.md
 ├── report/
-│   ├── tesina_pq_ble_handshake_finale.tex
-│   └── tesina_pq_ble_handshake_finale.pdf
+│   ├── benchmark_values.tex
+│   ├── tesina_pq_ble_handshake_finale_IT.tex
+│   └── tesina_pq_ble_handshake_finale_IT.pdf
 └── README.md
 ```
 
@@ -652,8 +726,8 @@ pq-ble-handshake/
 - The final DK notification is a raw transport-demo payload.
 - SAS requires human comparison and does not scale to large unattended IoT
   deployments.
-- Session resumption reduces the frequency of full handshakes but weakens
-  forward secrecy until re-handshake.
+- Session resumption preserves resistance to passive store-now-decrypt-later
+  attacks, but reusing a cached key does not provide full forward secrecy.
 - Side-channel resistance, energy measurements and embedded RNG evaluation are
   outside the current implementation scope.
 
@@ -672,7 +746,8 @@ pq-ble-handshake/
 - [x] 24-hour re-handshake limit
 - [x] 100-successful-resume limit
 - [x] GATT fragmentation and reassembly
-- [x] 101 automated tests
+- [x] protocol-overhead and key-size validation
+- [x] 109 automated tests
 - [x] nRF54L15 DK Zephyr firmware build
 - [x] firmware flash and phone inspection
 - [x] Windows PC ↔ nRF54L15 DK demo
