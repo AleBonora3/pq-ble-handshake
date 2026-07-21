@@ -268,7 +268,10 @@ La session resumption è limitata temporalmente a 24 ore e a 100 resume
 riusciti; timeout e tentativi falliti non consumano il contatore.
 
 La validazione è articolata su tre livelli. La logica crittografica e di
-protocollo è coperta da una suite attiva di \textbf{101 test automatizzati}.
+protocollo è coperta da una suite attiva di \textbf{109 test automatizzati}, comprendente anche verifiche
+riproducibili sulle dimensioni del materiale ML-KEM, sull'overhead
+fisso del canale AES-256-GCM e sulla frammentazione applicativa
+del ciphertext.
 Un firmware Zephyr per \textbf{nRF54L15 DK} è stato compilato, flashato e
 usato come peripheral reale. Il firmware espone una \textbf{public key
 ML-KEM-768 valida, generata offline}; il central ne verifica il fingerprint
@@ -747,7 +750,7 @@ pq-ble-handshake/
 |       `--- src/demo_public_key.h
 |--- scripts/
 |   `--- generate_firmware_public_key.py
-|--- tests/                       # 101 test attivi
+|--- tests/                       # 109 test attivi
 |--- benchmarks/
 |   |--- run_all.ps1
 |   `--- results/                 # output TXT e JSON misurati
@@ -1015,7 +1018,7 @@ Questa distinzione impedisce di sovrastimare il risultato sperimentale.
 
 \subsection{Test automatizzati}\label{test-automatizzati}
 
-La suite attiva contiene \textbf{101 test passanti}.
+La suite attiva contiene \textbf{109 test passanti}.
 
 \begin{lstlisting}[language=bash]
 python -m pytest tests/ -v
@@ -1037,8 +1040,10 @@ Cosa verifica
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-\passthrough{\lstinline!test\_ml\_kem.py!} & 6 & ML-KEM keygen,
-encapsulation, decapsulation, roundtrip \\
+\passthrough{\lstinline!test\_ml\_kem.py!} & 6 & Dimensioni FIPS 203 di public key,
+secret key, ciphertext e shared secret;
+keygen, encapsulation, decapsulation
+e roundtrip \\
 \passthrough{\lstinline!test\_fragmentation.py!} & 14 & Frammentazione,
 riassemblaggio, missing, duplicati, MTU variabili \\
 \passthrough{\lstinline!test\_sas.py!} & 12 & SAS a 6 cifre,
@@ -1055,7 +1060,9 @@ tramite SAS mismatch \\
 SMP disabled, \passthrough{\lstinline!bt\_gatt\_notify()!} \\
 \passthrough{\lstinline!test\_central\_transport\_mock.py!} & 17 &
 Read/write frammentati con mock GATT \\
-\textbf{Totale} & \textbf{101} & Validazione proof-of-concept \\
+\passthrough{\lstinline!test\_protocol\_overhead.py!} & 8 &
+Overhead fisso AES-GCM, dimensione del full handshake e messaggi di session resumption \\
+\textbf{Totale} & \textbf{109} & Validazione proof-of-concept \\
 \end{longtable}
 
 Alcuni test legacy di parsing automatico degli UUID firmware sono stati
@@ -1609,21 +1616,17 @@ dimostrato}\label{cosa-uxe8-stato-dimostrato}
 Il progetto dimostra:
 
 \begin{itemize}
-\tightlist
-\item
-  correttezza della logica ML-KEM/SAS/HKDF/AES-GCM in Python;
-\item
-  replay protection e AAD binding;
-\item
-  session resumption lato Python con limiti di 24 ore e 100 resume riusciti;
-\item
-  public key ML-KEM-768 valida nel firmware e verifica del fingerprint via BLE;
-\item
-  benchmark riproducibili con output TXT/JSON;
-\item
-  trasferimento reale via BLE/GATT tra PC e nRF54L15 DK;
-\item
-  catturabilità e osservabilità del traffico con nRF52840/Wireshark.
+    \item correttezza della logica ML-KEM/SAS/HKDF/AES-GCM in Python;
+    \item verifica automatica delle dimensioni ML-KEM-768 definite da FIPS 203;
+    \item replay protection e AAD binding;
+    \item overhead fisso di 37 byte del SecureChannel;
+    \item frammentazione del ciphertext ML-KEM-768 in cinque frammenti logici nella configurazione da 247 byte;
+    \item materiale applicativo del full handshake pari a 2292 byte;
+    \item session resumption lato Python con limiti di 24 ore e 100 resume riusciti;
+    \item public key ML-KEM-768 valida nel firmware e verifica del fingerprint via BLE;
+    \item benchmark riproducibili con output TXT e JSON;
+    \item trasferimento reale via BLE/GATT tra PC e nRF54L15 DK;
+    \item catturabilità e osservabilità del traffico con nRF52840 e Wireshark.
 \end{itemize}
 
 \subsection{Cosa non è stato ancora
@@ -1804,30 +1807,25 @@ I risultati principali sono:
 
 \begin{itemize}
 \tightlist
-\item
-  implementazione Python modulare del protocollo;
-\item
-  ML-KEM-768 integrato tramite liboqs;
-\item
-  SAS Numeric Comparison;
-\item
-  session key derivation tramite HKDF-SHA256;
-\item
-  canale AES-256-GCM con AAD e replay protection;
-\item
-  session resumption lato Python;
-\item
-  101 test automatizzati passanti;
-\item
-  firmware Zephyr per nRF54L15 DK compilato e flashato;
-\item
-  demo reale PC central $\leftrightarrow$ nRF54L15 DK completata;
-\item
-  notification raw da 57 byte ricevuta;
-\item
-  cattura Wireshark con nRF52840 Dongle che mostra il trasporto
-  ATT/GATT.
+\item implementazione Python modulare del protocollo;
+\item ML-KEM-768 integrato tramite liboqs;
+\item SAS Numeric Comparison;
+\item session key derivation tramite HKDF-SHA256;
+\item canale AES-256-GCM con AAD e replay protection;
+\item session resumption lato Python;
+\item 109 test automatizzati passanti, comprendenti verifiche delle dimensioni ML-KEM, dell'overhead AES-GCM e del materiale applicativo del full handshake;
+\item firmware Zephyr per nRF54L15 DK compilato e flashato;
+\item demo reale PC central $\leftrightarrow$ nRF54L15 DK completata;
+\item notification raw da 57 byte ricevuta;
+\item cattura Wireshark con nRF52840 Dongle che mostra il trasporto ATT/GATT.
 \end{itemize}
+
+I risultati mostrano inoltre che il principale costo dimensionale
+post-quantum è concentrato nel full handshake. Nella configurazione
+validata, public key, ciphertext e header applicativi richiedono
+2292 byte. Una volta derivata la session key, ML-KEM non viene più
+utilizzato per i messaggi ordinari: il canale procede tramite
+AES-256-GCM con un overhead fisso di 37 byte per messaggio.
 
 La parte embedded completa, cioè ML-KEM/AES-GCM eseguiti direttamente
 sul DK, rimane uno sviluppo futuro. Tuttavia, la validazione ottenuta è
@@ -1925,7 +1923,7 @@ raw_payload = await channel.receive(timeout=5.0)
 \subsection{Test automatici}
 \begin{lstlisting}[style=bashstyle]
 python -m pytest tests/ -v
-# Risultato atteso: 101 passed
+# Risultato atteso: 109 passed
 \end{lstlisting}
 
 \subsection{Demo hardware}
