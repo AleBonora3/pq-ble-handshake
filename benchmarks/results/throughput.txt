@@ -5,11 +5,11 @@ Wire overhead: 37 bytes/message
 
   Payload    Iters     Enc mean     Dec mean   Overhead
 ------------------------------------------------------------
-     64 B     5000      31976 KiB/s      28634 KiB/s     57.8%
-    256 B     3000     125437 KiB/s     105418 KiB/s     14.5%
-    512 B     2000     239123 KiB/s     193878 KiB/s      7.2%
-   1024 B     1000     465468 KiB/s     386306 KiB/s      3.6%
-   4096 B      500    1193458 KiB/s    1057950 KiB/s      0.9%
-  16384 B      200    2628523 KiB/s    1959725 KiB/s      0.2%
+     64 B     5000      51958 KiB/s      42156 KiB/s     57.8%
+    256 B     3000     138482 KiB/s     152300 KiB/s     14.5%
+    512 B     2000     305951 KiB/s     259141 KiB/s      7.2%
+   1024 B     1000     579643 KiB/s     506963 KiB/s      3.6%
+   4096 B      500    1712134 KiB/s    1263700 KiB/s      0.9%
+  16384 B      200    2494409 KiB/s    1888169 KiB/s      0.2%
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\throughput.json

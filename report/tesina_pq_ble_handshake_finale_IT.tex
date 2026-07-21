@@ -69,20 +69,20 @@
 % FIGURE E TABELLE
 % =========================================================
 \usepackage{graphicx}
-\graphicspath{{images/}{../docs/images/}}
+\graphicspath{{images/}{../report/images/}}
 
 % Cerca prima nella cartella locale images/, poi nella cartella della repo
-% ../docs/images/. Se il file manca, mostra un segnaposto compilabile.
+% ../report/images/. Se il file manca, mostra un segnaposto compilabile.
 \newcommand{\safeincludegraphics}[2][width=\linewidth]{%
   \IfFileExists{images/#2}{%
     \includegraphics[#1]{images/#2}%
   }{%
-    \IfFileExists{../docs/images/#2}{%
-      \includegraphics[#1]{../docs/images/#2}%
+    \IfFileExists{../report/images/#2}{%
+      \includegraphics[#1]{../report/images/#2}%
     }{%
       \fbox{\parbox[c][5.2cm][c]{0.92\linewidth}{%
         \centering\small\textcolor{black!60}{Immagine non trovata.\\[0.4em]
-        File atteso: \texttt{\detokenize{#2}} in \texttt{images/} oppure \texttt{../docs/images/}.}%
+        File atteso: \texttt{\detokenize{#2}} in \texttt{images/} oppure \texttt{../report/images/}.}%
       }}%
     }%
   }%

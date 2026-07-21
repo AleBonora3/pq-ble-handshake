@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-07-21T14:20:13.775584+00:00",
+  "generated_at_utc": "2026-07-21T17:14:00.300433+00:00",
   "measurement_scope": "Application fragmentation CPU overhead; BLE radio and ATT transfer latency excluded",
   "cpu_iterations": 10000,
   "fragment_header_bytes": 4,
@@ -24,8 +24,8 @@
         "num_fragments": 5,
         "overhead_bytes": 20,
         "overhead_percent": 1.8382352941176472,
-        "fragmentation_mean_us": 4.78887,
-        "reassembly_mean_us": 6.04497
+        "fragmentation_mean_us": 3.3845899999999998,
+        "reassembly_mean_us": 4.25867
       }
     },
     "512": {
@@ -37,8 +37,8 @@
         "num_fragments": 3,
         "overhead_bytes": 12,
         "overhead_percent": 1.1029411764705883,
-        "fragmentation_mean_us": 3.4642399999999998,
-        "reassembly_mean_us": 4.47801
+        "fragmentation_mean_us": 2.36699,
+        "reassembly_mean_us": 3.0048500000000002
       }
     }
   }

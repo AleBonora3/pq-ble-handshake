@@ -1,6 +1,6 @@
 PQ-BLE-HANDSHAKE benchmark environment
-Generated: 2026-07-21 16:20:11 +02:00
-Git commit: eec82e4479614d8457db954cf48720ce3ace00f8
+Generated: 2026-07-21 19:13:59 +02:00
+Git commit: 62db3fcc3a764f862c60aa27d6285c2351d2bdaa
 Python: Python 3.13.3
 OS: Microsoft Windows 11 Home 10.0.26200
 CPU: 12th Gen Intel(R) Core(TM) i7-1255U

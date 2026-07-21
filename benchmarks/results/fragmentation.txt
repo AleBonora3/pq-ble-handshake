@@ -9,13 +9,13 @@ Logical fragment size 247 B ÔÇö application payload 243 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext                                     1088    1108     5    1.84%      4.79      6.04
+ML-KEM-768 ciphertext                                     1088    1108     5    1.84%      3.38      4.26
 
 ====================================================================================================
 Logical fragment size 512 B ÔÇö application payload 508 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext                                     1088    1100     3    1.10%      3.46      4.48
+ML-KEM-768 ciphertext                                     1088    1100     3    1.10%      2.37      3.00
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\fragmentation_overhead.json

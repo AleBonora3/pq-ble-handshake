@@ -1,6 +1,6 @@
 PQ-BLE-HANDSHAKE benchmark environment
-Generated: 2026-07-21 16:20:11 +02:00
-Git commit: eec82e4479614d8457db954cf48720ce3ace00f8
+Generated: 2026-07-21 19:13:59 +02:00
+Git commit: 62db3fcc3a764f862c60aa27d6285c2351d2bdaa
 Python: Python 3.13.3
 OS: Microsoft Windows 11 Home 10.0.26200
 CPU: 12th Gen Intel(R) Core(TM) i7-1255U
@@ -48,27 +48,27 @@ liboqs-python faulthandler is disabled
 PQ-BLE-HANDSHAKE ÔÇö Cryptographic Handshake Benchmark
 Scope: crypto only; BLE scan/connect/GATT are excluded.
 Warm-up: 20; measured iterations: 1000
-    1/1000: total=536.50 us
-  100/1000: total=341.00 us
-  200/1000: total=310.40 us
-  300/1000: total=603.70 us
-  400/1000: total=359.40 us
-  500/1000: total=312.70 us
-  600/1000: total=448.20 us
-  700/1000: total=316.90 us
-  800/1000: total=318.70 us
-  900/1000: total=323.20 us
- 1000/1000: total=767.20 us
+    1/1000: total=230.40 us
+  100/1000: total=267.60 us
+  200/1000: total=292.50 us
+  300/1000: total=235.70 us
+  400/1000: total=202.90 us
+  500/1000: total=200.40 us
+  600/1000: total=210.00 us
+  700/1000: total=205.60 us
+  800/1000: total=226.10 us
+  900/1000: total=210.10 us
+ 1000/1000: total=233.20 us
 
 ========================================================================
-keygen             mean=   161.63 us median=   123.75 us p99=   562.30 us
-encaps             mean=   161.03 us median=   125.60 us p99=   527.10 us
-decaps             mean=    74.60 us median=    59.10 us p99=   215.20 us
-sas_derivation     mean=     8.54 us median=     5.50 us p99=    34.40 us
-hkdf_derivation    mean=    14.55 us median=     9.10 us p99=    68.60 us
+keygen             mean=    86.40 us median=    83.25 us p99=   135.60 us
+encaps             mean=    88.32 us median=    84.05 us p99=   146.30 us
+decaps             mean=    41.49 us median=    39.30 us p99=    66.00 us
+sas_derivation     mean=     3.90 us median=     3.60 us p99=     9.10 us
+hkdf_derivation    mean=     6.55 us median=     6.00 us p99=    16.00 us
 ------------------------------------------------------------------------
-TOTAL              mean=   0.4204 ms median=   0.3260 ms p99=   1.4054 ms
-Derived throughput: 2378.9 crypto handshakes/s
+TOTAL              mean=   0.2267 ms median=   0.2184 ms p99=   0.3564 ms
+Derived throughput: 4411.7 crypto handshakes/s
 ========================================================================
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\handshake_latency.json
 
@@ -82,12 +82,12 @@ Wire overhead: 37 bytes/message
 
   Payload    Iters     Enc mean     Dec mean   Overhead
 ------------------------------------------------------------
-     64 B     5000      31976 KiB/s      28634 KiB/s     57.8%
-    256 B     3000     125437 KiB/s     105418 KiB/s     14.5%
-    512 B     2000     239123 KiB/s     193878 KiB/s      7.2%
-   1024 B     1000     465468 KiB/s     386306 KiB/s      3.6%
-   4096 B      500    1193458 KiB/s    1057950 KiB/s      0.9%
-  16384 B      200    2628523 KiB/s    1959725 KiB/s      0.2%
+     64 B     5000      51958 KiB/s      42156 KiB/s     57.8%
+    256 B     3000     138482 KiB/s     152300 KiB/s     14.5%
+    512 B     2000     305951 KiB/s     259141 KiB/s      7.2%
+   1024 B     1000     579643 KiB/s     506963 KiB/s      3.6%
+   4096 B      500    1712134 KiB/s    1263700 KiB/s      0.9%
+  16384 B      200    2494409 KiB/s    1888169 KiB/s      0.2%
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\throughput.json
 
@@ -105,13 +105,13 @@ Logical fragment size 247 B ÔÇö application payload 243 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext                                     1088    1108     5    1.84%      4.79      6.04
+ML-KEM-768 ciphertext                                     1088    1108     5    1.84%      3.38      4.26
 
 ====================================================================================================
 Logical fragment size 512 B ÔÇö application payload 508 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext                                     1088    1100     3    1.10%      3.46      4.48
+ML-KEM-768 ciphertext                                     1088    1100     3    1.10%      2.37      3.00
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\fragmentation_overhead.json
