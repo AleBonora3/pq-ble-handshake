@@ -19,7 +19,7 @@
 \newcommand{\StudentEmail}{alebonora2003@gmail.com}
 \newcommand{\ProjectTitle}{Canale Sicuro Post-Quantum su Bluetooth Low Energy}
 \newcommand{\ProjectSubtitle}{Handshake GATT-based con ML-KEM-768 e SAS Numeric Comparison}
-\newcommand{\ProjectDate}{10 luglio 2026}
+\newcommand{\ProjectDate}{21 luglio 2026}
 \newcommand{\ProjectRepo}{\url{https://github.com/AleBonora3/pq-ble-handshake/tree/main/}}
 
 % =========================================================
@@ -688,7 +688,9 @@ applicativo da 4 byte:
 idx (1 byte) || total (1 byte) || payload_len (2 byte)
 \end{lstlisting}
 
-Con MTU 247, validato nella demo Windows, il payload utile per frammento
+Nella configurazione validata, la funzione di frammentazione utilizza
+una dimensione logica massima di 247 byte per frammento. Poiché 4 byte
+sono riservati all'header applicativo, il payload utile per il
 ciphertext è:
 
 \begin{lstlisting}
@@ -1363,8 +1365,8 @@ Operazione & Media & Mediana & P99 \\
 ML-KEM key generation & \BenchKeygenMean & \BenchKeygenMedian & \BenchKeygenPnn \\
 ML-KEM encapsulation & \BenchEncapsMean & \BenchEncapsMedian & \BenchEncapsPnn \\
 ML-KEM decapsulation & \BenchDecapsMean & \BenchDecapsMedian & \BenchDecapsPnn \\
-SAS derivation & \BenchSasMean & -- & -- \\
-HKDF-SHA256 & \BenchHkdfMean & -- & -- \\
+SAS derivation & \BenchSasMean & \BenchSasMedian & \BenchSasPnn \\
+HKDF-SHA256 & \BenchHkdfMean & \BenchHkdfMedian & \BenchHkdfPnn \\
 \midrule
 Totale crittografico [ms] & \BenchTotalMeanMs & \BenchTotalMedianMs & \BenchTotalPnnMs \\
 \bottomrule
@@ -1831,14 +1833,6 @@ La parte embedded completa, cioè ML-KEM/AES-GCM eseguiti direttamente
 sul DK, rimane uno sviluppo futuro. Tuttavia, la validazione ottenuta è
 sufficiente per dimostrare la fattibilità del trasporto BLE/GATT reale e
 la correttezza del protocollo lato software.
-
-Il principale overhead post-quantum è concentrato nel full handshake,
-durante il quale vengono trasferiti la public key e il ciphertext
-ML-KEM-768. Una volta derivata la session key, la comunicazione non
-utilizza più primitive post-quantum costose, ma procede mediante
-AES-256-GCM. Le riconnessioni possono evitare un nuovo scambio ML-KEM
-attraverso la session resumption, al costo di una minore forward secrecy
-dovuta alla persistenza della chiave.
 
 \subsection{Sviluppi futuri}\label{sviluppi-futuri}
 
