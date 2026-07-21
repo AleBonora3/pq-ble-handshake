@@ -1,0 +1,2003 @@
+% =========================================================
+% PQ-BLE-HANDSHAKE - Tesina LaTeX pronta da compilare
+% =========================================================
+% !TEX program = latexmk
+% Compilazione consigliata:
+%   latexmk -pdf -interaction=nonstopmode tesina_pq_ble_handshake.tex
+
+\documentclass[11pt,a4paper]{article}
+
+% =========================================================
+% METADATI DEL PROGETTO
+% =========================================================
+\newcommand{\Course}{Sicurezza nelle Reti}
+\newcommand{\CourseAcronym}{PQ-BLE-HANDSHAKE}
+\newcommand{\Professor}{Stelvio Cimato}
+\newcommand{\University}{Universit\`a degli Studi di Milano - Sicurezza Informatica}
+\newcommand{\AcademicYear}{2025/2026}
+\newcommand{\Student}{Alessio Bonora}
+\newcommand{\StudentEmail}{alebonora2003@gmail.com}
+\newcommand{\ProjectTitle}{Canale Sicuro Post-Quantum su Bluetooth Low Energy}
+\newcommand{\ProjectSubtitle}{Handshake GATT-based con ML-KEM-768 e SAS Numeric Comparison}
+\newcommand{\ProjectDate}{10 luglio 2026}
+\newcommand{\ProjectRepo}{\url{https://github.com/AleBonora3/pq-ble-handshake/tree/main/}}
+
+% =========================================================
+% LINGUA, CODIFICA, FONT
+% =========================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{lmodern}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{textcomp}
+\usepackage{eurosym}
+
+% =========================================================
+% LAYOUT E TESTO
+% =========================================================
+\usepackage[a4paper,margin=1.85cm]{geometry}
+\usepackage{setspace}
+\setstretch{1.08}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt plus 1pt minus 1pt}
+\usepackage{enumitem}
+\setlist{topsep=2pt,partopsep=0pt,itemsep=1pt,parsep=0pt,leftmargin=1.6em}
+
+% =========================================================
+% COLORI
+% =========================================================
+\usepackage{xcolor}
+\definecolor{Primary}{HTML}{1F4E79}
+\definecolor{Secondary}{HTML}{2E7D32}
+\definecolor{Accent}{HTML}{8E24AA}
+\definecolor{Warning}{HTML}{C62828}
+\definecolor{SoftBg}{HTML}{F6F8FA}
+\definecolor{SoftBorder}{HTML}{D0D7DE}
+\definecolor{CodeBg}{HTML}{F7F9FB}
+\definecolor{CodeBorder}{HTML}{D9E2EC}
+\definecolor{CodeKeyword}{HTML}{7B1FA2}
+\definecolor{CodeString}{HTML}{0B8043}
+\definecolor{CodeComment}{HTML}{546E7A}
+\definecolor{CodeNumber}{HTML}{1565C0}
+\definecolor{CodeIdentifier}{HTML}{212121}
+\definecolor{InlineBg}{HTML}{EEF3F8}
+\definecolor{CodeText}{HTML}{212121}
+
+% =========================================================
+% FIGURE E TABELLE
+% =========================================================
+\usepackage{graphicx}
+\graphicspath{{images/}{../docs/images/}}
+
+% Cerca prima nella cartella locale images/, poi nella cartella della repo
+% ../docs/images/. Se il file manca, mostra un segnaposto compilabile.
+\newcommand{\safeincludegraphics}[2][width=\linewidth]{%
+  \IfFileExists{images/#2}{%
+    \includegraphics[#1]{images/#2}%
+  }{%
+    \IfFileExists{../docs/images/#2}{%
+      \includegraphics[#1]{../docs/images/#2}%
+    }{%
+      \fbox{\parbox[c][5.2cm][c]{0.92\linewidth}{%
+        \centering\small\textcolor{black!60}{Immagine non trovata.\\[0.4em]
+        File atteso: \texttt{\detokenize{#2}} in \texttt{images/} oppure \texttt{../docs/images/}.}%
+      }}%
+    }%
+  }%
+}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\captionsetup{font=small,labelfont=bf,skip=4pt}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{tabularx}
+\usepackage{calc}
+
+% Pandoc longtable helpers
+\usepackage{iftex}
+\usepackage{etoolbox}
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\newcommand{\passthrough}[1]{#1}
+\setlength{\emergencystretch}{3em}
+
+% =========================================================
+% MATEMATICA
+% =========================================================
+\usepackage{amsmath,amssymb,mathtools}
+
+% =========================================================
+% RISULTATI BENCHMARK IMPORTATI DA JSON
+% =========================================================
+% Il file benchmark_values.tex viene generato da
+% scripts/generate_benchmark_latex.py a partire dagli artefatti JSON reali.
+\newif\ifbenchmarkdata
+\benchmarkdatafalse
+\providecommand{\BenchGeneratedAt}{non disponibile}
+\providecommand{\BenchIterations}{N/D}
+\providecommand{\BenchKeygenMean}{N/D}
+\providecommand{\BenchKeygenMedian}{N/D}
+\providecommand{\BenchKeygenPnn}{N/D}
+\providecommand{\BenchEncapsMean}{N/D}
+\providecommand{\BenchEncapsMedian}{N/D}
+\providecommand{\BenchEncapsPnn}{N/D}
+\providecommand{\BenchDecapsMean}{N/D}
+\providecommand{\BenchDecapsMedian}{N/D}
+\providecommand{\BenchDecapsPnn}{N/D}
+\providecommand{\BenchSasMean}{N/D}
+\providecommand{\BenchHkdfMean}{N/D}
+\providecommand{\BenchTotalMeanMs}{N/D}
+\providecommand{\BenchTotalMedianMs}{N/D}
+\providecommand{\BenchTotalPnnMs}{N/D}
+\providecommand{\BenchHandshakeRate}{N/D}
+\providecommand{\BenchEncSixtyFour}{N/D}
+\providecommand{\BenchDecSixtyFour}{N/D}
+\providecommand{\BenchEncTwoFiftySix}{N/D}
+\providecommand{\BenchDecTwoFiftySix}{N/D}
+\providecommand{\BenchEncFiveTwelve}{N/D}
+\providecommand{\BenchDecFiveTwelve}{N/D}
+\providecommand{\BenchEncOneK}{N/D}
+\providecommand{\BenchDecOneK}{N/D}
+\providecommand{\BenchEncFourK}{N/D}
+\providecommand{\BenchDecFourK}{N/D}
+\providecommand{\BenchEncSixteenK}{N/D}
+\providecommand{\BenchDecSixteenK}{N/D}
+\providecommand{\BenchFragMtuTwoFourSevenUs}{N/D}
+\providecommand{\BenchReasmMtuTwoFourSevenUs}{N/D}
+\providecommand{\BenchFragMtuFiveTwelveUs}{N/D}
+\providecommand{\BenchReasmMtuFiveTwelveUs}{N/D}
+\IfFileExists{benchmark_values.tex}{\input{benchmark_values.tex}}{}
+
+
+% =========================================================
+% SEZIONI E INDICE
+% =========================================================
+\usepackage{titlesec}
+\usepackage{tocloft}
+\titleformat{\section}{\Large\bfseries\color{Primary}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\large\bfseries\color{Primary}}{\thesubsection.}{0.5em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{Primary}}{\thesubsubsection.}{0.5em}{}
+\titleformat{\paragraph}[runin]{\normalsize\bfseries\color{Accent}}{\theparagraph.}{0.5em}{}[:]
+\titlespacing*{\section}{0pt}{1.4ex plus .2ex}{0.7ex}
+\titlespacing*{\subsection}{0pt}{1.1ex plus .2ex}{0.5ex}
+\titlespacing*{\subsubsection}{0pt}{0.9ex plus .2ex}{0.4ex}
+\titlespacing*{\paragraph}{0pt}{0.6ex plus .2ex}{0.5em}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+
+% =========================================================
+% BOX / CALLOUT
+% =========================================================
+\usepackage[most]{tcolorbox}
+\tcbset{enhanced,boxrule=0.6pt,arc=2pt,left=6pt,right=6pt,top=5pt,bottom=5pt,before skip=6pt,after skip=6pt}
+\newtcolorbox{callout}{title=Nota,colback=SoftBg,colframe=Primary!55,coltitle=black,fonttitle=\bfseries,borderline west={2pt}{0pt}{Primary!70}}
+\newtcolorbox{importantbox}{title=Importante,colback=Warning!3,colframe=Warning!50,coltitle=black,fonttitle=\bfseries,borderline west={2pt}{0pt}{Warning!70}}
+
+% =========================================================
+% CODICE (LISTINGS)
+% =========================================================
+\usepackage{listings}
+\usepackage{upquote}
+\newcommand{\code}[1]{{\setlength{\fboxsep}{2pt}\colorbox{InlineBg}{\texttt{#1}}}}
+\lstset{inputencoding=utf8,extendedchars=true,upquote=true,showstringspaces=false,showtabs=false,showspaces=false,breaklines=true,breakatwhitespace=false,tabsize=2,keepspaces=true,columns=flexible,literate={à}{{\`a}}1 {è}{{\`e}}1 {é}{{\'e}}1 {ì}{{\`i}}1 {ò}{{\`o}}1 {ù}{{\`u}}1 {À}{{\`A}}1 {È}{{\`E}}1 {É}{{\'E}}1 {Ì}{{\`I}}1 {Ò}{{\`O}}1 {Ù}{{\`U}}1 {’}{{'}}1 {‘}{{'}}1 {“}{{``}}1 {”}{{''}}1}
+\lstdefinestyle{codestyle}{backgroundcolor=\color{CodeBg},frame=single,rulecolor=\color{CodeBorder},frameround=tttt,framesep=5pt,xleftmargin=8pt,xrightmargin=4pt,aboveskip=7pt,belowskip=7pt,basicstyle=\ttfamily\small\color{CodeText},keywordstyle=\bfseries\color{CodeKeyword},stringstyle=\color{CodeString},commentstyle=\itshape\color{CodeComment},identifierstyle=\color{CodeIdentifier},numbers=none,captionpos=b}
+\lstdefinestyle{pythonstyle}{style=codestyle,language=Python,morekeywords={self,True,False,None,match,case,async,await}}
+\lstdefinestyle{cstyle}{style=codestyle,language=C}
+\lstdefinestyle{bashstyle}{style=codestyle,language=bash,morekeywords={sudo,cd,ls,pwd,mkdir,rm,cp,mv,chmod,chown,grep,find,cat,echo,kill,killall,ps,top,gcc,g++,make,nano,vim,python,pip,west}}
+\lstset{style=codestyle}
+
+% =========================================================
+% HEADER E FOOTER
+% =========================================================
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\headheight}{14pt}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{Primary}{\CourseAcronym}}
+\fancyhead[C]{\small\Course}
+\fancyhead[R]{\small AA \AcademicYear}
+\fancyfoot[L]{\small UNIMI - Sicurezza Informatica}
+\fancyfoot[C]{\small\Student}
+\fancyfoot[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% =========================================================
+% LINK E PDF
+% =========================================================
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+\usepackage{bookmark}
+
+% =========================================================
+% FRONTESPIZIO
+% =========================================================
+\newcommand{\makeprojecttitle}{%
+\begin{titlepage}
+  \centering
+  \vspace*{1.5cm}
+  {\Huge\bfseries\color{Primary}\ProjectTitle\par}
+  \vspace{0.5cm}
+  {\Large\bfseries\ProjectSubtitle\par}
+  \vspace{1.4cm}
+  {\large Tesina per il corso di \textbf{\Course} (6 CFU)\par}
+  \vspace{0.2cm}
+  {\large Laurea Magistrale - A.A. \AcademicYear\par}
+  \vspace{1.2cm}
+  \begin{tcolorbox}[width=0.82\textwidth,colback=SoftBg,colframe=Primary!45]
+    \begin{tabularx}{\textwidth}{@{}lX@{}}
+      \textbf{Autore:} & \Student \\
+      \textbf{Email:} & \StudentEmail \\
+      \textbf{Docente:} & \Professor \\
+      \textbf{Universit\`a:} & \University \\
+      \textbf{Data:} & \ProjectDate \\
+      \textbf{Github:} & \ProjectRepo \\
+    \end{tabularx}
+  \end{tcolorbox}
+  \vfill
+  {\small Proof-of-concept di handshake post-quantum sopra BLE GATT con validazione su nRF54L15 DK.\par}
+\end{titlepage}
+}
+
+\begin{document}
+\makeprojecttitle
+\pagenumbering{roman}
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+Il Bluetooth Low Energy (BLE) protegge le comunicazioni mediante i
+meccanismi previsti dal Security Manager, tra cui LE Secure Connections
+basato su ECDH P-256. Tale soluzione è adeguata nel modello di minaccia
+classico, ma non è progettata per resistere a un futuro calcolatore
+quantistico crittograficamente rilevante. In uno scenario
+\emph{store-now-decrypt-later}, un attaccante può registrare oggi il
+traffico e tentare di decifrarlo in futuro.
+
+Questa tesina presenta \textbf{PQ-BLE-HANDSHAKE}, un proof-of-concept di
+handshake post-quantum a livello applicativo sopra BLE GATT, senza
+modificare lo stack Bluetooth nativo. Il protocollo combina
+\textbf{ML-KEM-768}, \textbf{SAS Numeric Comparison} a sei cifre,
+\textbf{HKDF-SHA256} e un canale \textbf{AES-256-GCM} con Additional
+Authenticated Data (AAD), sequence number monotono e protezione da replay.
+La session resumption è limitata temporalmente a 24 ore e a 100 resume
+riusciti; timeout e tentativi falliti non consumano il contatore.
+
+La validazione è articolata su tre livelli. La logica crittografica e di
+protocollo è coperta da una suite attiva di \textbf{101 test automatizzati}.
+Un firmware Zephyr per \textbf{nRF54L15 DK} è stato compilato, flashato e
+usato come peripheral reale. Il firmware espone una \textbf{public key
+ML-KEM-768 valida, generata offline}; il central ne verifica il fingerprint
+SHA-256, esegue l'incapsulamento e trasferisce il ciphertext da 1088 byte in
+cinque frammenti con MTU 247. Infine, una cattura passiva con
+\textbf{nRF52840 Dongle} e Wireshark documenta MTU exchange, long read della
+public key, trasferimento del ciphertext, comando \texttt{START} e
+notification finale da 57 byte.
+
+Il limite principale è dichiarato esplicitamente: la secret key
+corrispondente non è memorizzata sul DK e il firmware non esegue ancora
+ML-KEM decapsulation, HKDF o AES-GCM on-chip. La prova hardware dimostra
+quindi il trasporto e il riassemblaggio reali su BLE/GATT, mentre la
+completezza crittografica è verificata lato Python. I benchmark sono
+riproducibili e importati nella relazione dagli artefatti JSON prodotti
+dalla suite dedicata.
+
+\clearpage
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+\section{Introduzione}\label{capitolo-1---introduzione}
+
+\subsection{Continuità con il percorso di
+ricerca}\label{continuituxe0-con-il-percorso-di-ricerca}
+
+Questo progetto si inserisce in un percorso di ricerca sulla sicurezza
+Bluetooth Low Energy iniziato nella mia tesi triennale, dedicata
+all'analisi della sicurezza BLE tramite sniffing passivo con nRF52840
+Dongle, Wireshark e una pipeline di analisi dei pacchetti.
+
+La tesi precedente aveva un obiettivo prevalentemente diagnostico:
+osservare il pairing BLE, analizzare il traffico SMP, verificare la
+presenza o meno di protezioni MITM e valutare i limiti della sicurezza
+BLE tradizionale. Questo progetto rappresenta il passaggio successivo:
+invece di limitarsi a evidenziare il problema, propone e valida
+sperimentalmente una possibile soluzione applicativa post-quantum.
+
+\begin{lstlisting}
+TESI TRIENNALE                         PROGETTO MAGISTRALE
+Analisi sicurezza BLE                  PQ-BLE-HANDSHAKE
+
+Sniffing passivo pairing        ->      Handshake post-quantum applicativo
+Analisi ECDH/SMP                ->      ML-KEM-768 sopra GATT
+nRF52840 come sniffer           ->      nRF52840 per validazione Wireshark
+Pipeline di audit BLE           ->      Validazione trasporto BLE/GATT reale
+\end{lstlisting}
+
+Il progetto riutilizza quindi sia la strumentazione sia la conoscenza
+acquisita: il nRF52840 Dongle viene usato per osservare il traffico BLE
+e verificare che il nuovo protocollo venga trasportato come normali
+operazioni ATT/GATT.
+
+\subsection{Contesto}\label{contesto}
+
+BLE è largamente usato in dispositivi IoT, wearable, sensori, smart home
+e dispositivi medicali. La sicurezza BLE è quindi rilevante non solo per
+la privacy, ma anche per scenari in cui i dati possono avere valore a
+lungo termine.
+
+Il pairing BLE moderno, LE Secure Connections, usa ECDH P-256 per
+stabilire chiavi condivise. Questa scelta è sicura contro attaccanti
+classici, ma non contro un quantum computer sufficientemente potente. La
+conseguenza è che traffico registrato oggi potrebbe essere decrittato in
+futuro.
+
+\subsection{Minaccia
+store-now-decrypt-later}\label{minaccia-store-now-decrypt-later}
+
+Nello scenario \emph{store-now-decrypt-later}, l'attaccante non deve
+rompere la crittografia immediatamente. È sufficiente registrare
+traffico cifrato oggi e attendere che diventi disponibile una tecnologia
+in grado di rompere ECDH. Questo modello è particolarmente rilevante per
+dati sanitari, credenziali, segreti industriali e informazioni personali
+con lunga vita utile.
+
+\subsection{Stato dell'arte e
+motivazione}\label{stato-dellarte-e-motivazione}
+
+La migrazione alla crittografia post-quantum è già iniziata in
+protocolli come TLS, Signal e sistemi di messaggistica moderni. BLE,
+invece, non ha ancora una modalità post-quantum standardizzata nel
+Security Manager. Per questo motivo il progetto adotta un approccio
+pragmatico: non modifica il pairing BLE, ma costruisce un canale sicuro
+post-quantum a livello applicativo sopra GATT.
+
+L'analogia è con protocolli come HTTPS: il trasporto sottostante non
+viene modificato, ma la sicurezza applicativa viene costruita sopra di
+esso.
+
+\subsection{Obiettivi del progetto}\label{obiettivi-del-progetto}
+
+Gli obiettivi sono:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  progettare un handshake post-quantum compatibile con BLE GATT;
+\item
+  implementare un proof-of-concept modulare in Python;
+\item
+  integrare session key derivation, SAS, canale AES-GCM e session
+  resumption;
+\item
+  preparare e validare un firmware Zephyr su nRF54L15 DK per il
+  trasporto BLE/GATT;
+\item
+  catturare il traffico con nRF52840 Dongle e Wireshark;
+\item
+  documentare limiti, risultati e sviluppi futuri in modo chiaro.
+\end{enumerate}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Background}\label{capitolo-2---background}
+
+\subsection{BLE, ATT e GATT}\label{ble-att-e-gatt}
+
+Lo stack BLE può essere schematizzato così:
+
+\begin{lstlisting}
+APPLICATION      <- PQ-BLE-HANDSHAKE
+GATT / ATT       <- trasporto usato dal progetto
+SMP              <- non usato nel firmware demo
+L2CAP
+Link Layer / PHY
+\end{lstlisting}
+
+Il Generic Attribute Profile (GATT) organizza i dati in \textbf{Service}
+e \textbf{Characteristic}. Ogni characteristic ha un UUID, proprietà
+come READ/WRITE/NOTIFY e un valore trasportato tramite ATT. Nel progetto
+PQ-BLE, GATT viene usato come trasporto standard per scambiare materiale
+ML-KEM e messaggi di controllo.
+
+\subsection{Ruoli BLE}\label{ruoli-ble}
+
+Nel progetto:
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Ruolo
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Descrizione
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Implementazione
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Central / GATT Client & Scansiona, si connette, legge e scrive
+characteristic & PC Windows con Python + Bleak \\
+Peripheral / GATT Server & Espone il servizio GATT PQ-BLE & nRF54L15 DK
+con Zephyr \\
+Sniffer passivo & Osserva il traffico radio BLE & nRF52840 Dongle con
+Wireshark \\
+\end{longtable}
+
+\subsection{ML-KEM-768}\label{ml-kem-768}
+
+ML-KEM è lo standard NIST FIPS 203 per key encapsulation post-quantum. È
+basato sulla difficoltà del problema Module-LWE. Nel progetto viene
+usato il profilo \textbf{ML-KEM-768}, scelto come compromesso tra
+sicurezza e overhead.
+
+\begin{longtable}[]{@{}lr@{}}
+\toprule\noalign{}
+Parametro & Valore \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Public key & 1184 byte \\
+Secret key & 2400 byte \\
+Ciphertext & 1088 byte \\
+Shared secret & 32 byte \\
+Categoria NIST & 3 \\
+\end{longtable}
+
+Un KEM non è uguale a ECDH: il peripheral espone una public key, il
+central incapsula un segreto contro quella chiave pubblica e produce un
+ciphertext. Chi possiede la secret key può decapsulare il ciphertext e
+ottenere la stessa shared secret.
+
+\subsection{SAS Numeric Comparison}\label{sas-numeric-comparison}
+
+Il SAS è un codice breve derivato dalla trascrizione dell'handshake. Nel
+progetto è un numero a 6 cifre:
+
+\begin{lstlisting}
+transcript = public_key || ciphertext || shared_secret
+sas = SHA256(transcript)[0:4] mod 1_000_000
+\end{lstlisting}
+
+Se un attaccante MITM sostituisce la public key, central e peripheral
+derivano trascrizioni diverse e quindi SAS diversi. Se l'utente
+confronta correttamente il codice, la probabilità di falsa accettazione
+è circa 1 su 1.000.000.
+
+\subsection{HKDF e AES-256-GCM}\label{hkdf-e-aes-256-gcm}
+
+La shared secret ML-KEM viene trasformata in una chiave di sessione
+tramite HKDF-SHA256. I dati applicativi sono poi cifrati con
+AES-256-GCM. Nel progetto, l'AAD include:
+
+\begin{lstlisting}
+session_id || sender_role || seq_num || msg_type
+\end{lstlisting}
+
+Questa scelta lega ogni messaggio alla sessione, alla direzione, al
+numero di sequenza e al tipo di messaggio.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Modello di minaccia}\label{capitolo-3---modello-di-minaccia}
+
+\subsection{Assunzioni}\label{assunzioni}
+
+Il modello di minaccia considera un attaccante capace di:
+
+\begin{itemize}
+\tightlist
+\item
+  sniffare il traffico BLE;
+\item
+  registrare pacchetti per un attacco futuro;
+\item
+  modificare, ritardare o iniettare messaggi GATT;
+\item
+  tentare un MITM durante l'handshake.
+\end{itemize}
+
+Si assume invece che:
+
+\begin{itemize}
+\tightlist
+\item
+  gli endpoint non siano compromessi;
+\item
+  l'utente confronti correttamente il SAS;
+\item
+  il generatore casuale del sistema operativo sia sicuro;
+\item
+  gli attacchi side-channel fisici siano fuori scope.
+\end{itemize}
+
+\subsection{Minacce considerate}\label{minacce-considerate}
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule\noalign{}
+Minaccia & Mitigazione \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Store-now-decrypt-later & ML-KEM-768 \\
+MITM con sostituzione public key & SAS Numeric Comparison \\
+Replay di messaggi cifrati & Sequence number monotono e AAD \\
+Tampering del payload & AES-256-GCM authentication tag \\
+Cross-session confusion & \passthrough{\lstinline!session\_id!} in
+AAD \\
+Confusione direzione/messaggio & \passthrough{\lstinline!sender\_role!}
+e \passthrough{\lstinline!msg\_type!} in AAD \\
+\end{longtable}
+
+\subsection{Minacce fuori scope}\label{minacce-fuori-scope}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 2\tabcolsep) * \real{0.5000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Minaccia
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Motivazione
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Jamming BLE & Attacco fisico/radio non mitigabile a livello
+applicativo \\
+Side-channel su microcontrollore & Richiede contromisure hardware
+specifiche \\
+Compromissione endpoint & Se l'endpoint è compromesso, la chiave può
+essere esfiltrata \\
+Errori utente nel SAS & Il protocollo richiede confronto umano
+corretto \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Protocollo PQ-BLE-HANDSHAKE}\label{capitolo-4---protocollo-pq-ble-handshake}
+
+\subsection{Service GATT}\label{service-gatt}
+
+Il firmware espone un servizio custom:
+
+\begin{lstlisting}
+Service UUID: 12345678-1234-1234-1234-123456789abc
+\end{lstlisting}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 6\tabcolsep) * \real{0.2500}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Characteristic
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+UUID
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Proprietà
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Funzione
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Public Key & \passthrough{\lstinline!...9abd!} & READ & Espone una public key ML-KEM-768 valida (value handle \texttt{0x0012}) \\
+Ciphertext & \passthrough{\lstinline!...9abe!} & WRITE & Riceve il ciphertext ML-KEM dal central (value handle \texttt{0x0014}) \\
+Secure Data & \passthrough{\lstinline!...9abf!} & NOTIFY & Invia la notification raw demo (value handle \texttt{0x0016}, CCCD \texttt{0x0017}) \\
+Control & \passthrough{\lstinline!...9ac0!} & WRITE & Riceve comandi come \passthrough{\lstinline!START!} (value handle \texttt{0x0019}) \\
+\end{longtable}
+
+\subsection{Flusso ideale del
+protocollo}\label{flusso-ideale-del-protocollo}
+
+Nel protocollo completo ideale:
+
+\begin{lstlisting}
+Peripheral                           Central
+
+keygen() -> pk, sk
+espone pk via GATT READ       ->      legge pk
+
+                                  encapsulate(pk) -> ct, ss
+riceve ct via GATT WRITE      <-      scrive ct
+
+decapsulate(sk, ct) -> ss
+
+derive_sas(pk, ct, ss)              derive_sas(pk, ct, ss)
+confronto umano SAS
+
+HKDF(ss) -> session_key             HKDF(ss) -> session_key
+
+AES-256-GCM applicativo su GATT NOTIFY/WRITE
+\end{lstlisting}
+
+\subsection{Stato reale dell'implementazione
+hardware}\label{stato-reale-dellimplementazione-hardware}
+
+L'implementazione firmware attuale non esegue ancora il flusso completo
+sul DK. Il DK:
+
+\begin{itemize}
+\tightlist
+\item
+  espone il servizio GATT custom e una public key ML-KEM-768 valida da
+  1184 byte, generata offline dallo script
+  \texttt{scripts/generate\_firmware\_public\_key.py};
+\item
+  permette al central di verificare il fingerprint SHA-256 della chiave
+  letta via BLE, pari a
+  \texttt{660da9e73485e45ac35a3a6cd4d65fe39efe161bb01444893733c102566ee912};
+\item
+  riceve e riassembla il ciphertext da 1088 byte;
+\item
+  gestisce il comando \passthrough{\lstinline!START!};
+\item
+  invia una notification raw dimostrativa da 57 byte.
+\end{itemize}
+
+La secret key associata alla public key non è stata persistita e non è
+presente nella repository. Di conseguenza, la chiave pubblica usata dal
+central è autenticamente una chiave ML-KEM, ma il DK non può ancora
+eseguire la decapsulazione. Questa scelta evita di presentare come
+end-to-end una prova che, allo stato attuale, è deliberatamente limitata
+al trasporto.
+
+Il central Python esegue invece:
+
+\begin{itemize}
+\tightlist
+\item
+  ML-KEM encapsulation;
+\item
+  SAS derivation;
+\item
+  HKDF;
+\item
+  AES-GCM secure channel nei test Python.
+\end{itemize}
+
+Questo significa che la demo hardware valida il \textbf{trasporto
+BLE/GATT reale}, non ancora la crittografia end-to-end completamente
+eseguita sul microcontrollore.
+
+\subsection{Frammentazione}\label{frammentazione}
+
+Il materiale ML-KEM è più grande dei payload ATT normalmente
+trasportabili in un singolo pacchetto. Il progetto usa un header
+applicativo da 4 byte:
+
+\begin{lstlisting}
+idx (1 byte) || total (1 byte) || payload_len (2 byte)
+\end{lstlisting}
+
+Con MTU 247, validato nella demo Windows, il payload utile per frammento
+ciphertext è:
+
+\begin{lstlisting}
+247 - 4 = 243 byte
+\end{lstlisting}
+
+Quindi il ciphertext ML-KEM da 1088 byte viene scritto in:
+
+\begin{lstlisting}
+ceil(1088 / 243) = 5 frammenti
+\end{lstlisting}
+
+La public key da 1184 byte viene invece letta tramite long read ATT, con
+read blob successivi.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Implementazione}\label{capitolo-5---implementazione}
+
+\subsection{Stack tecnologico}\label{stack-tecnologico}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Componente
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Tecnologia
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Ruolo
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Python & 3.13 su Windows, 3.x su Linux & Implementazione protocollo e
+test \\
+liboqs-python / liboqs & ML-KEM-768 & Primitive post-quantum \\
+cryptography & HKDF, AES-GCM & Canale cifrato applicativo \\
+bleak & BLE central & Scan, connect, read/write/notify \\
+Zephyr / nRF Connect SDK & Firmware nRF54L15 DK & Peripheral GATT \\
+Wireshark + nRF Sniffer & Cattura passiva & Validazione
+osservazionale \\
+\end{longtable}
+
+\subsection{Struttura del
+repository}\label{struttura-del-repository}
+
+\begin{lstlisting}
+pq-ble-handshake/
+|--- src/
+|   |--- common/                  # ML-KEM, SAS, sessioni, frammentazione
+|   `--- central/                 # Bleak central e demo hardware
+|--- firmware/
+|   `--- nrf54l15_pq_gatt_skeleton/
+|       |--- src/main.c
+|       `--- src/demo_public_key.h
+|--- scripts/
+|   `--- generate_firmware_public_key.py
+|--- tests/                       # 101 test attivi
+|--- benchmarks/
+|   |--- run_all.ps1
+|   `--- results/                 # output TXT e JSON misurati
+|--- docs/
+|   |--- images/                  # cinque screenshot Wireshark
+|   |--- captures/                # catture PCAPNG
+|   `--- hardware-validation-log.txt
+|--- report/                      # sorgente LaTeX e PDF
+`--- data/keys/                   # store sessioni locale, non versionato
+\end{lstlisting}
+
+La cartella \passthrough{\lstinline!experimental/peripheral/!} non è
+parte della demo hardware reale. La demo reale usa il firmware Zephyr su
+nRF54L15 DK.
+
+\subsection{Moduli Python
+principali}\label{moduli-python-principali}
+
+\subsubsection{\texorpdfstring{\texttt{common/ml\_kem.py}}{common/ml\_kem.py}}\label{commonml_kem.py}
+
+Wrapper per ML-KEM-768. Le funzioni principali sono:
+
+\begin{lstlisting}[language=Python]
+generate_keypair() -> (public_key, secret_key)
+encapsulate(public_key) -> (ciphertext, shared_secret)
+decapsulate(secret_key, ciphertext) -> shared_secret
+\end{lstlisting}
+
+Durante la validazione su Windows è stata aggiunta la conversione
+esplicita \passthrough{\lstinline!bytes(...)!} sugli input e sugli
+output, perché Bleak può restituire dati GATT come
+\passthrough{\lstinline!bytearray!}, mentre
+\passthrough{\lstinline!liboqs-python!} si aspetta buffer compatibili
+con \passthrough{\lstinline!bytes!}.
+
+\begin{lstlisting}[style=pythonstyle,caption={Normalizzazione dei buffer per liboqs.}]
+public_key = bytes(public_key)
+ciphertext = bytes(ciphertext)
+\end{lstlisting}
+
+\subsubsection{\texorpdfstring{\texttt{common/fragmentation.py}}{common/fragmentation.py}}\label{commonfragmentation.py}
+
+Implementa:
+
+\begin{itemize}
+\tightlist
+\item
+  \passthrough{\lstinline!Fragment.encode()!};
+\item
+  \passthrough{\lstinline!Fragment.decode()!};
+\item
+  \passthrough{\lstinline!fragment\_data()!};
+\item
+  \passthrough{\lstinline!reassemble\_data()!}.
+\end{itemize}
+
+Gestisce casi di errore come frammenti mancanti, duplicati o header non
+validi. Il formato applicativo è esplicito e indipendente dal mapping
+interno scelto dal backend ATT:
+
+\begin{lstlisting}[style=pythonstyle,caption={Header applicativo dei frammenti PQ-BLE.}]
+header = bytes([index, total]) + payload_len.to_bytes(2, "big")
+wire_fragment = header + payload
+\end{lstlisting}
+
+\subsubsection{\texorpdfstring{\texttt{common/sas.py}}{common/sas.py}}\label{commonsas.py}
+
+Deriva e formatta il SAS a 6 cifre. I test verificano determinismo,
+sensibilità ai cambiamenti e formato.
+
+\begin{lstlisting}[style=pythonstyle,caption={Derivazione del SAS dalla trascrizione.}]
+transcript = public_key + ciphertext + shared_secret
+digest = hashlib.sha256(transcript).digest()
+sas = int.from_bytes(digest[:4], "big") % 1_000_000
+\end{lstlisting}
+
+\subsubsection{\texorpdfstring{\texttt{common/session.py}}{common/session.py}}\label{commonsession.py}
+
+Implementa:
+
+\begin{itemize}
+\tightlist
+\item
+  derivazione della session key con HKDF-SHA256;
+\item
+  canale AES-256-GCM;
+\item
+  AAD con \passthrough{\lstinline!session\_id!}, ruolo, sequence number
+  e tipo messaggio;
+\item
+  replay protection e rifiuto di messaggi fuori ordine.
+\end{itemize}
+
+\begin{lstlisting}[style=pythonstyle,caption={Costruzione dell'Additional Authenticated Data.}]
+def _build_aad(self, seq_num, sender_role, msg_type):
+    return (
+        self.session_id
+        + sender_role
+        + seq_num.to_bytes(8, "big")
+        + msg_type
+    )
+\end{lstlisting}
+
+Il wire format risultante aggiunge 37 byte al plaintext: 8 byte di
+sequence number, 1 byte di tipo, 12 byte di IV e 16 byte di tag GCM.
+
+\subsubsection{\texorpdfstring{\texttt{common/session\_store.py}}{common/session\_store.py}}\label{commonsession_store.py}
+
+Implementa uno store JSON per session resumption. Ogni sessione salva:
+
+\begin{itemize}
+\tightlist
+\item
+  \passthrough{\lstinline!session\_id!};
+\item
+  \passthrough{\lstinline!session\_key!};
+\item
+  timestamp di creazione;
+\item
+  contatore di resume riusciti.
+\end{itemize}
+
+Una sessione è invalidata al raggiungimento del primo dei due limiti:
+24 ore oppure 100 resume riusciti. La lettura preliminare non incrementa
+il contatore; l'incremento avviene soltanto dopo una risposta
+\texttt{RESUME\_OK}. Timeout e risposte negative non consumano un uso.
+
+\begin{lstlisting}[style=pythonstyle,caption={Il contatore viene consumato solo dopo un resume accettato.}]
+session_key = store.load(session_id, increment_usage=False)
+response = await wait_resume_response()
+if response == RESUME_OK_NOTIFY:
+    store.mark_used(session_id)
+\end{lstlisting}
+
+\subsubsection{\texorpdfstring{\texttt{central/ble\_client.py}}{central/ble\_client.py}}\label{centralble_client.py}
+
+Gestisce il central BLE:
+
+\begin{itemize}
+\tightlist
+\item
+  scan del dispositivo;
+\item
+  connessione;
+\item
+  lettura della public key;
+\item
+  scrittura frammentata del ciphertext;
+\item
+  invio comandi di controllo;
+\item
+  subscription alle notification.
+\end{itemize}
+
+\subsubsection{\texorpdfstring{\texttt{central/handshake.py}}{central/handshake.py}}\label{centralhandshake.py}
+
+Orchestra il protocollo lato central:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  tentativo di session resume;
+\item
+  fallback a full handshake;
+\item
+  lettura public key;
+\item
+  ML-KEM encapsulation;
+\item
+  scrittura ciphertext;
+\item
+  SAS;
+\item
+  derivazione session key;
+\item
+  salvataggio sessione.
+\end{enumerate}
+
+\subsubsection{\texorpdfstring{\texttt{central/secure\_channel.py}}{central/secure\_channel.py}}\label{centralsecure_channel.py}
+
+Gestisce la ricezione delle notification. È stata aggiunta una modalità:
+
+\begin{lstlisting}[language=Python]
+start_receiving(decrypt_notifications=False)
+\end{lstlisting}
+
+Questa modalità è usata nella demo hardware, perché il firmware attuale
+invia una notification raw e non un payload AES-GCM coerente con la
+session key del central.
+
+\subsection{Firmware nRF54L15 DK}\label{firmware-nrf54l15-dk}
+
+Il firmware Zephyr in
+\passthrough{\lstinline!firmware/nrf54l15\_pq\_gatt\_skeleton/!}
+implementa un peripheral BLE reale.
+
+Funzionalità validate:
+
+\begin{itemize}
+\tightlist
+\item
+  advertising come \passthrough{\lstinline!PQ-BLE-Device!};
+\item
+  service custom PQ-BLE;
+\item
+  Public Key READ;
+\item
+  Ciphertext WRITE;
+\item
+  Control WRITE;
+\item
+  Secure Data NOTIFY;
+\item
+  CCCD;
+\item
+  gestione MTU;
+\item
+  accumulo frammenti ciphertext;
+\item
+  invio reale con \passthrough{\lstinline!bt\_gatt\_notify()!}.
+\end{itemize}
+
+Configurazione rilevante:
+
+\begin{lstlisting}
+CONFIG_BT=y
+CONFIG_BT_PERIPHERAL=y
+CONFIG_BT_DEVICE_NAME="PQ-BLE-Device"
+CONFIG_BT_SMP=n
+\end{lstlisting}
+
+\passthrough{\lstinline!CONFIG\_BT\_SMP=n!} è intenzionale: il progetto
+dimostra una protezione applicativa sopra GATT e non usa il pairing
+BLE/SMP.
+
+\subsection{Stato del firmware}\label{stato-del-firmware}
+
+Il firmware è stato compilato e flashato con successo su nRF54L15 DK.
+La versione corrente espone una public key ML-KEM-768 valida generata
+offline e ne rende verificabile il fingerprint attraverso il log del
+central. Il materiale segreto non viene salvato. Il firmware resta quindi
+una \textbf{BLE/GATT transport validation firmware}: riceve e riassembla
+il ciphertext, ma non esegue ancora:
+
+\begin{itemize}
+\tightlist
+\item
+  key generation o decapsulation ML-KEM on-chip;
+\item
+  HKDF e AES-GCM on-chip;
+\item
+  session store persistente su flash;
+\item
+  generazione di una notification cifrata con la stessa session key del
+  central.
+\end{itemize}
+
+La notification da 57 byte è esplicitamente un payload raw dimostrativo.
+Questa distinzione impedisce di sovrastimare il risultato sperimentale.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Validazione sperimentale e benchmark}\label{capitolo-6---validazione-sperimentale-e-benchmark}
+
+\subsection{Test automatizzati}\label{test-automatizzati}
+
+La suite attiva contiene \textbf{101 test passanti}.
+
+\begin{lstlisting}[language=bash]
+python -m pytest tests/ -v
+\end{lstlisting}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3000}}
+  >{\raggedleft\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.4000}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3000}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+File
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
+Test attivi
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cosa verifica
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\passthrough{\lstinline!test\_ml\_kem.py!} & 6 & ML-KEM keygen,
+encapsulation, decapsulation, roundtrip \\
+\passthrough{\lstinline!test\_fragmentation.py!} & 14 & Frammentazione,
+riassemblaggio, missing, duplicati, MTU variabili \\
+\passthrough{\lstinline!test\_sas.py!} & 12 & SAS a 6 cifre,
+determinismo, sensibilità, distribuzione \\
+\passthrough{\lstinline!test\_session.py!} & 22 & HKDF, AES-GCM, AAD,
+replay, out-of-order, tampering \\
+\passthrough{\lstinline!test\_session\_store.py!} & 23 & Session ID,
+resume, store, expiry, usage counter \\
+\passthrough{\lstinline!test\_handshake\_mock.py!} & 2 & Pipeline
+completa senza BLE reale \\
+\passthrough{\lstinline!test\_mitm\_simulation.py!} & 2 & MITM detection
+tramite SAS mismatch \\
+\passthrough{\lstinline!test\_firmware\_uuids.py!} & 3 & Device name,
+SMP disabled, \passthrough{\lstinline!bt\_gatt\_notify()!} \\
+\passthrough{\lstinline!test\_central\_transport\_mock.py!} & 17 &
+Read/write frammentati con mock GATT \\
+\textbf{Totale} & \textbf{101} & Validazione proof-of-concept \\
+\end{longtable}
+
+Alcuni test legacy di parsing automatico degli UUID firmware sono stati
+commentati perché dipendevano da un formato precedente delle
+dichiarazioni C. La coerenza degli UUID è verificata tramite sorgente
+firmware, nRF Connect Mobile e cattura reale.
+
+\subsection{Test MITM}\label{test-mitm}
+
+La simulazione MITM genera una keypair legittima e una keypair
+dell'attaccante. Il central incapsula contro la public key sostituita
+dal MITM, mentre il peripheral legittimo usa una trascrizione diversa.
+Il risultato atteso è un SAS diverso.
+
+\begin{lstlisting}
+pk_A, sk_A = keypair legittima
+pk_M, sk_M = keypair MITM
+
+Central usa pk_M
+Peripheral legittimo usa pk_A
+
+sas_central != sas_peripheral
+\end{lstlisting}
+
+Questo dimostra che un MITM che sostituisce la public key viene rilevato
+se il SAS viene confrontato correttamente.
+
+\subsection{Validazione firmware
+build/flash}\label{validazione-firmware-buildflash}
+
+Il firmware è stato compilato su Windows usando nRF Connect SDK e
+target:
+
+\begin{lstlisting}
+nrf54l15dk/nrf54l15/cpuapp
+\end{lstlisting}
+
+Per evitare problemi di path length su Windows, la build è stata
+eseguita anche da:
+
+\begin{lstlisting}
+C:/myfw/pq
+\end{lstlisting}
+
+Risultato della validazione:
+
+\begin{lstlisting}
+Firmware build: OK
+Firmware flash: OK
+Board flashed successfully
+\end{lstlisting}
+
+\subsection{Validazione manuale con nRF Connect
+Mobile}\label{validazione-manuale-con-nrf-connect-mobile}
+
+Da telefono è stato verificato che:
+
+\begin{itemize}
+\tightlist
+\item
+  il device appare come \passthrough{\lstinline!PQ-BLE-Device!};
+\item
+  la connessione BLE avviene correttamente;
+\item
+  la public key è leggibile;
+\item
+  le notification sono abilitabili;
+\item
+  il comando \passthrough{\lstinline!START!} viene ricevuto.
+\end{itemize}
+
+Log rappresentativo lato DK:
+
+\begin{lstlisting}
+PK read: offset=0, len=246
+PK read: offset=246, len=246
+PK read: offset=492, len=246
+Notifications ENABLED
+Control write: len=5
+Control data: START
+Received START command
+START received but ciphertext not yet written
+\end{lstlisting}
+
+L'ultimo messaggio è corretto se \passthrough{\lstinline!START!} viene
+inviato prima del ciphertext.
+
+\subsection{Demo hardware PC central \textless-\textgreater{}
+nRF54L15 DK}\label{demo-hardware-pc-central---nrf54l15-dk}
+
+La demo reale è stata eseguita con:
+
+\begin{lstlisting}[language=bash]
+python -m src.central.main --device PQ-BLE-Device --demo --no-sas-confirm --log-level DEBUG
+\end{lstlisting}
+
+Risultato ottenuto:
+
+\begin{lstlisting}
+Found PQ-BLE-Device
+Connected
+Read public key: 1184 bytes
+Public key SHA-256: 660da9e73485e45ac35a3a6cd4d65fe39efe161bb01444893733c102566ee912
+Encapsulate: ct=1088 bytes, ss=32 bytes
+Writing ciphertext: 1088 bytes in 5 fragments
+Ciphertext written
+SAS derived
+Session key: 32 bytes
+START sent
+Raw demo notification received: 57 bytes
+BLE/GATT transport validation completed.
+\end{lstlisting}
+
+Questa prova dimostra che:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  il PC scopre il DK;
+\item
+  la connessione BLE avviene;
+\item
+  la public key ML-KEM-768 valida da 1184 byte viene letta e il suo fingerprint SHA-256 viene verificato;
+\item
+  il central genera un ciphertext ML-KEM da 1088 byte;
+\item
+  il ciphertext viene scritto al DK in 5 frammenti;
+\item
+  il comando \passthrough{\lstinline!START!} viene inviato;
+\item
+  il DK risponde con una notification raw da 57 byte.
+\end{enumerate}
+
+\subsection{Cattura Wireshark con nRF52840
+Dongle}\label{cattura-wireshark-con-nrf52840-dongle}
+
+È stata acquisita una cattura passiva con nRF52840 Dongle e Wireshark,
+filtrando i pacchetti ATT/GATT con:
+
+\begin{lstlisting}
+btatt
+\end{lstlisting}
+
+Nella cattura si osservano:
+
+\begin{itemize}
+\tightlist
+\item
+  MTU exchange;
+\item
+  lettura della public key tramite ATT Read / Read Blob;
+\item
+  trasferimento del ciphertext sulla characteristic dedicata;
+\item
+  write del comando \passthrough{\lstinline!START!};
+\item
+  Handle Value Notification finale.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \safeincludegraphics[width=0.96\textwidth]{wireshark_01_mtu_exchange.png}
+  \caption{Negoziazione dell'ATT MTU tra il central Windows e il peripheral nRF54L15 DK. Il valore negoziato nella demo è 247 byte.}
+  \label{fig:wireshark-mtu}
+\end{figure}
+
+Handle osservati nella cattura:
+
+\begin{longtable}[]{@{}ll@{}}
+\toprule\noalign{}
+Funzione & Handle \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Public Key characteristic value & \passthrough{\lstinline!0x0012!} \\
+Ciphertext characteristic value & \passthrough{\lstinline!0x0014!} \\
+Secure Data characteristic value / notification & \passthrough{\lstinline!0x0016!} \\
+CCCD notification & \passthrough{\lstinline!0x0017!} \\
+Control / START & \passthrough{\lstinline!0x0019!} \\
+\end{longtable}
+
+La public key da 1184 byte viene letta con long read ATT. Con MTU 247,
+ogni read blob trasporta circa 246 byte utili, per cui si osservano
+offset successivi come:
+
+\begin{lstlisting}
+0
+246
+492
+738
+984
+\end{lstlisting}
+
+\begin{figure}[H]
+  \centering
+  \safeincludegraphics[width=0.96\textwidth]{wireshark_02_public_key_read.png}
+  \caption{Lettura lunga del materiale pubblico ML-KEM sulla characteristic con handle \texttt{0x0012}. Dopo la Read Request iniziale, le Read Blob Request usano offset crescenti.}
+  \label{fig:wireshark-public-key}
+\end{figure}
+
+Il ciphertext da 1088 byte viene scritto sulla characteristic
+\passthrough{\lstinline!0x0014!}. Su Windows/Bleak la scrittura lunga
+può apparire in Wireshark come sequenza di
+\passthrough{\lstinline!Prepare Write Request!},
+\passthrough{\lstinline!Prepare Write Response!},
+\passthrough{\lstinline!Execute Write Request!} ed
+\passthrough{\lstinline!Execute Write Response!}, oltre alla
+frammentazione L2CAP/ATT interna. Questo non contraddice la
+frammentazione applicativa: il codice PQ-BLE divide il ciphertext in 5
+frammenti logici, mentre lo stack BLE può ulteriormente mappare queste
+scritture in procedure ATT.
+
+\begin{figure}[H]
+  \centering
+  \safeincludegraphics[width=0.96\textwidth]{wireshark_03_ciphertext_write.png}
+  \caption{Trasferimento del ciphertext ML-KEM sulla characteristic con handle \texttt{0x0014}. Lo stack Windows/Bleak rappresenta le scritture lunghe mediante Prepare Write ed Execute Write.}
+  \label{fig:wireshark-ciphertext}
+\end{figure}
+
+Il comando \passthrough{\lstinline!START!} è visibile come payload
+ASCII:
+
+\begin{lstlisting}
+53 54 41 52 54
+\end{lstlisting}
+
+\begin{figure}[H]
+  \centering
+  \safeincludegraphics[width=0.96\textwidth]{wireshark_04_start_write.png}
+  \caption{Write Request del comando \texttt{START} sull'handle \texttt{0x0019}. Il valore esadecimale \texttt{5354415254} corrisponde alla stringa ASCII.}
+  \label{fig:wireshark-start}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \safeincludegraphics[width=0.96\textwidth]{wireshark_05_notification_57_bytes.png}
+  \caption{Handle Value Notification da 57 byte inviata dal DK sull'handle valore \texttt{0x0016}.}
+  \label{fig:wireshark-notification}
+\end{figure}
+
+La notification finale è visibile come ATT Handle Value Notification. Il value handle è \texttt{0x0016}, mentre \texttt{0x0017} è il CCCD usato per abilitare le notifiche.
+
+\subsection{Interpretazione della
+cattura}\label{interpretazione-della-cattura}
+
+La cattura non dimostra che il DK esegua ML-KEM o AES-GCM on-chip.
+Dimostra invece che il protocollo viene effettivamente trasportato su
+BLE ATT/GATT standard:
+
+\begin{lstlisting}
+Public key read        -> ATT Read / Read Blob
+Ciphertext transfer    -> ATT Write / Prepare Write / Execute Write
+Control START          -> ATT Write
+Firmware response      -> ATT Handle Value Notification
+\end{lstlisting}
+
+Questo è esattamente l'obiettivo della validazione hardware attuale.
+
+\subsection{Benchmark riproducibili}\label{benchmark}
+
+La suite in \texttt{benchmarks/} distingue deliberatamente il costo CPU
+delle primitive dal tempo end-to-end BLE. I risultati vengono prodotti in
+formato TXT e JSON insieme alla descrizione dell'ambiente di esecuzione
+(CPU, sistema operativo, versione Python, dipendenze e commit Git). Il
+comando Windows è:
+
+\begin{lstlisting}[style=bashstyle]
+.\benchmarks\run_all.ps1
+\end{lstlisting}
+
+\ifbenchmarkdata
+I valori seguenti provengono dagli artefatti JSON reali generati il
+\BenchGeneratedAt. Il benchmark crittografico ha utilizzato
+\BenchIterations{} iterazioni misurate, escludendo warm-up, scan,
+connessione e trasferimento GATT.
+\else
+\begin{importantbox}
+I file JSON dei benchmark non erano disponibili durante la generazione di
+questa copia. La struttura è pronta, ma i valori CPU restano marcati come
+\texttt{N/D}. Per popolarli senza modifiche manuali eseguire
+\texttt{python scripts/generate\_benchmark\_latex.py} dalla root della
+repository e ricompilare il documento.
+\end{importantbox}
+\fi
+
+\subsubsection{Latenza crittografica del full handshake}
+
+\begin{table}[H]
+\centering
+\caption{Latenza CPU delle primitive del full handshake. I tempi sono in microsecondi, salvo il totale espresso in millisecondi.}
+\label{tab:benchmark-handshake}
+\begin{tabular}{lrrr}
+\toprule
+Operazione & Media & Mediana & P99 \\
+\midrule
+ML-KEM key generation & \BenchKeygenMean & \BenchKeygenMedian & \BenchKeygenPnn \\
+ML-KEM encapsulation & \BenchEncapsMean & \BenchEncapsMedian & \BenchEncapsPnn \\
+ML-KEM decapsulation & \BenchDecapsMean & \BenchDecapsMedian & \BenchDecapsPnn \\
+SAS derivation & \BenchSasMean & -- & -- \\
+HKDF-SHA256 & \BenchHkdfMean & -- & -- \\
+\midrule
+Totale crittografico [ms] & \BenchTotalMeanMs & \BenchTotalMedianMs & \BenchTotalPnnMs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Il throughput derivato dalla media è pari a
+\BenchHandshakeRate{} full handshake crittografici al secondo sulla
+macchina di prova. Questo valore non è una misura del numero di handshake
+BLE realizzabili al secondo: nel percorso reale dominano anche discovery,
+connessione, procedure ATT e scheduling del sistema operativo.
+
+\subsubsection{Throughput CPU del canale AES-256-GCM}
+
+\begin{table}[H]
+\centering
+\caption{Throughput CPU del SecureChannel. I valori sono in KiB/s e non rappresentano il throughput radio BLE.}
+\label{tab:benchmark-throughput}
+\begin{tabular}{rrrr}
+\toprule
+Payload [B] & Cifratura & Decifratura & Overhead wire \\
+\midrule
+64 & \BenchEncSixtyFour & \BenchDecSixtyFour & 57,81\% \\
+256 & \BenchEncTwoFiftySix & \BenchDecTwoFiftySix & 14,45\% \\
+512 & \BenchEncFiveTwelve & \BenchDecFiveTwelve & 7,23\% \\
+1024 & \BenchEncOneK & \BenchDecOneK & 3,61\% \\
+4096 & \BenchEncFourK & \BenchDecFourK & 0,90\% \\
+16384 & \BenchEncSixteenK & \BenchDecSixteenK & 0,23\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+L'overhead fisso è di 37 byte per messaggio:
+
+\begin{equation}
+8_{\mathrm{seq}} + 1_{\mathrm{type}} + 12_{\mathrm{IV}} + 16_{\mathrm{tag}} = 37\ \mathrm{byte}.
+\end{equation}
+
+Per payload piccoli l'incidenza percentuale è elevata; cresce invece
+l'efficienza all'aumentare della dimensione del plaintext.
+
+\subsubsection{Frammentazione applicativa}
+
+\begin{table}[H]
+\centering
+\caption{Overhead del ciphertext ML-KEM-768 nella frammentazione applicativa.}
+\label{tab:benchmark-fragmentation}
+\begin{tabular}{rrrrrr}
+\toprule
+MTU & Payload/frag. & Frammenti & Wire [B] & Overhead & Frag./reasm. [\textmu s] \\
+\midrule
+247 & 243 & 5 & 1108 & 20 B (1,84\%) & \BenchFragMtuTwoFourSevenUs{} / \BenchReasmMtuTwoFourSevenUs \\
+512 & 508 & 3 & 1100 & 12 B (1,10\%) & \BenchFragMtuFiveTwelveUs{} / \BenchReasmMtuFiveTwelveUs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Il caso MTU 247 corrisponde alla demo reale. La public key non percorre
+questa funzione di frammentazione: viene letta mediante ATT Long Read e
+Read Blob, come mostrato dalla cattura Wireshark. I tempi di
+frammentazione e riassemblaggio misurano solamente il codice Python; non
+includono la latenza del link radio.
+\subsubsection{Distribuzione dell'overhead tra handshake e comunicazione}
+
+È importante distinguere il costo del \textit{key establishment}
+post-quantum dal costo della successiva comunicazione applicativa.
+ML-KEM-768 non viene utilizzato per cifrare ogni messaggio BLE, ma
+soltanto per permettere ai due endpoint di ottenere una stessa
+\textit{shared secret} senza trasmetterla direttamente sul canale.
+
+Durante un full handshake vengono trasferiti i due principali oggetti
+ML-KEM-768:
+
+\[
+B_{\mathrm{KEM}}
+=
+B_{\mathrm{pk}} + B_{\mathrm{ct}}
+=
+1184 + 1088
+=
+2272 \text{ byte}.
+\]
+
+Questo valore rappresenta il materiale crittografico principale e non
+include gli overhead dei livelli ATT, L2CAP e Link Layer.
+
+Nel caso realmente validato con MTU 247, il ciphertext viene suddiviso
+in cinque frammenti applicativi. Poiché ogni frammento contiene un header
+da 4 byte, il costo applicativo del trasferimento diventa:
+
+\[
+B_{\mathrm{full}}
+=
+1184 + 1088 + (5 \cdot 4)
+=
+2292 \text{ byte}.
+\]
+
+La public key non utilizza la frammentazione applicativa implementata dal
+progetto, ma viene trasferita mediante ATT Long Read e successive
+Read Blob Request. Il valore di 2292 byte non rappresenta quindi il
+numero complessivo di byte trasmessi via radio, ma il materiale
+applicativo trasportato da PQ-BLE-HANDSHAKE.
+
+Una volta ottenuta la shared secret, entrambi gli endpoint derivano una
+session key da 32 byte tramite HKDF-SHA256:
+
+\[
+K_{\mathrm{session}}
+=
+\operatorname{HKDF\text{-}SHA256}
+\left(
+SS_{\mathrm{ML\text{-}KEM}}
+\right).
+\]
+
+ML-KEM non viene più utilizzato durante il trasferimento ordinario dei
+dati. Ogni messaggio applicativo viene invece protetto mediante
+AES-256-GCM. Nel wire format implementato dal proof-of-concept vengono
+aggiunti:
+
+\[
+8_{\mathrm{seq}}
++
+1_{\mathrm{type}}
++
+12_{\mathrm{IV}}
++
+16_{\mathrm{tag}}
+=
+37 \text{ byte}.
+\]
+
+Per un plaintext di lunghezza $L$, la dimensione del messaggio protetto è
+quindi:
+
+\[
+B_{\mathrm{secure}}(L) = L + 37.
+\]
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Distribuzione dell'overhead nelle diverse fasi del protocollo.}
+    \label{tab:protocol-overhead-distribution}
+    \begin{tabular}{p{3.5cm}p{4.1cm}p{3.2cm}p{3.3cm}}
+        \hline
+        \textbf{Fase} &
+        \textbf{Materiale principale} &
+        \textbf{Costo applicativo} &
+        \textbf{Primitive utilizzate} \\
+        \hline
+
+        Full handshake &
+        Public key, ciphertext e header di frammentazione &
+        2292 byte &
+        ML-KEM-768, SAS, HKDF \\
+
+        Comunicazione nella stessa sessione &
+        Plaintext cifrato e autenticato &
+        $L + 37$ byte per messaggio &
+        AES-256-GCM \\
+
+        Session resumption &
+        Resume request e risposta positiva &
+        30 byte di controllo, prima degli overhead GATT &
+        Chiave cached e AES-256-GCM \\
+
+        Re-handshake dopo scadenza &
+        Nuova public key e nuovo ciphertext &
+        2292 byte &
+        Nuovo ML-KEM-768 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Nel protocollo Python attuale, una richiesta di resume occupa 21 byte:
+
+\[
+4_{\mathrm{magic}}
++
+1_{\mathrm{type}}
++
+16_{\mathrm{session\_id}}
+=
+21 \text{ byte},
+\]
+
+mentre la risposta \texttt{RESUME\_OK} occupa 9 byte. Il controllo di
+resume richiede quindi 30 byte applicativi, escludendo gli overhead
+ATT/GATT. Questo valore è molto inferiore ai 2292 byte del full
+handshake.
+
+La session resumption consente quindi di concentrare il maggiore costo
+post-quantum nel primo handshake e nei successivi re-handshake
+periodici. Una connessione ripresa utilizza la chiave già memorizzata e
+prosegue con AES-256-GCM, senza trasferire nuovamente la public key e il
+ciphertext ML-KEM.
+
+La comunicazione rimane resistente allo scenario
+\textit{store-now-decrypt-later}, perché la session key originaria è
+stata stabilita mediante ML-KEM-768 e i dati sono protetti con una
+chiave AES da 256 bit. La resumption presenta tuttavia un diverso
+trade-off di sicurezza: il riutilizzo della chiave memorizzata non offre
+forward secrecy completa. Se la session key cached viene sottratta da un
+endpoint, può essere compromesso tutto il traffico protetto con quella
+chiave fino al successivo full handshake.
+
+Nel proof-of-concept corrente la session resumption completa è validata
+soltanto nella componente Python. Il firmware nRF54L15 DK non dispone
+ancora di uno store persistente e non esegue la derivazione della
+session key o AES-256-GCM on-chip. I 30 byte rappresentano quindi il
+costo previsto dal protocollo implementato e testato lato software, non
+una misura ottenuta dalla demo hardware.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Incidenza dell'overhead fisso del SecureChannel.}
+    \label{tab:secure-channel-overhead}
+    \begin{tabular}{r r r}
+        \hline
+        \textbf{Plaintext} &
+        \textbf{Messaggio protetto} &
+        \textbf{Overhead} \\
+        \hline
+        20 B   & 57 B   & 185,00\% \\
+        64 B   & 101 B  & 57,81\% \\
+        256 B  & 293 B  & 14,45\% \\
+        512 B  & 549 B  & 7,23\% \\
+        1024 B & 1061 B & 3,61\% \\
+        \hline
+    \end{tabular}
+\end{table}
+
+L'overhead fisso risulta particolarmente significativo per i piccoli
+valori tipici dei sensori BLE, mentre diventa progressivamente meno
+rilevante per payload di alcune centinaia di byte. Questo costo non
+dipende direttamente da ML-KEM, ma dal wire format applicativo scelto
+per AES-256-GCM, replay protection e separazione dei messaggi.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Discussione e limiti}\label{capitolo-7---discussione-e-limiti}
+
+\subsection{Cosa è stato
+dimostrato}\label{cosa-uxe8-stato-dimostrato}
+
+Il progetto dimostra:
+
+\begin{itemize}
+\tightlist
+\item
+  correttezza della logica ML-KEM/SAS/HKDF/AES-GCM in Python;
+\item
+  replay protection e AAD binding;
+\item
+  session resumption lato Python con limiti di 24 ore e 100 resume riusciti;
+\item
+  public key ML-KEM-768 valida nel firmware e verifica del fingerprint via BLE;
+\item
+  benchmark riproducibili con output TXT/JSON;
+\item
+  trasferimento reale via BLE/GATT tra PC e nRF54L15 DK;
+\item
+  catturabilità e osservabilità del traffico con nRF52840/Wireshark.
+\end{itemize}
+
+\subsection{Cosa non è stato ancora
+dimostrato}\label{cosa-non-uxe8-stato-ancora-dimostrato}
+
+Il progetto non dimostra ancora:
+
+\begin{itemize}
+\tightlist
+\item
+  ML-KEM keygen on-chip sul DK;
+\item
+  ML-KEM decapsulation on-chip;
+\item
+  HKDF e AES-GCM on-chip;
+\item
+  cifratura end-to-end di una notification generata dal DK con la stessa
+  session key del central;
+\item
+  persistenza della session key su flash del DK;
+\item
+  consumo energetico reale del protocollo embedded completo.
+\end{itemize}
+
+\subsection{Session resumption e forward secrecy}\label{session-resumption}
+
+La session resumption riduce il costo delle riconnessioni memorizzando:
+
+\begin{lstlisting}
+session_id -> session_key
+\end{lstlisting}
+
+Il central presenta il \texttt{session\_id}; solo una risposta
+\texttt{RESUME\_OK} incrementa il contatore. Timeout e rifiuti non
+consumano un uso. Una sessione viene invalidata dopo 24 ore oppure al
+raggiungimento di 100 resume riusciti. Il centesimo resume è accettato,
+poi l'entry viene eliminata e la connessione successiva forza un nuovo
+full handshake ML-KEM.
+
+Nel firmware corrente il resume non è ancora implementato, perciò i
+tentativi hardware terminano per timeout e il central esegue il fallback.
+In produzione converrebbe inoltre provare prima la sessione più recente e
+usare un timeout breve per evitare ritardi quando sono presenti più entry
+cached.
+
+\paragraph{Trade-off di forward secrecy}
+Il resume riutilizza una session key persistita e non offre quindi forward
+secrecy piena alle sessioni riassunte. Se la chiave cached viene
+compromessa, può essere esposto il traffico protetto con quella chiave
+fino al successivo full handshake. I limiti temporale e di utilizzo
+riducono la finestra di esposizione, ma non equivalgono alla generazione
+di materiale effimero nuovo per ogni connessione. Una versione più forte
+potrebbe derivare sottochiavi per connessione e cancellare in modo sicuro
+lo stato precedente.
+
+È importante distinguere la resistenza quantistica dalla forward secrecy.
+Una sessione ripresa rimane protetta contro un attaccante passivo che
+abbia registrato il traffico, poiché la chiave cached è stata inizialmente
+derivata da ML-KEM-768 e non da ECDH P-256. Un futuro quantum computer
+non può quindi applicare l'algoritmo di Shor al traffico dell'handshake
+per ricostruire la session key.
+
+La resumption non genera però nuovo materiale post-quantum e riutilizza
+la stessa session key. La compromissione dello stato persistente di uno
+degli endpoint espone pertanto tutte le connessioni che usano quella
+chiave. I limiti di 24 ore e 100 resume riducono questa finestra, ma non
+forniscono forward secrecy piena.
+
+\subsection{Confronto con ECDH BLE
+standard}\label{confronto-con-ecdh-ble-standard}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\columnwidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Proprietà
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+ECDH-P256 BLE
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+PQ-BLE-HANDSHAKE
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Resistenza quantistica & No & Sì, lato protocollo ML-KEM \\
+Standard Bluetooth & Sì & No, proof-of-concept applicativo \\
+Materiale principale di key establishment &
+Due public key ECDH P-256, 128 B complessivi &
+Public key ML-KEM e ciphertext, 2272 B \\
+
+Cifratura dei dati successivi &
+AES-CCM a livello Link Layer &
+AES-256-GCM a livello applicativo \\
+
+Nuovo materiale asimmetrico per ogni messaggio &
+No &
+No \\
+
+Riconnessione con stato persistente &
+Riutilizzo della LTK tramite bonding &
+Riutilizzo della session key tramite resume \\
+
+Overhead applicativo per messaggio &
+Gestito principalmente dallo stack BLE &
+37 B nel wire format PQ-BLE \\
+
+Forward secrecy nelle riconnessioni &
+Non garantita dal semplice riutilizzo della LTK &
+Non garantita dal semplice riutilizzo della session key \\
+Interazione utente & dipende dal pairing & SAS esplicito \\
+Modifica stack BLE & no & no \\
+Compatibilità & universale & solo dispositivi che implementano PQ-BLE \\
+Stato del PoC & BLE standard maturo & validato come protocollo e
+trasporto hardware \\
+\end{longtable}
+
+\subsection{Limiti progettuali}\label{limiti-progettuali}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Overhead radio maggiore}: ML-KEM usa chiavi e ciphertext molto
+  più grandi di ECDH.
+\item
+  \textbf{Non è uno standard Bluetooth SIG}: è una soluzione applicativa
+  custom.
+\item
+  \textbf{SAS non scala a grandi reti IoT}: richiede confronto umano.
+\item
+  \textbf{Firmware ancora demo transport}: il DK non esegue la
+  crittografia completa.
+\item
+  \textbf{Nessuna cifratura link-layer}: SMP è disabilitato
+  intenzionalmente; la protezione è applicativa.
+\item
+  \textbf{Side-channel non trattati}: un porting embedded reale dovrebbe
+  considerare timing, cache, power analysis e RNG hardware.
+\item
+  \textbf{Notification raw nel firmware corrente}: la notification
+  finale valida il trasporto, non la decrittazione AES-GCM on-device.
+\end{enumerate}
+
+\subsection{Perché non usare direttamente il Security Manager
+BLE}\label{perchuxe9-non-usare-direttamente-il-security-manager-ble}
+
+Integrare ML-KEM direttamente nello stack BLE richiederebbe modifiche al
+Security Manager e quindi allo standard o a implementazioni specifiche
+come Zephyr/BlueZ. Questo approccio sarebbe più pulito dal punto di
+vista architetturale, ma molto più complesso e meno portabile.
+
+PQ-BLE-HANDSHAKE sceglie invece un approccio applicativo:
+
+\begin{lstlisting}
+nessuna modifica BLE stack
+compatibile con GATT standard
+più facile da prototipare
+meno integrato con link-layer security
+\end{lstlisting}
+
+Il trade-off è esplicito e coerente con un proof-of-concept
+universitario.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Conclusioni e sviluppi futuri}\label{capitolo-8---conclusioni-e-sviluppi-futuri}
+
+\subsection{Conclusioni}\label{conclusioni}
+
+Il progetto ha raggiunto l'obiettivo principale: dimostrare che è
+possibile costruire un handshake post-quantum sopra BLE GATT senza
+modificare lo stack BLE nativo.
+
+I risultati principali sono:
+
+\begin{itemize}
+\tightlist
+\item
+  implementazione Python modulare del protocollo;
+\item
+  ML-KEM-768 integrato tramite liboqs;
+\item
+  SAS Numeric Comparison;
+\item
+  session key derivation tramite HKDF-SHA256;
+\item
+  canale AES-256-GCM con AAD e replay protection;
+\item
+  session resumption lato Python;
+\item
+  101 test automatizzati passanti;
+\item
+  firmware Zephyr per nRF54L15 DK compilato e flashato;
+\item
+  demo reale PC central $\leftrightarrow$ nRF54L15 DK completata;
+\item
+  notification raw da 57 byte ricevuta;
+\item
+  cattura Wireshark con nRF52840 Dongle che mostra il trasporto
+  ATT/GATT.
+\end{itemize}
+
+La parte embedded completa, cioè ML-KEM/AES-GCM eseguiti direttamente
+sul DK, rimane uno sviluppo futuro. Tuttavia, la validazione ottenuta è
+sufficiente per dimostrare la fattibilità del trasporto BLE/GATT reale e
+la correttezza del protocollo lato software.
+
+Il principale overhead post-quantum è concentrato nel full handshake,
+durante il quale vengono trasferiti la public key e il ciphertext
+ML-KEM-768. Una volta derivata la session key, la comunicazione non
+utilizza più primitive post-quantum costose, ma procede mediante
+AES-256-GCM. Le riconnessioni possono evitare un nuovo scambio ML-KEM
+attraverso la session resumption, al costo di una minore forward secrecy
+dovuta alla persistenza della chiave.
+
+\subsection{Sviluppi futuri}\label{sviluppi-futuri}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  \textbf{Porting ML-KEM su nRF54L15}\\
+  Integrare una libreria PQC ottimizzata per Cortex-M33, misurando
+  memoria, latenza e consumo.
+\item
+  \textbf{AES-GCM/HKDF on-chip}\\
+  Derivare la session key e generare notification AES-GCM direttamente
+  sul DK.
+\item
+  \textbf{Session store su flash}\\
+  Salvare \passthrough{\lstinline!session\_id!} e session key in memoria
+  persistente del microcontrollore.
+\item
+  \textbf{Autenticazione automatica con ML-DSA}\\
+  Sostituire o affiancare il SAS con firme post-quantum.
+\item
+  \textbf{Handshake ibrido ECDH + ML-KEM}\\
+  Combinare sicurezza classica e post-quantum in modo conservativo.
+\item
+  \textbf{Benchmark energetico}\\
+  Misurare consumo radio e CPU su nRF54L15.
+\item
+  \textbf{Dissettore Wireshark e analisi automatica}\\
+  Sviluppare un dissector o uno script di post-processing capace di riconoscere automaticamente header PQ-BLE, indici dei frammenti, comandi di controllo e notification, estendendo la cattura manuale già completata.
+\item
+  \textbf{Verifica formale del protocollo}\\
+  Modellare PQ-BLE-HANDSHAKE con ProVerif o Tamarin nel modello simbolico
+  di Dolev--Yao. Le proprietà da verificare includono segretezza della
+  session key, agreement sulla trascrizione, autenticazione del peer dopo
+  confronto SAS, resistenza al replay e separazione tra sessioni e ruoli.
+\end{enumerate}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\appendix
+\section{Estratti del codice critico}
+
+Questa appendice riporta gli estratti minimi necessari a rendere la
+relazione autosufficiente. Il codice completo è disponibile nella
+repository pubblica del progetto.
+
+\subsection{Derivazione del SAS}
+\begin{lstlisting}[style=pythonstyle]
+transcript = public_key + ciphertext + shared_secret
+digest = hashlib.sha256(transcript).digest()
+sas = int.from_bytes(digest[:4], "big") % 1_000_000
+\end{lstlisting}
+
+\subsection{AAD e wire format}
+\begin{lstlisting}[style=pythonstyle]
+aad = (
+    session_id
+    + sender_role
+    + seq_num.to_bytes(8, "big")
+    + msg_type
+)
+wire = seq_num_bytes + msg_type + iv + ciphertext_and_tag
+\end{lstlisting}
+
+\subsection{Resume limitato per tempo e utilizzi}
+\begin{lstlisting}[style=pythonstyle]
+session_key = store.load(session_id, increment_usage=False)
+response = await wait_resume_response()
+if response == RESUME_OK_NOTIFY:
+    store.mark_used(session_id)
+\end{lstlisting}
+
+\subsection{Notification raw nella demo hardware}
+\begin{lstlisting}[style=pythonstyle]
+await channel.start_receiving(decrypt_notifications=False)
+await client.write_control(b"START")
+raw_payload = await channel.receive(timeout=5.0)
+\end{lstlisting}
+
+\section{Riproducibilità}
+
+\subsection{Test automatici}
+\begin{lstlisting}[style=bashstyle]
+python -m pytest tests/ -v
+# Risultato atteso: 101 passed
+\end{lstlisting}
+
+\subsection{Demo hardware}
+\begin{lstlisting}[style=bashstyle]
+python -m src.central.main --device PQ-BLE-Device --demo  --no-sas-confirm  --log-level DEBUG
+\end{lstlisting}
+
+\subsection{Build e flash del firmware}
+\begin{lstlisting}[style=bashstyle]
+west build -b nrf54l15dk/nrf54l15/cpuapp -p always
+west flash
+\end{lstlisting}
+
+\subsection{Benchmark e aggiornamento automatico della tesina}
+\begin{lstlisting}[style=bashstyle]
+.\\benchmarks\\run_all.ps1
+python scripts/generate_benchmark_latex.py
+latexmk -pdf -interaction=nonstopmode \\
+  report/tesina_pq_ble_handshake_finale_IT.tex
+\end{lstlisting}
+
+% \section{Evidenze e artefatti}
+
+% Gli artefatti principali sono organizzati come segue:
+
+% \begin{lstlisting}
+% docs/hardware-validation-log.txt
+% docs/images/*.png
+% docs/captures/*.pcapng
+% benchmarks/results/*.txt
+% benchmarks/results/*.json
+% report/tesina_pq_ble_handshake_finale_IT.tex
+% report/tesina_pq_ble_handshake_finale_IT.pdf
+% \end{lstlisting}
+
+\section*{Bibliografia}
+\addcontentsline{toc}{section}{Bibliografia}
+
+\begin{enumerate}
+\item NIST, \textbf{FIPS 203 - Module-Lattice-Based Key-Encapsulation
+Mechanism Standard}, 2024. DOI: \url{https://doi.org/10.6028/NIST.FIPS.203}.
+\item NIST, \textbf{FIPS 204 - Module-Lattice-Based Digital Signature
+Standard}, 2024. DOI: \url{https://doi.org/10.6028/NIST.FIPS.204}.
+\item NIST, \textbf{SP 800-227 - Recommendations for Key-Encapsulation
+Mechanisms}, 2025.
+\item NIST, \textbf{IR 8547 - Transition to Post-Quantum Cryptography
+Standards}, Initial Public Draft, 2024.
+\item Bluetooth SIG, \textbf{Bluetooth Core Specification 6.3}, Vol. 3,
+Parts F, G e H, 2026.
+\item H. Krawczyk e P. Eronen, \textbf{RFC 5869 - HMAC-based
+Extract-and-Expand Key Derivation Function (HKDF)}, IETF, 2010.
+\item NIST, \textbf{SP 800-38D - Recommendation for Block Cipher Modes of
+Operation: Galois/Counter Mode (GCM) and GMAC}, 2007.
+\item Open Quantum Safe, \textbf{liboqs: Open-Source Library for
+Quantum-Safe Cryptographic Algorithms}, documentazione ufficiale.
+\item H. Antila et al., \textbf{Bleak Documentation - Cross-platform
+Asynchronous BLE GATT Client for Python}, documentazione ufficiale.
+\item Zephyr Project, \textbf{Bluetooth Generic Attribute Profile (GATT)
+APIs}, documentazione ufficiale.
+\item Nordic Semiconductor, \textbf{nRF Sniffer for Bluetooth LE},
+documentazione dello strumento di sviluppo.
+\item Wireshark Foundation, \textbf{Wireshark User's Guide and Display
+Filters Reference}.
+\item B. Blanchet et al., \textbf{ProVerif: Automatic Cryptographic
+Protocol Verifier - User Manual and Tutorial}, 2023.
+\item S. Meier et al., \textbf{The Tamarin Prover for the Symbolic
+Analysis of Security Protocols}, CAV, 2013; manuale aggiornato del Tamarin
+Prover.
+\item J. Bos et al., \textbf{CRYSTALS - Kyber: a CCA-Secure
+Module-Lattice-Based KEM}, IEEE EuroS\&P, 2018.
+\item O. Regev, \textbf{On Lattices, Learning with Errors, Random Linear
+Codes, and Cryptography}, Journal of the ACM, 2009.
+\end{enumerate}
+
+\end{document}

@@ -10,12 +10,19 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.common.constants import CENTRAL_ROLE, PERIPHERAL_ROLE
+from src.common.constants import (
+    CENTRAL_ROLE,
+    PERIPHERAL_ROLE,
+    SECURE_CHANNEL_OVERHEAD,
+    SS_SIZE,
+)
+
+WIRE_OVERHEAD_BYTES = SECURE_CHANNEL_OVERHEAD
+# WIRE_OVERHEAD_BYTES = 8 + 1 + 12 + 16  # seq + msg_type + IV + GCM tag
+
 from src.common.session import SecureChannel, derive_session_key, generate_session_id
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
-WIRE_OVERHEAD_BYTES = 8 + 1 + 12 + 16  # seq + msg_type + IV + GCM tag
-
 
 def kbps(total_plaintext_bytes: int, elapsed_seconds: float) -> float:
     return (total_plaintext_bytes / 1024) / elapsed_seconds
@@ -118,8 +125,8 @@ def main() -> int:
 
         print(
             f"{size:>7} B {iterations:>8} "
-            f"{row['encrypt_kbps']['mean']:>10.0f} KB/s "
-            f"{row['decrypt_kbps']['mean']:>10.0f} KB/s "
+            f"{row['encrypt_kbps']['mean']:>10.0f} KiB/s "
+            f"{row['decrypt_kbps']['mean']:>10.0f} KiB/s "
             f"{overhead_percent:>8.1f}%"
         )
 

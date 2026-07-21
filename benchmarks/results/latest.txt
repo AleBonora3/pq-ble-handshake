@@ -1,6 +1,6 @@
 PQ-BLE-HANDSHAKE benchmark environment
-Generated: 2026-07-10 17:35:05 +02:00
-Git commit: b266dcf17e492ac79e51039f6d73132fae83d838
+Generated: 2026-07-21 16:20:11 +02:00
+Git commit: eec82e4479614d8457db954cf48720ce3ace00f8
 Python: Python 3.13.3
 OS: Microsoft Windows 11 Home 10.0.26200
 CPU: 12th Gen Intel(R) Core(TM) i7-1255U
@@ -48,27 +48,27 @@ liboqs-python faulthandler is disabled
 PQ-BLE-HANDSHAKE ÔÇö Cryptographic Handshake Benchmark
 Scope: crypto only; BLE scan/connect/GATT are excluded.
 Warm-up: 20; measured iterations: 1000
-    1/1000: total=296.40 us
-  100/1000: total=273.70 us
-  200/1000: total=232.20 us
-  300/1000: total=238.00 us
-  400/1000: total=239.80 us
-  500/1000: total=241.20 us
-  600/1000: total=246.50 us
-  700/1000: total=252.80 us
-  800/1000: total=244.20 us
-  900/1000: total=433.60 us
- 1000/1000: total=401.30 us
+    1/1000: total=536.50 us
+  100/1000: total=341.00 us
+  200/1000: total=310.40 us
+  300/1000: total=603.70 us
+  400/1000: total=359.40 us
+  500/1000: total=312.70 us
+  600/1000: total=448.20 us
+  700/1000: total=316.90 us
+  800/1000: total=318.70 us
+  900/1000: total=323.20 us
+ 1000/1000: total=767.20 us
 
 ========================================================================
-keygen             mean=   104.93 us median=    91.70 us p99=   275.40 us
-encaps             mean=   108.54 us median=    93.45 us p99=   324.10 us
-decaps             mean=    50.77 us median=    43.50 us p99=   156.80 us
-sas_derivation     mean=     5.62 us median=     4.20 us p99=    21.70 us
-hkdf_derivation    mean=     9.67 us median=     7.00 us p99=    36.50 us
+keygen             mean=   161.63 us median=   123.75 us p99=   562.30 us
+encaps             mean=   161.03 us median=   125.60 us p99=   527.10 us
+decaps             mean=    74.60 us median=    59.10 us p99=   215.20 us
+sas_derivation     mean=     8.54 us median=     5.50 us p99=    34.40 us
+hkdf_derivation    mean=    14.55 us median=     9.10 us p99=    68.60 us
 ------------------------------------------------------------------------
-TOTAL              mean=   0.2795 ms median=   0.2422 ms p99=   0.6808 ms
-Derived throughput: 3577.3 crypto handshakes/s
+TOTAL              mean=   0.4204 ms median=   0.3260 ms p99=   1.4054 ms
+Derived throughput: 2378.9 crypto handshakes/s
 ========================================================================
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\handshake_latency.json
 
@@ -82,12 +82,12 @@ Wire overhead: 37 bytes/message
 
   Payload    Iters     Enc mean     Dec mean   Overhead
 ------------------------------------------------------------
-     64 B     5000      44491 KB/s      40616 KB/s     57.8%
-    256 B     3000     162761 KB/s     139634 KB/s     14.5%
-    512 B     2000     354792 KB/s     281455 KB/s      7.2%
-   1024 B     1000     628396 KB/s     562429 KB/s      3.6%
-   4096 B      500    1833930 KB/s    1465357 KB/s      0.9%
-  16384 B      200    3509021 KB/s    2731484 KB/s      0.2%
+     64 B     5000      31976 KiB/s      28634 KiB/s     57.8%
+    256 B     3000     125437 KiB/s     105418 KiB/s     14.5%
+    512 B     2000     239123 KiB/s     193878 KiB/s      7.2%
+   1024 B     1000     465468 KiB/s     386306 KiB/s      3.6%
+   4096 B      500    1193458 KiB/s    1057950 KiB/s      0.9%
+  16384 B      200    2628523 KiB/s    1959725 KiB/s      0.2%
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\throughput.json
 
@@ -95,30 +95,23 @@ JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benc
 FRAGMENTATION
 ============================================================
 PQ-BLE-HANDSHAKE ÔÇö Fragmentation Benchmark
-MTU 247: validated hardware value; MTU 512: comparison.
+Logical fragment size 247 B: configuration used by the validated PoC; 512 B: comparison.
+Each logical fragment includes a 4-byte application header.
 CPU timings exclude BLE transfer latency.
-The public key uses ATT Long Read/Read Blob in the hardware demo; its app-fragmentation row is theoretical.
+Only the ML-KEM-768 ciphertext is application-fragmented. The public key uses ATT Long Read/Read Blob.
 
 ====================================================================================================
-MTU 247 ÔÇö application payload 243 bytes
+Logical fragment size 247 B ÔÇö application payload 243 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext (actual application write)          1088    1108     5    1.84%      3.28      4.18
-ML-KEM-768 public key (theoretical app fragmentation)     1184    1204     5    1.69%      3.33      4.20
-ML-KEM-768 shared secret                                    32      36     1   12.50%      0.83      1.46
-ECDH-P256 public key comparison                             64      68     1    6.25%      0.73      1.32
-ML-DSA signature comparison                               2420    2460    10    1.65%      5.79      6.92
+ML-KEM-768 ciphertext                                     1088    1108     5    1.84%      4.79      6.04
 
 ====================================================================================================
-MTU 512 ÔÇö application payload 508 bytes
+Logical fragment size 512 B ÔÇö application payload 508 B
 ====================================================================================================
 Data type                                                  Raw    Wire  Frag   Overh.   Frag us  Reasm us
 ---------------------------------------------------------------------------------------------------------
-ML-KEM-768 ciphertext (actual application write)          1088    1100     3    1.10%      2.19      2.85
-ML-KEM-768 public key (theoretical app fragmentation)     1184    1196     3    1.01%      2.46      3.15
-ML-KEM-768 shared secret                                    32      36     1   12.50%      0.89      1.56
-ECDH-P256 public key comparison                             64      68     1    6.25%      0.95      1.54
-ML-DSA signature comparison                               2420    2440     5    0.83%      3.96      4.75
+ML-KEM-768 ciphertext                                     1088    1100     3    1.10%      3.46      4.48
 
 JSON saved to: C:\SicInfMag\1_3\SR_Sicurezza_Reti\Progetto\pq-ble-handshake\benchmarks\results\fragmentation_overhead.json

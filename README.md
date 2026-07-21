@@ -363,6 +363,29 @@ Authenticated metadata provides:
 - message-type binding.
 
 ---
+## Where the post-quantum overhead is paid
+
+The large post-quantum objects are exchanged only during a full
+handshake:
+
+| Object | Size |
+|---|---:|
+| ML-KEM-768 public key | 1184 B |
+| ML-KEM-768 ciphertext | 1088 B |
+| Cryptographic material | 2272 B |
+| Application material at MTU 247 | 2292 B |
+
+After the session key has been derived, ML-KEM is no longer used for
+ordinary application data.
+
+The AES-256-GCM secure-channel wire format adds a fixed 37-byte
+overhead:
+
+```text
+seq_num (8) || msg_type (1) || IV (12) ||
+ciphertext || GCM tag (16)
+
+---
 
 ## Session resumption
 

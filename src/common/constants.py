@@ -18,6 +18,7 @@ KEM_ALGORITHM       = "ML-KEM-768"
 PK_SIZE             = 1184   # byte — ML-KEM-768 public key
 CT_SIZE             = 1088   # byte — ML-KEM-768 ciphertext
 SS_SIZE             = 32     # byte — shared secret
+SK_SIZE             = 2400   # byte — ML-KEM-768 decapsulation key
 
 # ── Frammentazione GATT ───────────────────────────────────────
 BLE_MTU             = 512    # byte — BLE 4.2+ default
@@ -66,3 +67,10 @@ RESUME_ACK          = b"\x02"          # RESUME_ACCEPT
 RESUME_NACK         = b"\x03"          # RESUME_REJECT
 RESUME_OK_NOTIFY    = b"RESUME_OK"     # notified on DATA char
 RESUME_FAIL_NOTIFY  = b"RESUME_FAIL"   # notified on DATA char
+
+SECURE_CHANNEL_OVERHEAD = (
+    SEQ_NUM_SIZE
+    + MSG_TYPE_SIZE
+    + GCM_IV_SIZE
+    + GCM_TAG_SIZE
+)

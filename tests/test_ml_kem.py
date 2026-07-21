@@ -2,24 +2,27 @@
 Unit tests for ML-KEM-768 wrapper.
 """
 
-import pytest
 from src.common.ml_kem import generate_keypair, encapsulate, decapsulate
-from src.common.constants import PK_SIZE, CT_SIZE, SS_SIZE
-
+from src.common.constants import PK_SIZE, SK_SIZE, CT_SIZE, SS_SIZE
 
 def test_generate_keypair_sizes():
-    """Keypair should have correct byte sizes."""
-    pk, sk = generate_keypair()
-    assert len(pk) == PK_SIZE, f"Expected {PK_SIZE} byte pk, got {len(pk)}"
-    assert len(sk) > 0, "Secret key must not be empty"
+    """ML-KEM-768 keypair must match FIPS 203 sizes."""
+    public_key, secret_key = generate_keypair()
 
+    assert len(public_key) == PK_SIZE, (
+        f"Expected {PK_SIZE}-byte public key, "
+        f"got {len(public_key)}"
+    )
+    assert len(secret_key) == SK_SIZE, (
+        f"Expected {SK_SIZE}-byte secret key, "
+        f"got {len(secret_key)}"
+    )
 
 def test_encapsulate_sizes(sample_public_key):
     """Encapsulation should produce correct sizes."""
     ct, ss = encapsulate(sample_public_key)
     assert len(ct) == CT_SIZE, f"Expected {CT_SIZE} byte ct, got {len(ct)}"
     assert len(ss) == SS_SIZE, f"Expected {SS_SIZE} byte ss, got {len(ss)}"
-
 
 def test_encapsulate_decapsulate_roundtrip():
     """Encapsulation + decapsulation should yield matching secrets."""
@@ -38,14 +41,12 @@ def test_encapsulate_different_keys_different_secrets(sample_public_key):
 
 
 def test_encapsulate_same_key_different_ciphertexts(sample_public_key):
-    """Multiple encapsulations to same PK should yield different ciphertexts."""
+    """Fresh encapsulations must produce fresh ciphertexts and secrets."""
     ct1, ss1 = encapsulate(sample_public_key)
     ct2, ss2 = encapsulate(sample_public_key)
-    # Ciphertexts should differ (probabilistic encryption)
-    assert ct1 != ct2, "ML-KEM should produce different ciphertexts"
-    # But shared secrets should also differ (FO transform)
-    # Actually with ML-KEM, same pk → same shared secret (it's a KEM)
-    # The ciphertext varies but the shared secret is the same
+
+    assert ct1 != ct2
+    assert ss1 != ss2
 
 
 def test_100_iterations_roundtrip():

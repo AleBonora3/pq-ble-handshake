@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.common.constants import CT_SIZE, PK_SIZE
+from src.common.constants import CT_SIZE, PK_SIZE, FRAGMENT_HEADER_SIZE
 from src.common.fragmentation import fragment_data, reassemble_data
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -48,36 +48,52 @@ def main() -> int:
         raise ValueError("iterations must be > 0")
 
     sizes = {
-        "ML-KEM-768 ciphertext (actual application write)": CT_SIZE,
-        "ML-KEM-768 public key (theoretical app fragmentation)": PK_SIZE,
-        "ML-KEM-768 shared secret": 32,
-        "ECDH-P256 public key comparison": 64,
-        "ML-DSA signature comparison": 2420,
-    }
+        "ML-KEM-768 ciphertext": CT_SIZE,
+    }   
 
     print("PQ-BLE-HANDSHAKE — Fragmentation Benchmark")
-    print("MTU 247: validated hardware value; MTU 512: comparison.")
+    print(
+        "Logical fragment size 247 B: configuration used by the validated PoC; "
+        "512 B: comparison."
+    )
+    print(
+        f"Each logical fragment includes a "
+        f"{FRAGMENT_HEADER_SIZE}-byte application header."
+    )
     print("CPU timings exclude BLE transfer latency.")
     print(
-        "The public key uses ATT Long Read/Read Blob in the hardware demo; "
-        "its app-fragmentation row is theoretical."
+        "Only the ML-KEM-768 ciphertext is application-fragmented. "
+        "The public key uses ATT Long Read/Read Blob."
     )
 
     result = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "cpu_iterations": args.iterations,
-        "validated_hardware_mtu": 247,
-        "comparison_mtu": 512,
-        "public_key_transport_note": (
-            "Hardware demo uses ATT Long Read/Read Blob; "
-            "app fragmentation is theoretical."
+        "measurement_scope": (
+            "Application fragmentation CPU overhead; "
+            "BLE radio and ATT transfer latency excluded"
         ),
-        "mtus": {},
+        "cpu_iterations": args.iterations,
+        "fragment_header_bytes": FRAGMENT_HEADER_SIZE,
+        "validated_logical_fragment_size_bytes": 247,
+        "comparison_logical_fragment_size_bytes": 512,
+        "ciphertext": {
+            "raw_bytes": CT_SIZE,
+            "transport": "Application fragmentation over GATT WRITE",
+        },
+        "public_key": {
+            "raw_bytes": PK_SIZE,
+            "transport": "ATT Long Read / Read Blob",
+            "application_fragmentation": False,
+        },
+        "logical_fragment_sizes": {},
     }
 
     for mtu in (247, 512):
         print("\n" + "=" * 100)
-        print(f"MTU {mtu} — application payload {mtu - 4} bytes")
+        print(
+            f"Logical fragment size {mtu} B — "
+            f"application payload {mtu - FRAGMENT_HEADER_SIZE} B"
+        )
         print("=" * 100)
         print(
             f"{'Data type':<55} {'Raw':>6} {'Wire':>7} "
@@ -100,7 +116,8 @@ def main() -> int:
             rows[name] = {
                 "raw_bytes": size,
                 "wire_bytes": wire_bytes,
-                "fragment_payload_bytes": mtu - 4,
+                "logical_fragment_size_bytes": mtu,
+                "fragment_payload_bytes": mtu - FRAGMENT_HEADER_SIZE,
                 "num_fragments": len(fragments),
                 "overhead_bytes": overhead_bytes,
                 "overhead_percent": overhead_percent,
@@ -114,7 +131,7 @@ def main() -> int:
                 f"{frag_us:>9.2f} {reasm_us:>9.2f}"
             )
 
-        result["mtus"][str(mtu)] = rows
+        result["logical_fragment_sizes"][str(mtu)] = rows
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     output = RESULTS_DIR / "fragmentation_overhead.json"

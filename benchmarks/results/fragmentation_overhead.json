@@ -1,112 +1,44 @@
 {
-  "generated_at_utc": "2026-07-10T15:35:06.456538+00:00",
+  "generated_at_utc": "2026-07-21T14:20:13.775584+00:00",
+  "measurement_scope": "Application fragmentation CPU overhead; BLE radio and ATT transfer latency excluded",
   "cpu_iterations": 10000,
-  "validated_hardware_mtu": 247,
-  "comparison_mtu": 512,
-  "public_key_transport_note": "Hardware demo uses ATT Long Read/Read Blob; app fragmentation is theoretical.",
-  "mtus": {
+  "fragment_header_bytes": 4,
+  "validated_logical_fragment_size_bytes": 247,
+  "comparison_logical_fragment_size_bytes": 512,
+  "ciphertext": {
+    "raw_bytes": 1088,
+    "transport": "Application fragmentation over GATT WRITE"
+  },
+  "public_key": {
+    "raw_bytes": 1184,
+    "transport": "ATT Long Read / Read Blob",
+    "application_fragmentation": false
+  },
+  "logical_fragment_sizes": {
     "247": {
-      "ML-KEM-768 ciphertext (actual application write)": {
+      "ML-KEM-768 ciphertext": {
         "raw_bytes": 1088,
         "wire_bytes": 1108,
+        "logical_fragment_size_bytes": 247,
         "fragment_payload_bytes": 243,
         "num_fragments": 5,
         "overhead_bytes": 20,
         "overhead_percent": 1.8382352941176472,
-        "fragmentation_mean_us": 3.28158,
-        "reassembly_mean_us": 4.1827
-      },
-      "ML-KEM-768 public key (theoretical app fragmentation)": {
-        "raw_bytes": 1184,
-        "wire_bytes": 1204,
-        "fragment_payload_bytes": 243,
-        "num_fragments": 5,
-        "overhead_bytes": 20,
-        "overhead_percent": 1.6891891891891893,
-        "fragmentation_mean_us": 3.32705,
-        "reassembly_mean_us": 4.1975
-      },
-      "ML-KEM-768 shared secret": {
-        "raw_bytes": 32,
-        "wire_bytes": 36,
-        "fragment_payload_bytes": 243,
-        "num_fragments": 1,
-        "overhead_bytes": 4,
-        "overhead_percent": 12.5,
-        "fragmentation_mean_us": 0.83093,
-        "reassembly_mean_us": 1.46422
-      },
-      "ECDH-P256 public key comparison": {
-        "raw_bytes": 64,
-        "wire_bytes": 68,
-        "fragment_payload_bytes": 243,
-        "num_fragments": 1,
-        "overhead_bytes": 4,
-        "overhead_percent": 6.25,
-        "fragmentation_mean_us": 0.73043,
-        "reassembly_mean_us": 1.32429
-      },
-      "ML-DSA signature comparison": {
-        "raw_bytes": 2420,
-        "wire_bytes": 2460,
-        "fragment_payload_bytes": 243,
-        "num_fragments": 10,
-        "overhead_bytes": 40,
-        "overhead_percent": 1.6528925619834711,
-        "fragmentation_mean_us": 5.78782,
-        "reassembly_mean_us": 6.92084
+        "fragmentation_mean_us": 4.78887,
+        "reassembly_mean_us": 6.04497
       }
     },
     "512": {
-      "ML-KEM-768 ciphertext (actual application write)": {
+      "ML-KEM-768 ciphertext": {
         "raw_bytes": 1088,
         "wire_bytes": 1100,
+        "logical_fragment_size_bytes": 512,
         "fragment_payload_bytes": 508,
         "num_fragments": 3,
         "overhead_bytes": 12,
         "overhead_percent": 1.1029411764705883,
-        "fragmentation_mean_us": 2.19373,
-        "reassembly_mean_us": 2.84787
-      },
-      "ML-KEM-768 public key (theoretical app fragmentation)": {
-        "raw_bytes": 1184,
-        "wire_bytes": 1196,
-        "fragment_payload_bytes": 508,
-        "num_fragments": 3,
-        "overhead_bytes": 12,
-        "overhead_percent": 1.0135135135135136,
-        "fragmentation_mean_us": 2.46289,
-        "reassembly_mean_us": 3.15373
-      },
-      "ML-KEM-768 shared secret": {
-        "raw_bytes": 32,
-        "wire_bytes": 36,
-        "fragment_payload_bytes": 508,
-        "num_fragments": 1,
-        "overhead_bytes": 4,
-        "overhead_percent": 12.5,
-        "fragmentation_mean_us": 0.8949199999999999,
-        "reassembly_mean_us": 1.5562
-      },
-      "ECDH-P256 public key comparison": {
-        "raw_bytes": 64,
-        "wire_bytes": 68,
-        "fragment_payload_bytes": 508,
-        "num_fragments": 1,
-        "overhead_bytes": 4,
-        "overhead_percent": 6.25,
-        "fragmentation_mean_us": 0.94564,
-        "reassembly_mean_us": 1.53528
-      },
-      "ML-DSA signature comparison": {
-        "raw_bytes": 2420,
-        "wire_bytes": 2440,
-        "fragment_payload_bytes": 508,
-        "num_fragments": 5,
-        "overhead_bytes": 20,
-        "overhead_percent": 0.8264462809917356,
-        "fragmentation_mean_us": 3.95526,
-        "reassembly_mean_us": 4.74623
+        "fragmentation_mean_us": 3.4642399999999998,
+        "reassembly_mean_us": 4.47801
       }
     }
   }

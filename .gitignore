@@ -33,10 +33,13 @@ data/keys/*
 !data/keys/README.md
 
 # LaTeX aux files
-tesina/*.aux
-tesina/*.log
-tesina/*.out
-tesina/*.pdf
-tesina/*.toc
+report/*.aux
+report/*.dvi
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.pdf
+report/*.toc
 liboqs/
 liboqs-python/
