@@ -1,493 +1,712 @@
 /*
- * PQ-BLE Handshake — nRF54L15 DK Firmware
- * ========================================
+ * PQ-BLE Handshake - nRF54L15 DK Phase 2 firmware
  *
- * GATT Peripheral for the PQ-BLE-HANDSHAKE protocol.
+ * Phase 2 proves ML-KEM-768 interoperability between liboqs on the PC and
+ * mlkem-native on the DK. It intentionally does not implement HKDF, AES-GCM,
+ * ECDH, a production RNG, or the eventual hybrid handshake.
  *
- * MODE: MLKEM_SELFTEST_WITH_PRECOMPUTED_GATT_DEMO
- *   The DK executes an isolated deterministic ML-KEM-768 self-test at
- *   startup. The BLE/GATT demo remains separate and continues to expose a
- *   precomputed ML-KEM-768 public key.
- *   The PC (Central) reads the public key, computes the ciphertext
- *   in Python, and writes it back. The DK validates the length,
- *   optionally compares with an expected ciphertext, and sends a
- *   precomputed AES-256-GCM encrypted payload via GATT Notify
- *   when it receives a START command on the Control characteristic.
- *
- * Hardware:  nRF54L15 DK (PCA10155)
- * Board:     nrf54l15dk/nrf54l15/cpuapp
- * SDK:       nRF Connect SDK >= 2.8.0 (Zephyr)
- *
- * Build:
- *   west build -b nrf54l15dk/nrf54l15/cpuapp -p always
- *   west flash
- *
- * GATT Service: 12345678-1234-1234-1234-123456789abc
- *   Public Key  (READ):    ...9abd  — ML-KEM-768 pk (1184 B, precomputed)
- *   Ciphertext  (WRITE):   ...9abe  — ML-KEM-768 ct (1088 B, fragmented)
- *   Secure Data (NOTIFY):  ...9abf  — AES-256-GCM encrypted payload
- *   Control     (WRITE):   ...9ac0  — START / SAS-confirm / resume
- *
- * Honesty note:
- *   On-chip ML-KEM is currently exercised only by the startup self-test.
- *   The GATT transport still uses the precomputed demo public key and does
- *   not decapsulate ciphertext received from the PC.
+ * The Secure Data characteristic carries only a nine-byte
+ * TEST-ONLY shared-secret diagnostic checksum. It is not authentication, a
+ * KDF, cryptographic key confirmation, or part of the final protocol.
  */
 
-#include <zephyr/kernel.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <zephyr/bluetooth/att.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <string.h>
+#include <zephyr/sys/util.h>
 
 #include "mlkem_selftest.h"
+#include "mlkem_session.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 
-/* ── Device name ── */
-#define DEVICE_NAME         "PQ-BLE-Device"
-#define DEVICE_NAME_LEN     (sizeof(DEVICE_NAME) - 1)
+#define DEVICE_NAME "PQ-BLE-Device"
+#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1U)
 
-/* ── Custom 128-bit UUIDs (match Python src/common/constants.py) ──
- *
- * BT_UUID_128_ENCODE(w32, w16_1, w16_2, w16_3, w48)
- * UUID: 12345678-1234-1234-1234-123456789abc
- */
+/* Custom UUIDs; keep synchronized with src/common/constants.py. */
 #define PQ_SERVICE_UUID \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abc)
-
+	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, \
+			   0x123456789abc)
 #define PQ_CHAR_PUBKEY_UUID \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abd)
-
+	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, \
+			   0x123456789abd)
 #define PQ_CHAR_CIPHERTEXT_UUID \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abe)
-
+	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, \
+			   0x123456789abe)
 #define PQ_CHAR_DATA_UUID \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789abf)
-
+	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, \
+			   0x123456789abf)
 #define PQ_CHAR_CONTROL_UUID \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, 0x123456789ac0)
+	BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x1234, 0x1234, \
+			   0x123456789ac0)
 
-/* ── Protocol constants (match Python constants.py) ── */
-#define ML_KEM_PK_SIZE       1184
-#define ML_KEM_CT_SIZE       1088
-#define FRAG_HEADER_SIZE     4     /* idx(1) + total(1) + len(2 BE) */
-#define MAX_FRAGMENTS        8     /* 1184 B / 508 B ≈ 3 fragments */
-#define MAX_FRAG_PAYLOAD     512
+/* Existing application fragmentation wire format. */
+#define FRAG_HEADER_SIZE 4U /* idx(1) + total(1) + payload_len(2, BE) */
+#define MAX_FRAGMENTS 8U
+#define MAX_FRAG_PAYLOAD (BT_ATT_MAX_ATTRIBUTE_LEN - FRAG_HEADER_SIZE)
 
-/* Control commands (ASCII, match Python parse_control_message) */
-#define CTRL_START           "START"
-#define CTRL_START_LEN       5
-#define CTRL_SAS_OK          "OK"
-#define CTRL_SAS_OK_LEN      2
-#define RESUME_MAGIC         "PQBL"
-#define RESUME_MAGIC_LEN     4
-#define RESUME_REQ_BYTE      0x01
+#define CTRL_START "START"
+#define CTRL_START_LEN 5U
+#define CTRL_SAS_OK "OK"
+#define CTRL_SAS_OK_LEN 2U
+#define RESUME_MAGIC "PQBL"
+#define RESUME_MAGIC_LEN 4U
+#define RESUME_REQ_BYTE 0x01U
+
+#define PQM2_MAGIC "PQM2"
+
+BUILD_ASSERT(PQ_MLKEM_CIPHERTEXT_SIZE <= UINT16_MAX,
+	     "Ciphertext reassembly offset does not fit uint16_t");
+BUILD_ASSERT(PQ_MLKEM_DIAGNOSTIC_SIZE == 9U,
+	     "Unexpected Phase 2 diagnostic size");
+
+enum ciphertext_state {
+	CIPHERTEXT_EMPTY,
+	CIPHERTEXT_RECEIVING,
+	CIPHERTEXT_READY,
+	CIPHERTEXT_CRYPTO_BUSY,
+};
+
+static uint8_t ciphertext[PQ_MLKEM_CIPHERTEXT_SIZE];
+static uint8_t fragments[MAX_FRAGMENTS][MAX_FRAG_PAYLOAD];
+static bool fragment_received[MAX_FRAGMENTS];
+static uint16_t fragment_lengths[MAX_FRAGMENTS];
+static uint8_t fragment_total;
+static enum ciphertext_state ciphertext_state = CIPHERTEXT_EMPTY;
 
 /*
- * Valid ML-KEM-768 public key generated offline.
- *
- * The corresponding secret key is intentionally not stored because the
- * current firmware validates only the BLE/GATT transport path and does
- * not perform ML-KEM decapsulation on-chip.
+ * current_conn owns one reference while connected. crypto_job_conn owns a
+ * separate reference from successful START scheduling until either disconnect
+ * or result handling. All fields below are protected by protocol_lock.
  */
-#include "demo_public_key.h"
+static K_MUTEX_DEFINE(protocol_lock);
+static struct bt_conn *current_conn;
+static struct bt_conn *crypto_job_conn;
+static uint32_t connection_generation;
+static uint32_t crypto_job_generation;
+static bool notify_enabled;
 
-_Static_assert(
-    sizeof(demo_pk) == ML_KEM_PK_SIZE,
-    "Invalid demo ML-KEM public-key size"
-);
-
-/* Precomputed/demo notification payload.
- * Format: seq(8) || msg_type(1) || iv(12) || ciphertext || tag(16)
- * Current placeholder length: 57 bytes = 8 + 1 + 12 + 20 + 16.
- *
- * In the current hardware demo, this payload is used only to validate
- * GATT notification transport. It is not encrypted with the session key
- * derived by the PC central because the DK does not perform on-chip
- * ML-KEM decapsulation/HKDF/AES-GCM yet.
- */
-static uint8_t demo_notify_payload[] = {
-    /* Placeholder — replace with real encrypted payload */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  /* seq */
-    0x01,                                              /* msg_type = DATA */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  /* iv */
-    0x00, 0x00, 0x00, 0x00,                            /* iv cont */
-    /* ciphertext placeholder — "Hello from nRF54L15!" (20 bytes) */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    /* tag placeholder (16 bytes) */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-/* Expected ciphertext (optional validation — set to all-zero to skip) */
-static uint8_t expected_ct[ML_KEM_CT_SIZE];  /* zero-initialized = skip */
-
-/* ── Buffers ── */
-static uint8_t ct_buffer[ML_KEM_CT_SIZE];
-static uint8_t ct_fragments[MAX_FRAGMENTS][MAX_FRAG_PAYLOAD + FRAG_HEADER_SIZE];
-static uint8_t ct_frag_received[MAX_FRAGMENTS];
-static uint8_t ct_frag_total = 0;
-static uint16_t ct_frag_lens[MAX_FRAGMENTS];
-static bool ct_ready = false;
-static bool notify_enabled = false;
-
-/* ── Connection ── */
-static struct bt_conn *current_conn = NULL;
-
-/* ── Forward declarations ── */
 static ssize_t read_public_key(struct bt_conn *conn,
-                               const struct bt_gatt_attr *attr,
-                               void *buf, uint16_t len, uint16_t offset);
+			       const struct bt_gatt_attr *attr,
+			       void *buf, uint16_t len, uint16_t offset);
 static ssize_t write_ciphertext(struct bt_conn *conn,
-                                const struct bt_gatt_attr *attr,
-                                const void *buf, uint16_t len,
-                                uint16_t offset, uint8_t flags);
+				const struct bt_gatt_attr *attr,
+				const void *buf, uint16_t len,
+				uint16_t offset, uint8_t flags);
 static ssize_t write_control(struct bt_conn *conn,
-                             const struct bt_gatt_attr *attr,
-                             const void *buf, uint16_t len,
-                             uint16_t offset, uint8_t flags);
+			     const struct bt_gatt_attr *attr,
+			     const void *buf, uint16_t len,
+			     uint16_t offset, uint8_t flags);
 static void ccc_config_changed(const struct bt_gatt_attr *attr,
-                               uint16_t value);
-static void send_demo_notify(void);
+			       uint16_t value);
+static void mlkem_result_ready(enum pq_mlkem_diagnostic_status status,
+			       uint32_t shared_secret_crc32);
 
-/* ── Advertising data ── */
 static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+	BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
+	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
-/* ── GATT Service Definition ──
- *
- * Attribute index reference (0-based within pq_service):
- *   [0] Primary Service declaration
- *   [1] Public Key characteristic declaration
- *   [2] Public Key characteristic value
- *   [3] Ciphertext characteristic declaration
- *   [4] Ciphertext characteristic value
- *   [5] Data characteristic declaration
- *   [6] Data characteristic value
- *   [7] CCCD for Data notifications
- *   [8] Control characteristic declaration
- *   [9] Control characteristic value
+/*
+ * Attribute indices are intentionally stable:
+ *   [0] service; [1]/[2] Public Key; [3]/[4] Ciphertext;
+ *   [5]/[6] Secure Data; [7] CCCD; [8]/[9] Control.
+ * The result notifier below deliberately uses pq_service.attrs[6].
  */
 BT_GATT_SERVICE_DEFINE(
-    pq_service,
-
-    BT_GATT_PRIMARY_SERVICE(BT_UUID_DECLARE_128(PQ_SERVICE_UUID)),
-
-    /* Public Key — READ */
-    BT_GATT_CHARACTERISTIC(
-        BT_UUID_DECLARE_128(PQ_CHAR_PUBKEY_UUID),
-        BT_GATT_CHRC_READ,
-        BT_GATT_PERM_READ,
-        read_public_key, NULL, NULL
-    ),
-
-    /* Ciphertext — WRITE (with response) */
-    BT_GATT_CHARACTERISTIC(
-        BT_UUID_DECLARE_128(PQ_CHAR_CIPHERTEXT_UUID),
-        BT_GATT_CHRC_WRITE,
-        BT_GATT_PERM_WRITE,
-        NULL, write_ciphertext, NULL
-    ),
-
-    /* Secure Data — NOTIFY */
-    BT_GATT_CHARACTERISTIC(
-        BT_UUID_DECLARE_128(PQ_CHAR_DATA_UUID),
-        BT_GATT_CHRC_NOTIFY,
-        BT_GATT_PERM_NONE,
-        NULL, NULL, NULL
-    ),
-    /* CCCD for notifications */
-    BT_GATT_CCC(ccc_config_changed,
-                BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-
-    /* Control — WRITE */
-    BT_GATT_CHARACTERISTIC(
-        BT_UUID_DECLARE_128(PQ_CHAR_CONTROL_UUID),
-        BT_GATT_CHRC_WRITE,
-        BT_GATT_PERM_WRITE,
-        NULL, write_control, NULL
-    ),
+	pq_service,
+	BT_GATT_PRIMARY_SERVICE(BT_UUID_DECLARE_128(PQ_SERVICE_UUID)),
+	BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(PQ_CHAR_PUBKEY_UUID),
+			       BT_GATT_CHRC_READ, BT_GATT_PERM_READ,
+			       read_public_key, NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(PQ_CHAR_CIPHERTEXT_UUID),
+			       BT_GATT_CHRC_WRITE, BT_GATT_PERM_WRITE,
+			       NULL, write_ciphertext, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(PQ_CHAR_DATA_UUID),
+			       BT_GATT_CHRC_NOTIFY, BT_GATT_PERM_NONE,
+			       NULL, NULL, NULL),
+	BT_GATT_CCC(ccc_config_changed,
+		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+	BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(PQ_CHAR_CONTROL_UUID),
+			       BT_GATT_CHRC_WRITE, BT_GATT_PERM_WRITE,
+			       NULL, write_control, NULL),
 );
 
-/* ── GATT Callbacks ── */
+BUILD_ASSERT(ARRAY_SIZE(attr_pq_service) == 10U,
+	     "GATT layout changed: review fixed Secure Data attribute index 6");
+
+static const char *ciphertext_state_name(enum ciphertext_state state)
+{
+	switch (state) {
+	case CIPHERTEXT_EMPTY:
+		return "EMPTY";
+	case CIPHERTEXT_RECEIVING:
+		return "RECEIVING";
+	case CIPHERTEXT_READY:
+		return "CT_READY";
+	case CIPHERTEXT_CRYPTO_BUSY:
+		return "CRYPTO_BUSY";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+/* Caller holds protocol_lock. This never changes CRYPTO_BUSY by itself. */
+static void clear_transfer_storage_locked(void)
+{
+	fragment_total = 0U;
+	memset(fragment_received, 0, sizeof(fragment_received));
+	memset(fragment_lengths, 0, sizeof(fragment_lengths));
+	memset(fragments, 0, sizeof(fragments));
+	memset(ciphertext, 0, sizeof(ciphertext));
+}
+
+/* Caller holds protocol_lock. */
+static void begin_transfer_locked(uint8_t total)
+{
+	clear_transfer_storage_locked();
+	fragment_total = total;
+	ciphertext_state = CIPHERTEXT_RECEIVING;
+	LOG_INF("Ciphertext state: RECEIVING (total fragments %u)", total);
+}
 
 static ssize_t read_public_key(struct bt_conn *conn,
-                               const struct bt_gatt_attr *attr,
-                               void *buf, uint16_t len, uint16_t offset)
+			       const struct bt_gatt_attr *attr,
+			       void *buf, uint16_t len, uint16_t offset)
 {
-    LOG_INF("PK read: offset=%u, len=%u", offset, len);
-    return bt_gatt_attr_read(conn, attr, buf, len, offset,
-                             demo_pk, sizeof(demo_pk));
+	const uint8_t *public_key;
+	size_t public_key_len;
+
+	public_key = pq_mlkem_session_public_key(&public_key_len);
+	if (public_key == NULL) {
+		LOG_ERR("Public-key read rejected: keypair unavailable "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_KEYPAIR_UNAVAILABLE);
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+
+	LOG_INF("Public-key read: offset=%u, len=%u", offset, len);
+	return bt_gatt_attr_read(conn, attr, buf, len, offset,
+				 public_key, (uint16_t)public_key_len);
 }
 
 static ssize_t write_ciphertext(struct bt_conn *conn,
-                                const struct bt_gatt_attr *attr,
-                                const void *buf, uint16_t len,
-                                uint16_t offset, uint8_t flags)
+				const struct bt_gatt_attr *attr,
+				const void *buf, uint16_t len,
+				uint16_t offset, uint8_t flags)
 {
-    LOG_INF("CT write: offset=%u, len=%u", offset, len);
+	const uint8_t *data = buf;
+	uint16_t payload_len;
+	uint8_t idx;
+	uint8_t total;
+	size_t assembled_len = 0U;
+	bool all_received = true;
 
-    if (len < FRAG_HEADER_SIZE) {
-        LOG_ERR("CT fragment too short: %u < %u", len, FRAG_HEADER_SIZE);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-    }
+	ARG_UNUSED(attr);
+	ARG_UNUSED(flags);
 
-    /* Parse fragment header: [idx:1][total:1][payload_len:2 BE] */
-    const uint8_t *data = (const uint8_t *)buf;
-    uint8_t idx = data[0];
-    uint8_t total = data[1];
-    uint16_t payload_len = (data[2] << 8) | data[3];
+	if (offset != 0U) {
+		LOG_ERR("Ciphertext fragment has invalid ATT offset: %u", offset);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+	}
+	if (len < FRAG_HEADER_SIZE) {
+		LOG_ERR("Ciphertext fragment too short: %u", len);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
-    /* Validate */
-    if (idx >= MAX_FRAGMENTS || total > MAX_FRAGMENTS || total == 0) {
-        LOG_ERR("CT fragment idx/total invalid: idx=%u total=%u",
-                idx, total);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-    }
+	idx = data[0];
+	total = data[1];
+	payload_len = ((uint16_t)data[2] << 8) | data[3];
 
-    if (payload_len != (len - FRAG_HEADER_SIZE)) {
-        LOG_ERR("CT payload_len mismatch: header=%u, actual=%u",
-                payload_len, len - FRAG_HEADER_SIZE);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-    }
+	if (total == 0U || total > MAX_FRAGMENTS || idx >= total ||
+	    idx >= MAX_FRAGMENTS) {
+		LOG_ERR("Ciphertext fragment index/total invalid: idx=%u total=%u",
+			idx, total);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
+	if (payload_len == 0U || payload_len > MAX_FRAG_PAYLOAD ||
+	    payload_len != (uint16_t)(len - FRAG_HEADER_SIZE)) {
+		LOG_ERR("Ciphertext fragment length invalid: header=%u actual=%u",
+			payload_len, len - FRAG_HEADER_SIZE);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
-    if (payload_len > MAX_FRAG_PAYLOAD) {
-        LOG_ERR("CT payload too large: %u > %u", payload_len, MAX_FRAG_PAYLOAD);
-        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-    }
+	k_mutex_lock(&protocol_lock, K_FOREVER);
 
-    /* Store fragment */
-    ct_frag_total = total;
-    ct_frag_received[idx] = 1;
-    ct_frag_lens[idx] = payload_len;
-    memcpy(ct_fragments[idx], data + FRAG_HEADER_SIZE, payload_len);
+	if (conn != current_conn) {
+		LOG_ERR("Ciphertext fragment rejected: stale connection");
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
+		LOG_WRN("Ciphertext fragment rejected: state CRYPTO_BUSY");
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
 
-    LOG_INF("CT fragment %u/%u stored (%u bytes payload)",
-            idx + 1, ct_frag_total, payload_len);
+	if (ciphertext_state == CIPHERTEXT_EMPTY ||
+	    ciphertext_state == CIPHERTEXT_READY) {
+		/* Index zero is the unambiguous boundary for a new transfer. */
+		if (idx != 0U) {
+			LOG_ERR("New ciphertext transfer must start at fragment zero");
+			k_mutex_unlock(&protocol_lock);
+			return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+		}
+		begin_transfer_locked(total);
+	} else if (ciphertext_state == CIPHERTEXT_RECEIVING) {
+		if (total != fragment_total) {
+			LOG_ERR("Inconsistent ciphertext fragment total: got %u, "
+				"expected %u", total, fragment_total);
+			/*
+			 * Reject this fragment. If it claimed to be a new index-zero
+			 * boundary, also discard the stale partial transfer so a clean
+			 * retry can begin without mixing data.
+			 */
+			if (idx == 0U) {
+				clear_transfer_storage_locked();
+				ciphertext_state = CIPHERTEXT_EMPTY;
+			}
+			k_mutex_unlock(&protocol_lock);
+			return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+		}
 
-    /* Check if all fragments received */
-    bool all_received = true;
-    for (int i = 0; i < ct_frag_total; i++) {
-        if (!ct_frag_received[i]) {
-            all_received = false;
-            break;
-        }
-    }
+		if (idx == 0U && fragment_received[0]) {
+			/*
+			 * There is no transfer identifier in the frozen wire format.
+			 * Treat a repeated index zero as a safe restart, even if its
+			 * bytes match, so fragments from two transfers cannot mix.
+			 */
+			LOG_INF("Fragment zero repeated; restarting partial transfer");
+			begin_transfer_locked(total);
+		} else if (fragment_received[idx]) {
+			if (fragment_lengths[idx] == payload_len &&
+			    memcmp(fragments[idx], data + FRAG_HEADER_SIZE,
+				   payload_len) == 0) {
+				LOG_INF("Duplicate ciphertext fragment %u accepted "
+					"idempotently", idx);
+				k_mutex_unlock(&protocol_lock);
+				return len;
+			}
 
-    if (all_received && ct_frag_total > 0) {
-        /* Reassemble into ct_buffer */
-        uint16_t offset_ct = 0;
-        for (int i = 0; i < ct_frag_total; i++) {
-            if (offset_ct + ct_frag_lens[i] > ML_KEM_CT_SIZE) {
-                LOG_ERR("CT reassembly overflow: %u > %u",
-                        offset_ct + ct_frag_lens[i], ML_KEM_CT_SIZE);
-                return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-            }
-            memcpy(ct_buffer + offset_ct, ct_fragments[i], ct_frag_lens[i]);
-            offset_ct += ct_frag_lens[i];
-        }
+			LOG_ERR("Conflicting duplicate ciphertext fragment %u", idx);
+			k_mutex_unlock(&protocol_lock);
+			return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+		}
+	}
 
-        ct_ready = true;
-        LOG_INF("✅ All %u CT fragments reassembled: %u bytes",
-                ct_frag_total, offset_ct);
+	memcpy(fragments[idx], data + FRAG_HEADER_SIZE, payload_len);
+	fragment_lengths[idx] = payload_len;
+	fragment_received[idx] = true;
+	LOG_INF("Ciphertext fragment %u/%u stored (%u-byte payload)",
+		idx + 1U, fragment_total, payload_len);
 
-        /* Optional: validate against expected_ct */
-        bool has_expected = false;
-        for (int i = 0; i < ML_KEM_CT_SIZE; i++) {
-            if (expected_ct[i] != 0) {
-                has_expected = true;
-                break;
-            }
-        }
-        if (has_expected) {
-            if (memcmp(ct_buffer, expected_ct, ML_KEM_CT_SIZE) == 0) {
-                LOG_INF("CT matches expected ciphertext ✓");
-            } else {
-                LOG_WRN("CT does NOT match expected ciphertext");
-            }
-        }
-    }
+	for (uint8_t i = 0U; i < fragment_total; ++i) {
+		if (fragment_received[i]) {
+			assembled_len += fragment_lengths[i];
+		} else {
+			all_received = false;
+		}
+	}
 
-    return len;
+	if (assembled_len > sizeof(ciphertext)) {
+		LOG_ERR("Ciphertext fragments exceed ML-KEM-768 size: %zu > %zu",
+			assembled_len, sizeof(ciphertext));
+		clear_transfer_storage_locked();
+		ciphertext_state = CIPHERTEXT_EMPTY;
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
+
+	if (all_received) {
+		size_t output_offset = 0U;
+
+		if (assembled_len != sizeof(ciphertext)) {
+			LOG_ERR("Complete ciphertext has wrong size: %zu != %zu",
+				assembled_len, sizeof(ciphertext));
+			clear_transfer_storage_locked();
+			ciphertext_state = CIPHERTEXT_EMPTY;
+			k_mutex_unlock(&protocol_lock);
+			return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		}
+
+		for (uint8_t i = 0U; i < fragment_total; ++i) {
+			memcpy(ciphertext + output_offset, fragments[i],
+			       fragment_lengths[i]);
+			output_offset += fragment_lengths[i];
+		}
+		ciphertext_state = CIPHERTEXT_READY;
+		LOG_INF("Ciphertext state: CT_READY (%zu bytes)", output_offset);
+	}
+
+	k_mutex_unlock(&protocol_lock);
+	return len;
+}
+
+static ssize_t handle_start(struct bt_conn *conn, uint16_t len)
+{
+	struct bt_conn *failed_job_ref = NULL;
+	struct bt_conn *job_ref;
+	int ret;
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+
+	if (conn != current_conn) {
+		LOG_ERR("START rejected: stale connection "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	if (!pq_mlkem_session_keypair_ready()) {
+		LOG_ERR("START rejected: keypair unavailable "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_KEYPAIR_UNAVAILABLE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+	if (!notify_enabled) {
+		LOG_ERR("START rejected: Secure Data CCCD is not enabled");
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
+	}
+	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
+		LOG_WRN("START rejected: state CRYPTO_BUSY "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
+	if (ciphertext_state != CIPHERTEXT_READY) {
+		LOG_WRN("START rejected: ciphertext state %s "
+			"(PQM2 status 0x%02x)",
+			ciphertext_state_name(ciphertext_state),
+			PQ_MLKEM_STATUS_CIPHERTEXT_INCOMPLETE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+	if (crypto_job_conn != NULL) {
+		LOG_ERR("START rejected: stale crypto connection reference "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+
+	/*
+	 * Take a dedicated reference before handing work to the asynchronous
+	 * crypto path. Setting CRYPTO_BUSY before waking the worker closes the
+	 * completion race; the callback will block briefly on protocol_lock.
+	 */
+	job_ref = bt_conn_ref(conn);
+	if (job_ref == NULL) {
+		LOG_ERR("START rejected: connection reference is no longer live "
+			"(PQM2 status 0x%02x)",
+			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE);
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	crypto_job_conn = job_ref;
+	crypto_job_generation = connection_generation;
+	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
+
+	ret = pq_mlkem_session_submit(ciphertext, sizeof(ciphertext));
+	if (ret != 0) {
+		failed_job_ref = crypto_job_conn;
+		crypto_job_conn = NULL;
+		ciphertext_state = CIPHERTEXT_READY;
+		LOG_ERR("Failed to schedule ML-KEM decapsulation: %d "
+			"(PQM2 status 0x%02x)", ret,
+			PQ_MLKEM_STATUS_DECAPSULATION_FAILURE);
+		k_mutex_unlock(&protocol_lock);
+		bt_conn_unref(failed_job_ref);
+		return BT_GATT_ERR(ret == -EBUSY ?
+				   BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
+				   BT_ATT_ERR_UNLIKELY);
+	}
+
+	/* The worker has its own copy. This consumed ciphertext cannot be reused. */
+	clear_transfer_storage_locked();
+	LOG_INF("Ciphertext state: CRYPTO_BUSY; START consumed CT_READY job");
+	k_mutex_unlock(&protocol_lock);
+
+	return len;
 }
 
 static ssize_t write_control(struct bt_conn *conn,
-                             const struct bt_gatt_attr *attr,
-                             const void *buf, uint16_t len,
-                             uint16_t offset, uint8_t flags)
+			     const struct bt_gatt_attr *attr,
+			     const void *buf, uint16_t len,
+			     uint16_t offset, uint8_t flags)
 {
-    const uint8_t *data = (const uint8_t *)buf;
+	const uint8_t *data = buf;
 
-    LOG_INF("Control write: len=%u", len);
-    LOG_HEXDUMP_INF(data, len, "Control data");
+	ARG_UNUSED(attr);
+	ARG_UNUSED(flags);
 
-    /* START command — trigger demo notify */
-    if (len == CTRL_START_LEN && memcmp(data, CTRL_START, CTRL_START_LEN) == 0) {
-        LOG_INF("Received START command");
-        if (!ct_ready) {
-            LOG_WRN("START received but ciphertext not yet written");
-            return len;
-        }
-        if (!notify_enabled) {
-            LOG_WRN("START received but notifications not enabled (CCCD)");
-            return len;
-        }
-        send_demo_notify();
-        return len;
-    }
+	if (offset != 0U) {
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+	}
 
-    /* SAS confirmation "OK" */
-    if (len == CTRL_SAS_OK_LEN && memcmp(data, CTRL_SAS_OK, CTRL_SAS_OK_LEN) == 0) {
-        LOG_INF("SAS confirmation received");
-        return len;
-    }
+	LOG_INF("Control write: len=%u", len);
+	LOG_HEXDUMP_INF(data, len, "Control data");
 
-    /* Resume request: PQBL (4) + 0x01 (1) + session_id (16) = 21 bytes */
-    if (len == (RESUME_MAGIC_LEN + 1 + 16) &&
-        memcmp(data, RESUME_MAGIC, RESUME_MAGIC_LEN) == 0 &&
-        data[RESUME_MAGIC_LEN] == RESUME_REQ_BYTE) {
-        LOG_INF("Resume request received (session_id in payload)");
-        /* TODO: look up session_id in persistent store.
-         * For now, just log it. Full resume support requires
-         * flash storage on the DK. */
-        return len;
-    }
+	if (len == CTRL_START_LEN &&
+	    memcmp(data, CTRL_START, CTRL_START_LEN) == 0) {
+		LOG_INF("Received START command");
+		return handle_start(conn, len);
+	}
 
-    LOG_WRN("Unknown control message");
-    return len;
+	/* Retained legacy commands; Phase 2 does not act on either one. */
+	if (len == CTRL_SAS_OK_LEN &&
+	    memcmp(data, CTRL_SAS_OK, CTRL_SAS_OK_LEN) == 0) {
+		LOG_WRN("Legacy SAS confirmation ignored in Phase 2 mode");
+		return len;
+	}
+	if (len == (RESUME_MAGIC_LEN + 1U + 16U) &&
+	    memcmp(data, RESUME_MAGIC, RESUME_MAGIC_LEN) == 0 &&
+	    data[RESUME_MAGIC_LEN] == RESUME_REQ_BYTE) {
+		LOG_WRN("Legacy resume request ignored in Phase 2 mode");
+		return len;
+	}
+
+	LOG_WRN("Unknown control message");
+	return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
 }
 
-static void ccc_config_changed(const struct bt_gatt_attr *attr,
-                               uint16_t value)
+static void ccc_config_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
-    notify_enabled = (value == BT_GATT_CCC_NOTIFY);
-    LOG_INF("Notifications %s", notify_enabled ? "ENABLED" : "DISABLED");
+	bool enabled;
+
+	ARG_UNUSED(attr);
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	notify_enabled = (value == BT_GATT_CCC_NOTIFY);
+	enabled = notify_enabled;
+	k_mutex_unlock(&protocol_lock);
+
+	LOG_INF("Notifications %s", enabled ? "ENABLED" : "DISABLED");
 }
 
-/* ── Send precomputed demo notification ── */
-static void send_demo_notify(void)
+static void mlkem_result_ready(enum pq_mlkem_diagnostic_status status,
+			       uint32_t shared_secret_crc32)
 {
-    if (!current_conn) {
-        LOG_ERR("Cannot notify: no active connection");
-        return;
-    }
-    if (!notify_enabled) {
-        LOG_ERR("Cannot notify: CCCD not enabled");
-        return;
-    }
+	uint8_t result[PQ_MLKEM_DIAGNOSTIC_SIZE] = {
+		PQM2_MAGIC[0], PQM2_MAGIC[1], PQM2_MAGIC[2], PQM2_MAGIC[3],
+		(uint8_t)status, 0U, 0U, 0U, 0U,
+	};
+	struct bt_conn *job_conn;
+	bool connection_is_current;
+	int err;
 
-    /* Notify on the Data characteristic (attribute index 6 in pq_service).
-     * BT_GATT_SERVICE_DEFINE puts the characteristic value at a known
-     * offset. We use &pq_service.attrs[6] for the Data characteristic
-     * value attribute.
-     *
-     * NOTE: The exact index depends on the service definition order.
-     *       Verify with bt_gatt_attr_get_uuid() if uncertain. */
-    int err = bt_gatt_notify(current_conn, &pq_service.attrs[6],
-                             demo_notify_payload,
-                             sizeof(demo_notify_payload));
-    if (err) {
-        LOG_ERR("bt_gatt_notify failed: %d", err);
-    } else {
-        LOG_INF("✅ Demo notification sent: %u bytes",
-                sizeof(demo_notify_payload));
-    }
+	/*
+	 * The TEST-ONLY shared-secret diagnostic checksum is CRC-32/IEEE,
+	 * encoded unsigned with the most-significant byte first.
+	 */
+	result[5] = (uint8_t)(shared_secret_crc32 >> 24);
+	result[6] = (uint8_t)(shared_secret_crc32 >> 16);
+	result[7] = (uint8_t)(shared_secret_crc32 >> 8);
+	result[8] = (uint8_t)shared_secret_crc32;
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	job_conn = crypto_job_conn;
+	crypto_job_conn = NULL; /* Transfer ownership to this callback. */
+	connection_is_current =
+		(job_conn != NULL) &&
+		(job_conn == current_conn) &&
+		(crypto_job_generation == connection_generation) &&
+		notify_enabled;
+
+	clear_transfer_storage_locked();
+	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
+		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
+	k_mutex_unlock(&protocol_lock);
+
+	if (job_conn == NULL) {
+		LOG_WRN("ML-KEM result discarded: connection reference was "
+			"released on disconnect");
+		return;
+	}
+
+	if (!connection_is_current) {
+		LOG_WRN("ML-KEM result discarded: originating connection is stale");
+		bt_conn_unref(job_conn);
+		return;
+	}
+
+	/*
+	 * Fixed attribute index 6 is the unchanged Secure Data value. The
+	 * Zephyr host copies this nine-byte value before bt_gatt_notify returns.
+	 */
+	err = bt_gatt_notify(job_conn, &pq_service.attrs[6],
+			     result, sizeof(result));
+	if (err != 0) {
+		LOG_ERR("Phase 2 result notification failure: %d", err);
+	} else if (status == PQ_MLKEM_STATUS_SUCCESS) {
+		LOG_INF("TEST-ONLY shared-secret diagnostic checksum sent: "
+			"0x%08x", shared_secret_crc32);
+	} else {
+		LOG_INF("Phase 2 failure result sent: PQM2 status 0x%02x",
+			status);
+	}
+
+	bt_conn_unref(job_conn);
 }
-
-/* ── Connection callbacks ── */
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
-    if (err) {
-        LOG_ERR("Connection failed (err %u)", err);
-        return;
-    }
-    current_conn = bt_conn_ref(conn);
-    LOG_INF("Connected!");
+	struct bt_conn *old_current = NULL;
+	struct bt_conn *new_current;
+	uint32_t generation;
+
+	if (err != 0U) {
+		LOG_ERR("Connection failed (err %u)", err);
+		return;
+	}
+	new_current = bt_conn_ref(conn);
+	if (new_current == NULL) {
+		LOG_ERR("Connected callback could not retain connection reference");
+		return;
+	}
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (current_conn != NULL) {
+		old_current = current_conn;
+		LOG_WRN("Replacing an unexpected existing connection reference");
+	}
+	current_conn = new_current;
+	connection_generation++;
+	generation = connection_generation;
+	notify_enabled = false;
+	if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
+		clear_transfer_storage_locked();
+		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
+	k_mutex_unlock(&protocol_lock);
+
+	if (old_current != NULL) {
+		bt_conn_unref(old_current);
+	}
+	LOG_INF("Connected (generation %u)", generation);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-    LOG_INF("Disconnected (reason %u)", reason);
-    if (current_conn) {
-        bt_conn_unref(current_conn);
-        current_conn = NULL;
-    }
+	struct bt_conn *current_ref = NULL;
+	struct bt_conn *job_ref = NULL;
 
-    /* Reset state for next connection */
-    ct_frag_total = 0;
-    ct_ready = false;
-    notify_enabled = false;
-    memset(ct_frag_received, 0, sizeof(ct_frag_received));
-    memset(ct_frag_lens, 0, sizeof(ct_frag_lens));
-    memset(ct_buffer, 0, sizeof(ct_buffer));
+	LOG_INF("Disconnected (reason %u)", reason);
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (current_conn == conn) {
+		current_ref = current_conn;
+		current_conn = NULL;
+		connection_generation++;
+		notify_enabled = false;
+		clear_transfer_storage_locked();
+		if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
+			ciphertext_state = CIPHERTEXT_EMPTY;
+		}
+	}
+	if (crypto_job_conn == conn) {
+		job_ref = crypto_job_conn;
+		crypto_job_conn = NULL;
+	}
+	k_mutex_unlock(&protocol_lock);
+
+	if (job_ref != NULL) {
+		/* Worker may finish, but it can no longer notify this connection. */
+		bt_conn_unref(job_ref);
+	}
+	if (current_ref != NULL) {
+		bt_conn_unref(current_ref);
+	}
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
-    .connected = connected,
-    .disconnected = disconnected,
+	.connected = connected,
+	.disconnected = disconnected,
 };
 
-/* ── MTU update callback ── */
 static void mtu_updated(struct bt_conn *conn, uint16_t tx, uint16_t rx)
 {
-    LOG_INF("MTU updated: TX=%u, RX=%u", tx, rx);
+	ARG_UNUSED(conn);
+	LOG_INF("MTU updated: TX=%u, RX=%u", tx, rx);
 }
 
 static struct bt_gatt_cb gatt_callbacks = {
-    .att_mtu_updated = mtu_updated,
+	.att_mtu_updated = mtu_updated,
 };
 
-/* ── Main ── */
+static bool connection_active(void)
+{
+	bool active;
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	active = (current_conn != NULL);
+	k_mutex_unlock(&protocol_lock);
+	return active;
+}
 
 void main(void)
 {
-    int err;
+	int err;
 
-    LOG_INF("========================================");
-    LOG_INF("PQ-BLE Handshake — nRF54L15 DK Peripheral");
-    LOG_INF("Mode: VALID_MLKEM_PK_TRANSPORT_DEMO");
-    LOG_INF("Device: %s", DEVICE_NAME);
-    LOG_INF("========================================");
+	LOG_INF("========================================");
+	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
+	LOG_INF("Mode: PHASE2_MLKEM_E2E_TEST_ONLY");
+	LOG_INF("Device: %s", DEVICE_NAME);
+	LOG_INF("========================================");
 
-    if (!mlkem_selftest_run()) {
-        LOG_ERR("ML-KEM self-test failed; continuing BLE transport demo");
-    }
-    mlkem_selftest_report_main_stack("after complete ML-KEM self-test");
+#if defined(CONFIG_PQ_MLKEM_PHASE1_SELFTEST)
+	LOG_WRN("Opt-in Phase 1 full startup self-test enabled");
+	if (!mlkem_selftest_run()) {
+		LOG_ERR("Opt-in Phase 1 ML-KEM self-test failed");
+	}
+	mlkem_selftest_report_main_stack("after opt-in Phase 1 self-test");
+#endif
 
-    /* Initialize Bluetooth */
-    err = bt_enable(NULL);
-    if (err) {
-        LOG_ERR("bt_enable failed (err %d)", err);
-        return;
-    }
-    LOG_INF("Bluetooth initialized.");
+	/* KeyGen executes in the dedicated worker before Bluetooth is started. */
+	err = pq_mlkem_session_init(mlkem_result_ready);
+	if (err != 0) {
+		LOG_ERR("ML-KEM keypair initialization failed: %d; "
+			"Bluetooth will not start", err);
+		return;
+	}
 
-    bt_gatt_cb_register(&gatt_callbacks);
+	err = bt_enable(NULL);
+	if (err != 0) {
+		LOG_ERR("bt_enable failed (err %d)", err);
+		return;
+	}
+	LOG_INF("Bluetooth initialized");
 
-    /* Start advertising */
-    err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
-    if (err) {
-        LOG_ERR("Advertising failed (err %d)", err);
-        return;
-    }
+	bt_gatt_cb_register(&gatt_callbacks);
 
-    LOG_INF("Advertising as '%s'. Waiting for Central...", DEVICE_NAME);
-    LOG_INF("PK size: %d bytes, CT size: %d bytes",
-            ML_KEM_PK_SIZE, ML_KEM_CT_SIZE);
+	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
+	if (err != 0) {
+		LOG_ERR("Advertising failed (err %d)", err);
+		return;
+	}
 
-    /* Main loop — restart advertising if disconnected */
-    while (1) {
-        k_sleep(K_SECONDS(1));
-        if (!current_conn) {
-            bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
-        }
-    }
+	LOG_INF("Advertising as '%s'; waiting for Central", DEVICE_NAME);
+	LOG_INF("Dynamic public key: %u bytes; ciphertext: %u bytes",
+		(unsigned int)PQ_MLKEM_PUBLIC_KEY_SIZE,
+		(unsigned int)PQ_MLKEM_CIPHERTEXT_SIZE);
+
+	for (;;) {
+		k_sleep(K_SECONDS(1));
+		if (!connection_active()) {
+			(void)bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad),
+					      NULL, 0);
+		}
+	}
 }

@@ -193,6 +193,18 @@ async def test_write_fragmented_ciphertext_small_mtu():
 
 
 @pytest.mark.asyncio
+async def test_write_fragmented_ciphertext_caps_logical_frame_at_512():
+    """An ATT MTU above 512 must not create an oversized attribute value."""
+    central, mock = _make_central_with_mock(mtu=517)
+    ct = b"\xA5" * CT_SIZE
+
+    await central.write_fragmented_ciphertext(ct)
+
+    assert all(len(fragment) <= BLE_MTU for fragment in mock._written_fragments)
+    assert reassemble_data(mock._written_fragments) == ct
+
+
+@pytest.mark.asyncio
 async def test_write_fragmented_ciphertext_not_connected():
     """Should raise RuntimeError if not connected."""
     central = BLECentralClient()

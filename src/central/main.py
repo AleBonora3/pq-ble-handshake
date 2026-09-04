@@ -6,7 +6,8 @@ Usage:
 Options:
     --device NAME        BLE device name to scan for (default: PQ-BLE-Device)
     --no-sas-confirm     Skip interactive SAS confirmation (auto-accept)
-    --demo               Demo mode: send START on Control, wait for notify
+    --demo               Legacy demo: send START, wait for raw notify
+    --phase2-e2e         Run ML-KEM-768 liboqs/mlkem-native BLE interop test
     --mtu SIZE           Request specific MTU (default: negotiated by stack)
     --log-level LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)
 """
@@ -19,16 +20,23 @@ from ..common.logging_config import setup_logging
 from ..common.constants import (
     DEVICE_NAME,
     SESSION_STORE_PATH,
-    MSG_TYPE_DATA,
 )
-from ..common.session_store import SessionStore
 from .ble_client import BLECentralClient
-from .handshake import CentralHandshake
-from .secure_channel import CentralSecureChannel
+from .mlkem_e2e import Phase2E2EError, run_phase2_e2e
 
 logger = logging.getLogger("pq-ble.central.main")
 
-def parse_args():
+
+def _load_legacy_components():
+    """Import the legacy full-handshake stack only when that mode is used."""
+    from ..common.session_store import SessionStore
+    from .handshake import CentralHandshake
+    from .secure_channel import CentralSecureChannel
+
+    return SessionStore, CentralHandshake, CentralSecureChannel
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="PQ-BLE-HANDSHAKE Central (Client)"
     )
@@ -42,10 +50,22 @@ def parse_args():
         action="store_true",
         help="Skip interactive SAS confirmation (auto-accept)",
     )
-    parser.add_argument(
+    execution_mode = parser.add_mutually_exclusive_group()
+    execution_mode.add_argument(
         "--demo",
         action="store_true",
-        help="Demo mode: send START on Control and wait for raw firmware notify",
+        help=(
+            "Legacy/deprecated demo: send START on Control and wait for an "
+            "unparsed raw firmware notification"
+        ),
+    )
+    execution_mode.add_argument(
+        "--phase2-e2e",
+        action="store_true",
+        help=(
+            "Phase 2 ML-KEM-768 BLE interoperability test "
+            "(liboqs Central to mlkem-native DK)"
+        ),
     )
     parser.add_argument(
         "--mtu",
@@ -59,7 +79,71 @@ def parse_args():
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+async def _run_phase2_e2e_cli(args) -> int:
+    """Run Phase 2 without constructing any legacy handshake state."""
+    client = BLECentralClient(device_name=args.device)
+    logger.info("Scanning for peripheral '%s'...", args.device)
+    try:
+        connected = await client.scan_and_connect(timeout=15.0)
+    except Exception as exc:
+        logger.error("Phase 2 BLE scan/connect failed: %s", exc)
+        try:
+            await client.disconnect()
+        except Exception as disconnect_exc:
+            logger.warning(
+                "Phase 2 disconnect after connect failure failed: %s",
+                disconnect_exc,
+            )
+        return 1
+    if not connected:
+        logger.error(
+            "Could not find '%s'. Make sure the Phase 2 firmware is running.",
+            args.device,
+        )
+        return 1
+
+    try:
+        logger.info("=== PHASE 2 E2E: liboqs Central -> mlkem-native DK ===")
+        result = await run_phase2_e2e(client)
+        if not result.matches:
+            raise Phase2E2EError(
+                "Phase 2 runner returned mismatched diagnostic checksums"
+            )
+
+        print()
+        print(
+            "Central TEST-ONLY shared-secret diagnostic checksum: "
+            f"0x{result.central_checksum:08X}"
+        )
+        print(
+            "Peripheral TEST-ONLY shared-secret diagnostic checksum: "
+            f"0x{result.peripheral_checksum:08X}"
+        )
+        print("ML-KEM E2E SHARED SECRET MATCH: YES")
+        print()
+        print(
+            "The TEST-ONLY shared-secret diagnostic checksum is not "
+            "authentication, not a KDF, not cryptographic key confirmation, "
+            "and not part of the final protocol."
+        )
+        return 0
+    except (Phase2E2EError, RuntimeError) as exc:
+        logger.error("Phase 2 E2E failed: %s", exc)
+        print("ML-KEM E2E SHARED SECRET MATCH: NO")
+        return 1
+    except Exception as exc:
+        logger.error("Phase 2 E2E transport/encapsulation failed: %s", exc)
+        print("ML-KEM E2E SHARED SECRET MATCH: NO")
+        return 1
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning("Phase 2 disconnect failed: %s", exc)
+
 
 async def main():
     args = parse_args()
@@ -69,8 +153,15 @@ async def main():
     logger.info("=" * 50)
     logger.info("PQ-BLE-HANDSHAKE — Central (Client)")
     logger.info("=" * 50)
-    logger.info("Device: %s | Demo: %s | MTU: %s",
-                args.device, args.demo, args.mtu or "auto")
+    logger.info("Device: %s | Demo: %s | Phase 2 E2E: %s | MTU: %s",
+                args.device, args.demo, args.phase2_e2e, args.mtu or "auto")
+
+    # Exit through the isolated path before constructing SessionStore,
+    # CentralHandshake, SAS/HKDF, CentralSecureChannel, or persistence state.
+    if args.phase2_e2e:
+        return await _run_phase2_e2e_cli(args)
+
+    SessionStore, CentralHandshake, CentralSecureChannel = _load_legacy_components()
 
     # ── Session store (persistent resume cache) ──────────────
     store = SessionStore(SESSION_STORE_PATH)
@@ -129,11 +220,13 @@ async def main():
 
         # ── Demo mode: send START, wait for raw firmware notify ──
         if args.demo:
-            logger.info("=== DEMO MODE: Sending START on Control ===")
+            logger.warning(
+                "=== LEGACY/DEPRECATED DEMO MODE === Use --phase2-e2e to "
+                "validate the Phase 2 PQM2 interoperability result."
+            )
             logger.info(
-                "Hardware demo mode: notifications are received as raw bytes. "
-                "The current nRF54L15 DK firmware validates BLE/GATT transport but "
-                "does not perform on-chip ML-KEM/AES-GCM yet."
+                "Legacy demo notifications are received as raw bytes and are "
+                "not parsed or verified as a PQM2 result."
             )
 
             await channel.start_receiving(decrypt_notifications=False)

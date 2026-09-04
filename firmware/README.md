@@ -1,213 +1,215 @@
-# PQ-BLE Firmware
+# PQ-BLE nRF54L15 DK firmware
 
-Embedded peripheral implementation for PQ-BLE-HANDSHAKE.
+This is the Phase 2 experimental peripheral for PQ-BLE-HANDSHAKE.
 
-## Hardware
-
-Validated on:
+Validated target/toolchain baseline:
 
 - Nordic nRF54L15 DK
-- Target: nrf54l15dk/nrf54l15/cpuapp
+- `nrf54l15dk/nrf54l15/cpuapp`
 - nRF Connect SDK 3.0.0
 - Zephyr 4.0.99
 - Zephyr SDK 0.17.0 / GCC 12.2
 
-## Current cryptographic status
+The firmware uses the portable-C backend of the vendored mlkem-native v2.0.0
+source pinned at commit `d1b2fe782888bdb761a50336012923180be7f502`.
+Files below `third_party/mlkem-native` are upstream code and must not be edited.
 
-ML-KEM-768:
-- mlkem-native v2.0.0
-- portable C backend
-- on-device KeyGen: validated
-- on-device Encapsulation: validated
-- on-device Decapsulation: validated
-- deterministic startup self-test: PASS
+## Phase 2 behavior
 
-BLE integration:
-- public key transport: validated
-- ciphertext transport: validated
-- ML-KEM decapsulation of BLE-received ciphertext: next milestone
+At startup, a dedicated worker performs deterministic ML-KEM-768 KeyGen. The
+coins are visibly marked `TEST ONLY - NOT FOR PRODUCTION`. The 2400-byte secret
+key remains only in DK RAM: it is never logged, returned over GATT, or included
+in a notification. Bluetooth starts only after KeyGen succeeds.
 
-# nRF54L15 DK Firmware — PQ-BLE GATT Skeleton
+The generated 1184-byte public key is returned through the existing Public Key
+characteristic. The old `demo_public_key.h` file remains only as historical
+reference and is not included by the active firmware.
 
-> **STATUS**: This firmware implements a real BLE/GATT peripheral on the nRF54L15 DK.
-> It validates the BLE/GATT transport layer on real hardware and runs an
-> isolated deterministic ML-KEM-768 startup self-test.
->
-> **The self-test is not connected to GATT.** The current GATT interface still
-> uses demo/precomputed data for transport validation.
+The Phase 2 exchange is:
 
-## What this firmware does
+1. the Central subscribes to Secure Data notifications;
+2. the Central reads the dynamically generated public key;
+3. liboqs encapsulates and produces a 1088-byte ciphertext;
+4. the Central writes that ciphertext using the existing four-byte fragment
+   header (`index || total || payload_length_be16`);
+5. the Central writes `START`;
+6. the dedicated worker decapsulates with mlkem-native;
+7. the DK sends the nine-byte `PQM2` result over the unchanged Secure Data
+   characteristic.
 
-| Feature | Status |
-|---------|--------|
-| BLE advertising as `PQ-BLE-Device` | Implemented |
-| GATT Service with correct UUIDs | Implemented |
-| Public Key characteristic (READ) | Implemented |
-| Ciphertext characteristic (WRITE) | Fragment accumulation + reassembly |
-| Secure Data characteristic (NOTIFY) | Real `bt_gatt_notify()` |
-| Control characteristic (WRITE) | START command handling |
-| CCCD notification subscription | Implemented |
-| MTU negotiation logging | Implemented |
-| Deterministic ML-KEM-768 startup self-test | Implemented |
-| ML-KEM key generation used by GATT | Future work |
-| ML-KEM decapsulation of received GATT ciphertext | Future work |
-| AES-256-GCM on-chip | Future work |
-| Session store on flash | Future work |
+The result is a **TEST-ONLY shared-secret diagnostic checksum**. It is not
+authentication, not a KDF, not cryptographic key confirmation, and not part of
+the final protocol. The shared secret itself is never transmitted.
 
-## Current demo mode
+No production RNG, PSA Crypto integration, HKDF, AES-GCM, ECDH, or hybrid
+handshake is implemented in this phase.
 
-The current firmware validates the BLE/GATT transport path between:
+## Ciphertext state machine
+
+The application serializes protocol and connection state with one Zephyr
+mutex. Its explicit states are:
 
 ```text
-PC Central  ←── BLE ──→  nRF54L15 DK Peripheral
+EMPTY -> RECEIVING -> CT_READY -> CRYPTO_BUSY -> EMPTY
 ```
 
-The firmware exposes:
+- A transfer must begin with fragment index zero.
+- The first accepted fragment establishes `total`; an inconsistent total is
+  rejected. An inconsistent new index-zero attempt also clears the stale
+  partial transfer so a clean retry cannot mix fragments.
+- A repeated index-zero fragment safely restarts a partial transfer because
+  the frozen format has no transfer identifier.
+- An identical duplicate at another index is accepted idempotently; a
+  conflicting duplicate is rejected.
+- `index >= total`, invalid/empty payloads, overflow, and a complete aggregate
+  length other than mlkem-native's ML-KEM-768 ciphertext constant are rejected.
+- A new valid index-zero fragment replaces stale `CT_READY` data.
+- `START` atomically consumes `CT_READY`, copies the ciphertext into the worker
+  job, clears the reassembly storage, and enters `CRYPTO_BUSY`.
+- Fragments and another `START` are rejected while `CRYPTO_BUSY`.
+- After completion, another `START` is rejected until a new complete
+  ciphertext has arrived.
+- Disconnect clears connection-specific fragment state. If crypto is still
+  running, the state remains busy until the worker completes, so a new peer
+  cannot interleave a transfer with the old job.
 
-1. a readable Public Key characteristic;
-2. a writable Ciphertext characteristic;
-3. a notifiable Secure Data characteristic;
-4. a writable Control characteristic.
+ML-KEM decapsulation has implicit rejection semantics. A structurally valid
+modified ciphertext normally completes with `PQM2` success status but produces
+a different checksum; the expected Central outcome is `MATCH: NO`. Status
+`0x03` is reserved for a genuine local/mlkem-native API failure.
 
-The expected BLE/GATT flow is:
+## Worker, stack, and connection lifetime
 
-1. the PC central connects to the nRF54L15 DK;
-2. the PC reads the public key from the Public Key characteristic;
-3. the PC writes the ciphertext to the Ciphertext characteristic using fragmentation;
-4. the PC enables notifications on the Secure Data characteristic;
-5. the PC writes `START` to the Control characteristic;
-6. the firmware sends a demo notification with `bt_gatt_notify()`.
+`src/mlkem_session.c` owns the public key, RAM-only secret key, deterministic
+startup KeyGen, a single ciphertext job slot, decapsulation, and checksum
+calculation. A semaphore wakes the worker; a second semaphore reports startup
+completion to `main`; a module mutex protects job/keypair state.
 
-This validates the real BLE/GATT transport layer on hardware.
+The worker stack is configured at 28672 bytes. KeyGen and every Decapsulation
+log the **cumulative** worker high-water mark:
 
-The startup self-test executes deterministic ML-KEM-768 key generation,
-encapsulation, and decapsulation on the nRF54L15. It compares the two shared
-secrets and prints an explicit PASS or FAIL result. This generated keypair and
-the received GATT ciphertext are deliberately not connected yet. Session key
-derivation, AES-GCM encryption/decryption, replay protection, and secure-channel
-logic remain outside this firmware milestone.
+- configured crypto-thread stack;
+- unused stack;
+- estimated cumulative peak (`configured - unused`).
 
-## Embedded ML-KEM integration
+The worker uses preemptible priority 14. For the NCS 3.0.0 build,
+`CONFIG_NUM_PREEMPT_PRIORITIES=15`, so 14 is the lowest application
+preemptible priority. Controller/MPSL and driver RX (effective priority -10),
+HCI TX (-9), host RX (-8), the system workqueue (-1), and the Bluetooth long
+workqueue (+10) can all preempt it. The logging thread also uses +14; millisecond-scale
+logging delay while ML-KEM runs is acceptable for this experiment.
 
-The firmware vendors `pq-code-package/mlkem-native` v2.0.0 at commit
-`d1b2fe782888bdb761a50336012923180be7f502` under
-`third_party/mlkem-native`. See `third_party/mlkem-native/VENDORED.md` and the
-preserved upstream `LICENSE` for the exact source selection, configuration, and
-license attribution.
+On a successful `START`, the application obtains a dedicated
+`bt_conn_ref(conn)` for the asynchronous job in addition to the normal active
+connection reference. A monotonically increasing connection generation and
+pointer equality are both checked before notifying. Disconnect clears the
+current generation, releases both owned references when still held, and marks
+the job stale; decapsulation may finish, but its result is discarded. If result
+handling already took ownership of the job reference, it releases that
+reference after the notification attempt. The exact referenced connection is
+always used, so a replacement peer can never receive an old result.
 
-Only the portable C arithmetic and portable C FIPS-202 implementation are
-compiled. The deterministic API is enabled with fixed coins marked
-`TEST ONLY - NOT FOR PRODUCTION`; the randomized API and production RNG are not
-part of this milestone.
+## Diagnostic format
 
-The main stack is configured as 24576 B, up from the previous 20480 B after an
-on-device decapsulation stack overflow. This reserves an additional 4096 B for
-the next measurement build, and 20480 B above the original 4096 B baseline.
-`CONFIG_INIT_STACKS` and
-`CONFIG_THREAD_STACK_INFO` enable cumulative main-thread stack watermark
-reports at each self-test checkpoint. The self-test also has 4736 B of writable
-file-static result buffers plus 96 B of fixed test coins (4832 B total static
-test data). A Memory
-Report delta therefore must distinguish reserved stack, static test data,
-other BSS/data, and library code; it is not a direct measurement of ML-KEM peak
-runtime memory. Peak main-thread stack usage is measured separately at runtime.
-
-## Build and flash
-
-The normal Windows workflow remains the nRF Connect for VS Code **Actions**
-panel. Select the existing build configuration for
-`nrf54l15dk/nrf54l15/cpuapp`, run **Pristine Build** once so the new CMake and
-Kconfig settings are applied, then use **Flash**. No alternate build system or
-standalone Makefile is required.
-
-From the firmware directory:
-
-```bash
-cd firmware/nrf54l15_pq_gatt_skeleton
-west build -b nrf54l15dk/nrf54l15/cpuapp -p always
-west flash
-```
-
-On Windows, to avoid path length issues, it is recommended to copy the firmware project to a short path such as:
+The Secure Data notification is exactly nine bytes:
 
 ```text
-C:\myfw\pq
+offset  size  meaning
+0       4     ASCII "PQM2"
+4       1     status
+5       4     CRC-32/IEEE, unsigned big-endian
 ```
 
-and build from there:
+Statuses are:
+
+| Value | Meaning |
+|---:|---|
+| `0x00` | Decapsulation operation completed; checksum is meaningful |
+| `0x01` | Keypair unavailable / initialization failure |
+| `0x02` | Ciphertext incomplete |
+| `0x03` | Genuine local/API decapsulation failure |
+| `0x04` | Invalid protocol state |
+
+For non-success results, the checksum field is zero. Pre-scheduling failures
+are rejected at the GATT write with a distinct log and appropriate ATT error;
+they do not fabricate a decapsulation result. A failure from
+`bt_gatt_notify()` is logged explicitly because a failed notification cannot
+report its own failure to the peer.
+
+The firmware checks this cross-language CRC-32/IEEE vector at startup:
+
+```text
+32 zero bytes -> 0x190A55AD
+```
+
+Again, this is only a **TEST-ONLY shared-secret diagnostic checksum**.
+
+## GATT layout
+
+The service UUIDs and attribute order have not changed:
+
+| Index | Attribute |
+|---:|---|
+| 0 | Primary Service |
+| 1 | Public Key declaration |
+| 2 | Public Key value (`READ`) |
+| 3 | Ciphertext declaration |
+| 4 | Ciphertext value (`WRITE`) |
+| 5 | Secure Data declaration |
+| 6 | Secure Data value (`NOTIFY`) |
+| 7 | Secure Data CCCD |
+| 8 | Control declaration |
+| 9 | Control value (`WRITE`) |
+
+The notifier continues to use `pq_service.attrs[6]`, guarded by a compile-time
+attribute-count assertion.
+
+| Element | UUID |
+|---|---|
+| Service | `12345678-1234-1234-1234-123456789abc` |
+| Public Key | `12345678-1234-1234-1234-123456789abd` |
+| Ciphertext | `12345678-1234-1234-1234-123456789abe` |
+| Secure Data | `12345678-1234-1234-1234-123456789abf` |
+| Control | `12345678-1234-1234-1234-123456789ac0` |
+
+## Normal Phase 2 build
+
+In nRF Connect for VS Code, use the existing build configuration whose
+application directory is this `firmware` directory and whose board is
+`nrf54l15dk/nrf54l15/cpuapp`. Run **Pristine Build** after pulling these source
+and Kconfig changes, then flash from the Actions panel.
+
+CLI equivalent from this directory:
 
 ```powershell
-cd C:\myfw\pq
 west build -b nrf54l15dk/nrf54l15/cpuapp -p always
 west flash
 ```
 
-The successful build generates:
+`CONFIG_MAIN_STACK_SIZE=24576` is intentionally unchanged in Phase 2. Normal
+KeyGen and Decapsulation execute on the dedicated 28672-byte worker stack.
 
-```text
-build/merged.hex
+## Opt-in frozen Phase 1 self-test
+
+`src/mlkem_selftest.c` and `src/mlkem_selftest.h` are retained unchanged. The
+complete deterministic KeyGen -> Encapsulation -> Decapsulation regression is
+off during a normal Phase 2 boot.
+
+To select it in nRF Connect for VS Code:
+
+1. open the application's **Build Configuration**;
+2. expand **Advanced**;
+3. keep `prj.conf` as the base configuration and add
+   `phase1_selftest.conf` under **Extra Kconfig fragments**;
+4. save the configuration and run **Pristine Build**.
+
+CLI equivalent:
+
+```powershell
+west build -b nrf54l15dk/nrf54l15/cpuapp -p always -- `
+  '-DCONF_FILE=prj.conf' '-DEXTRA_CONF_FILE=phase1_selftest.conf'
 ```
 
-## Hardware setup
-
-```text
-PC (Python/Bleak)  ←── BLE ──→  nRF54L15 DK (Zephyr firmware)
-         ↑
-         │ sniffed by
-    nRF52840 Dongle (Wireshark, passive)
-```
-
-- **nRF54L15 DK**: BLE peripheral running this firmware.
-- **PC**: BLE central running the Python client.
-- **nRF52840 Dongle**: passive sniffer used with Wireshark.
-
-## UUID reference
-
-| Element | UUID | Properties |
-|---|---|---|
-| Service | `12345678-1234-1234-1234-123456789abc` | — |
-| Public Key | `12345678-1234-1234-1234-123456789abd` | READ |
-| Ciphertext | `12345678-1234-1234-1234-123456789abe` | WRITE |
-| Secure Data | `12345678-1234-1234-1234-123456789abf` | NOTIFY |
-| Control | `12345678-1234-1234-1234-123456789ac0` | WRITE |
-
-These UUIDs must match `src/common/constants.py`.
-
-## Manual validation with nRF Connect Mobile
-
-After flashing the firmware:
-
-1. scan for `PQ-BLE-Device`;
-2. connect to the device;
-3. read the Public Key characteristic;
-4. enable notifications on the Secure Data characteristic;
-5. write `START` to the Control characteristic.
-
-If `START` is sent before writing the ciphertext, the firmware correctly logs that the ciphertext has not yet been received.
-
-## Current validation status
-
-The firmware has been validated for:
-
-- successful build on nRF Connect SDK 3.0.0;
-- successful flash on nRF54L15 DK;
-- BLE advertising;
-- connection from nRF Connect Mobile;
-- MTU negotiation;
-- Public Key long read;
-- notification subscription;
-- Control write with `START`.
-
-## Future cryptographic milestones
-
-The startup self-test intentionally stops before protocol integration. Future
-work includes:
-
-1. integrate a production CSPRNG/PSA/hardware RNG;
-2. connect an on-device ML-KEM keypair to the Public Key characteristic;
-3. decapsulate the received ciphertext on-chip;
-4. derive the session key on-chip;
-5. execute AES-256-GCM on-chip;
-6. add the hybrid ECDH + ML-KEM handshake;
-7. persist session/resumption state in flash;
-8. expose SAS confirmation through UART, LEDs, buttons, or a display.
+Remove the extra fragment and pristine-build again to return to normal Phase 2
+startup. This optional regression mode is test-only; it executes the preserved
+Phase 1 test before starting the Phase 2 worker.

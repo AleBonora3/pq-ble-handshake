@@ -23,7 +23,7 @@ from src.common.constants import (
 # Path to firmware source
 FIRMWARE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "firmware", "nrf54l15_pq_gatt_skeleton", "src", "main.c",
+    "firmware", "src", "main.c",
 )
 
 # Also check the reference design firmware
@@ -63,6 +63,9 @@ def _parse_firmware_uuids(c_path: str) -> dict:
     with open(c_path, "r") as f:
         content = f.read()
 
+    # Normalize C preprocessor line continuations before matching the macro.
+    content = re.sub(r"\\\r?\n", " ", content)
+
     uuids = {}
 
     # Match: #define NAME BT_UUID_128_ENCODE(0x..., 0x..., 0x..., 0x..., 0x...)
@@ -99,59 +102,49 @@ def fw_ref_uuids():
     """Parse UUIDs from the reference design firmware."""
     return _parse_firmware_uuids(FIRMWARE_REF_PATH)
 
-# NOTE:
-# The strict firmware UUID parser tests below were disabled because the current
-# nRF54L15 DK firmware uses a different UUID declaration style from the legacy
-# parser expected by these tests.
-#
-# UUID consistency is currently validated manually through:
-# - nRF Connect Mobile GATT inspection;
-# - PC central hardware demo;
-# - firmware README UUID table.
+# ── Tests for the active firmware ──
 
-# ── Tests for nrf54l15_pq_gatt_skeleton firmware ──
-
-# def test_firmware_service_uuid_matches_python(fw_uuids):
-#     """Firmware service UUID must match Python SERVICE_UUID."""
-#     assert "PQ_SERVICE_UUID" in fw_uuids, "PQ_SERVICE_UUID not found in firmware"
-#     assert fw_uuids["PQ_SERVICE_UUID"].lower() == SERVICE_UUID.lower()
+def test_firmware_service_uuid_matches_python(fw_uuids):
+    """Firmware service UUID must match Python SERVICE_UUID."""
+    assert "PQ_SERVICE_UUID" in fw_uuids, "PQ_SERVICE_UUID not found in firmware"
+    assert fw_uuids["PQ_SERVICE_UUID"].lower() == SERVICE_UUID.lower()
 
 
-# def test_firmware_pubkey_uuid_matches_python(fw_uuids):
-#     """Firmware public key UUID must match Python CHAR_PUBKEY_UUID."""
-#     assert "PQ_CHAR_PUBKEY_UUID" in fw_uuids
-#     assert fw_uuids["PQ_CHAR_PUBKEY_UUID"].lower() == CHAR_PUBKEY_UUID.lower()
+def test_firmware_pubkey_uuid_matches_python(fw_uuids):
+    """Firmware public key UUID must match Python CHAR_PUBKEY_UUID."""
+    assert "PQ_CHAR_PUBKEY_UUID" in fw_uuids
+    assert fw_uuids["PQ_CHAR_PUBKEY_UUID"].lower() == CHAR_PUBKEY_UUID.lower()
 
 
-# def test_firmware_ciphertext_uuid_matches_python(fw_uuids):
-#     """Firmware ciphertext UUID must match Python CHAR_CIPHERTEXT_UUID."""
-#     assert "PQ_CHAR_CIPHERTEXT_UUID" in fw_uuids
-#     assert fw_uuids["PQ_CHAR_CIPHERTEXT_UUID"].lower() == CHAR_CIPHERTEXT_UUID.lower()
+def test_firmware_ciphertext_uuid_matches_python(fw_uuids):
+    """Firmware ciphertext UUID must match Python CHAR_CIPHERTEXT_UUID."""
+    assert "PQ_CHAR_CIPHERTEXT_UUID" in fw_uuids
+    assert fw_uuids["PQ_CHAR_CIPHERTEXT_UUID"].lower() == CHAR_CIPHERTEXT_UUID.lower()
 
 
-# def test_firmware_data_uuid_matches_python(fw_uuids):
-#     """Firmware data UUID must match Python CHAR_DATA_UUID."""
-#     assert "PQ_CHAR_DATA_UUID" in fw_uuids
-#     assert fw_uuids["PQ_CHAR_DATA_UUID"].lower() == CHAR_DATA_UUID.lower()
+def test_firmware_data_uuid_matches_python(fw_uuids):
+    """Firmware data UUID must match Python CHAR_DATA_UUID."""
+    assert "PQ_CHAR_DATA_UUID" in fw_uuids
+    assert fw_uuids["PQ_CHAR_DATA_UUID"].lower() == CHAR_DATA_UUID.lower()
 
 
-# def test_firmware_control_uuid_matches_python(fw_uuids):
-#     """Firmware control UUID must match Python CHAR_CONTROL_UUID."""
-#     assert "PQ_CHAR_CONTROL_UUID" in fw_uuids
-#     assert fw_uuids["PQ_CHAR_CONTROL_UUID"].lower() == CHAR_CONTROL_UUID.lower()
+def test_firmware_control_uuid_matches_python(fw_uuids):
+    """Firmware control UUID must match Python CHAR_CONTROL_UUID."""
+    assert "PQ_CHAR_CONTROL_UUID" in fw_uuids
+    assert fw_uuids["PQ_CHAR_CONTROL_UUID"].lower() == CHAR_CONTROL_UUID.lower()
 
 
-# def test_firmware_has_all_five_uuids(fw_uuids):
-#     """Firmware must define all 5 UUIDs (service + 4 characteristics)."""
-#     expected = {
-#         "PQ_SERVICE_UUID",
-#         "PQ_CHAR_PUBKEY_UUID",
-#         "PQ_CHAR_CIPHERTEXT_UUID",
-#         "PQ_CHAR_DATA_UUID",
-#         "PQ_CHAR_CONTROL_UUID",
-#     }
-#     assert expected.issubset(set(fw_uuids.keys())), \
-#         f"Missing UUIDs: {expected - set(fw_uuids.keys())}"
+def test_firmware_has_all_five_uuids(fw_uuids):
+    """Firmware must define all 5 UUIDs (service + 4 characteristics)."""
+    expected = {
+        "PQ_SERVICE_UUID",
+        "PQ_CHAR_PUBKEY_UUID",
+        "PQ_CHAR_CIPHERTEXT_UUID",
+        "PQ_CHAR_DATA_UUID",
+        "PQ_CHAR_CONTROL_UUID",
+    }
+    assert expected.issubset(set(fw_uuids.keys())), \
+        f"Missing UUIDs: {expected - set(fw_uuids.keys())}"
 
 
 # ── Tests for reference design firmware (firmware/nrf54l15/) ──
@@ -192,7 +185,7 @@ def test_firmware_smp_disabled():
     """Firmware must have SMP disabled (CONFIG_BT_SMP=n)."""
     prj_conf = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "firmware", "nrf54l15_pq_gatt_skeleton", "prj.conf",
+        "firmware", "prj.conf",
     )
     if not os.path.exists(prj_conf):
         pytest.skip("prj.conf not found")
