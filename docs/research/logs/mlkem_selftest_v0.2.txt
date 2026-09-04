@@ -1,0 +1,30 @@
+[00:00:00.012,076] <inf> mlkem_selftest: Estimated cumulative peak stack (configured - unused): 14744 B
+[00:00:00.012,080] <inf> mlkem_selftest: Key generation: OK
+[00:00:00.022,733] <inf> mlkem_selftest: Cumulative main-thread stack high-water mark: after ML-KEM Encapsulation
+[00:00:00.022,740] <inf> mlkem_selftest: Configured main stack: 24576 B
+[00:00:00.023,158] <inf> mlkem_selftest: Unused main stack: 6672 B
+[00:00:00.023,162] <inf> mlkem_selftest: Estimated cumulative peak stack (configured - unused): 17904 B
+[00:00:00.023,166] <inf> mlkem_selftest: Encapsulation: OK
+[00:00:00.036,132] <inf> mlkem_selftest: Cumulative main-thread stack high-water mark: after ML-KEM Decapsulation
+[00:00:00.036,138] <inf> mlkem_selftest: Configured main stack: 24576 B
+[00:00:00.036,257] <inf> mlkem_selftest: Unused main stack: 1840 B
+[00:00:00.036,261] <inf> mlkem_selftest: Estimated cumulative peak stack (configured - unused): 22736 B
+[00:00:00.036,266] <inf> mlkem_selftest: Decapsulation: OK
+[00:00:00.036,273] <inf> mlkem_selftest: Shared secret match: YES
+[00:00:00.036,277] <inf> mlkem_selftest: ML-KEM-768 SELF TEST: PASS
+[00:00:00.036,294] <inf> mlkem_selftest: Cumulative main-thread stack high-water mark: after complete ML-KEM self-test
+[00:00:00.036,299] <inf> mlkem_selftest: Configured main stack: 24576 B
+[00:00:00.036,417] <inf> mlkem_selftest: Unused main stack: 1840 B
+[00:00:00.036,421] <inf> mlkem_selftest: Estimated cumulative peak stack (configured - unused): 22736 B
+[00:00:00.036,530] <inf> bt_sdc_hci_driver: SoftDevice Controller build revision: 
+                                            c7 53 7d bc 06 12 f7 c0  b3 3a 3e 28 8e 56 1e d7 |.S}..... .:>(.V..
+                                            a0 be 95 b0                                      |....             
+[00:00:00.037,679] <inf> bt_hci_core: HW Platform: Nordic Semiconductor (0x0002)
+[00:00:00.037,697] <inf> bt_hci_core: HW Variant: nRF54Lx (0x0005)
+[00:00:00.037,717] <inf> bt_hci_core: Firmware: Standard Bluetooth controller (0x00) Version 199.32083 Build 4145153724
+[00:00:00.038,136] <inf> bt_hci_core: Identity: C0:48:FF:F5:9D:B8 (random)
+[00:00:00.038,159] <inf> bt_hci_core: HCI: version 6.0 (0x0e) revision 0x30e8, manufacturer 0x0059
+[00:00:00.038,176] <inf> bt_hci_core: LMP: version 6.0 (0x0e) subver 0x30e8
+[00:00:00.038,186] <inf> pq_ble: Bluetooth initialized.
+[00:00:00.038,701] <inf> pq_ble: Advertising as 'PQ-BLE-Device'. Waiting for Central...
+[00:00:00.038,711] <inf> pq_ble: PK size: 1184 bytes, CT size: 1088 bytes
