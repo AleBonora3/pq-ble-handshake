@@ -1,10 +1,40 @@
+# PQ-BLE Firmware
+
+Embedded peripheral implementation for PQ-BLE-HANDSHAKE.
+
+## Hardware
+
+Validated on:
+
+- Nordic nRF54L15 DK
+- Target: nrf54l15dk/nrf54l15/cpuapp
+- nRF Connect SDK 3.0.0
+- Zephyr 4.0.99
+- Zephyr SDK 0.17.0 / GCC 12.2
+
+## Current cryptographic status
+
+ML-KEM-768:
+- mlkem-native v2.0.0
+- portable C backend
+- on-device KeyGen: validated
+- on-device Encapsulation: validated
+- on-device Decapsulation: validated
+- deterministic startup self-test: PASS
+
+BLE integration:
+- public key transport: validated
+- ciphertext transport: validated
+- ML-KEM decapsulation of BLE-received ciphertext: next milestone
+
 # nRF54L15 DK Firmware — PQ-BLE GATT Skeleton
 
 > **STATUS**: This firmware implements a real BLE/GATT peripheral on the nRF54L15 DK.
-> It validates the BLE/GATT transport layer on real hardware.
+> It validates the BLE/GATT transport layer on real hardware and runs an
+> isolated deterministic ML-KEM-768 startup self-test.
 >
-> **It does NOT execute ML-KEM on-chip.** Full embedded post-quantum cryptography is future work.
-> The current firmware exposes the GATT interface required by the PQ-BLE handshake and uses demo/precomputed data for transport validation.
+> **The self-test is not connected to GATT.** The current GATT interface still
+> uses demo/precomputed data for transport validation.
 
 ## What this firmware does
 
@@ -18,8 +48,9 @@
 | Control characteristic (WRITE) | START command handling |
 | CCCD notification subscription | Implemented |
 | MTU negotiation logging | Implemented |
-| ML-KEM key generation on-chip | Future work |
-| ML-KEM decapsulation on-chip | Future work |
+| Deterministic ML-KEM-768 startup self-test | Implemented |
+| ML-KEM key generation used by GATT | Future work |
+| ML-KEM decapsulation of received GATT ciphertext | Future work |
 | AES-256-GCM on-chip | Future work |
 | Session store on flash | Future work |
 
@@ -49,9 +80,45 @@ The expected BLE/GATT flow is:
 
 This validates the real BLE/GATT transport layer on hardware.
 
-The cryptographic operations are not executed on the nRF54L15 DK in this firmware version. ML-KEM, session key derivation, AES-GCM encryption/decryption, replay protection, and secure channel logic are currently implemented and tested on the Python side.
+The startup self-test executes deterministic ML-KEM-768 key generation,
+encapsulation, and decapsulation on the nRF54L15. It compares the two shared
+secrets and prints an explicit PASS or FAIL result. This generated keypair and
+the received GATT ciphertext are deliberately not connected yet. Session key
+derivation, AES-GCM encryption/decryption, replay protection, and secure-channel
+logic remain outside this firmware milestone.
+
+## Embedded ML-KEM integration
+
+The firmware vendors `pq-code-package/mlkem-native` v2.0.0 at commit
+`d1b2fe782888bdb761a50336012923180be7f502` under
+`third_party/mlkem-native`. See `third_party/mlkem-native/VENDORED.md` and the
+preserved upstream `LICENSE` for the exact source selection, configuration, and
+license attribution.
+
+Only the portable C arithmetic and portable C FIPS-202 implementation are
+compiled. The deterministic API is enabled with fixed coins marked
+`TEST ONLY - NOT FOR PRODUCTION`; the randomized API and production RNG are not
+part of this milestone.
+
+The main stack is configured as 24576 B, up from the previous 20480 B after an
+on-device decapsulation stack overflow. This reserves an additional 4096 B for
+the next measurement build, and 20480 B above the original 4096 B baseline.
+`CONFIG_INIT_STACKS` and
+`CONFIG_THREAD_STACK_INFO` enable cumulative main-thread stack watermark
+reports at each self-test checkpoint. The self-test also has 4736 B of writable
+file-static result buffers plus 96 B of fixed test coins (4832 B total static
+test data). A Memory
+Report delta therefore must distinguish reserved stack, static test data,
+other BSS/data, and library code; it is not a direct measurement of ML-KEM peak
+runtime memory. Peak main-thread stack usage is measured separately at runtime.
 
 ## Build and flash
+
+The normal Windows workflow remains the nRF Connect for VS Code **Actions**
+panel. Select the existing build configuration for
+`nrf54l15dk/nrf54l15/cpuapp`, run **Pristine Build** once so the new CMake and
+Kconfig settings are applied, then use **Flash**. No alternate build system or
+standalone Makefile is required.
 
 From the firmware directory:
 
@@ -131,15 +198,16 @@ The firmware has been validated for:
 - notification subscription;
 - Control write with `START`.
 
-## Future work: on-chip ML-KEM
+## Future cryptographic milestones
 
-To execute ML-KEM-768 entirely on the nRF54L15 DK:
+The startup self-test intentionally stops before protocol integration. Future
+work includes:
 
-1. port a lightweight ML-KEM implementation to Cortex-M33;
-2. generate the ML-KEM keypair on-chip;
-3. expose the public key through GATT;
-4. decapsulate the received ciphertext on-chip;
-5. derive the session key on-chip;
-6. execute AES-256-GCM on-chip;
+1. integrate a production CSPRNG/PSA/hardware RNG;
+2. connect an on-device ML-KEM keypair to the Public Key characteristic;
+3. decapsulate the received ciphertext on-chip;
+4. derive the session key on-chip;
+5. execute AES-256-GCM on-chip;
+6. add the hybrid ECDH + ML-KEM handshake;
 7. persist session/resumption state in flash;
 8. expose SAS confirmation through UART, LEDs, buttons, or a display.

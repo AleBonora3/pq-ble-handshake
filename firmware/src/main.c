@@ -4,9 +4,10 @@
  *
  * GATT Peripheral for the PQ-BLE-HANDSHAKE protocol.
  *
- * MODE: DEMO_PRECOMPUTED_KEM
- *   The DK does NOT execute ML-KEM on-chip (that is future work).
- *   Instead, a precomputed ML-KEM-768 public key is hardcoded.
+ * MODE: MLKEM_SELFTEST_WITH_PRECOMPUTED_GATT_DEMO
+ *   The DK executes an isolated deterministic ML-KEM-768 self-test at
+ *   startup. The BLE/GATT demo remains separate and continues to expose a
+ *   precomputed ML-KEM-768 public key.
  *   The PC (Central) reads the public key, computes the ciphertext
  *   in Python, and writes it back. The DK validates the length,
  *   optionally compares with an expected ciphertext, and sends a
@@ -28,8 +29,9 @@
  *   Control     (WRITE):   ...9ac0  — START / SAS-confirm / resume
  *
  * Honesty note:
- *   This firmware validates the GATT transport layer only.
- *   Full embedded ML-KEM execution on nRF54L15 is FUTURE WORK.
+ *   On-chip ML-KEM is currently exercised only by the startup self-test.
+ *   The GATT transport still uses the precomputed demo public key and does
+ *   not decapsulate ciphertext received from the PC.
  */
 
 #include <zephyr/kernel.h>
@@ -39,6 +41,8 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
+
+#include "mlkem_selftest.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 
@@ -452,6 +456,11 @@ void main(void)
     LOG_INF("Mode: VALID_MLKEM_PK_TRANSPORT_DEMO");
     LOG_INF("Device: %s", DEVICE_NAME);
     LOG_INF("========================================");
+
+    if (!mlkem_selftest_run()) {
+        LOG_ERR("ML-KEM self-test failed; continuing BLE transport demo");
+    }
+    mlkem_selftest_report_main_stack("after complete ML-KEM self-test");
 
     /* Initialize Bluetooth */
     err = bt_enable(NULL);

@@ -25,6 +25,10 @@ liboqs/install/
 *.lib
 *.exp
 
+# Zephyr / nRF Connect build outputs
+firmware/build/
+firmware/build*/
+
 # Benchmark results (generati)
 # benchmarks/results/*.json
 
