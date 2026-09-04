@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include <mlkem_native.h>
+#include "pq_secure_channel.h"
 
 #define PQ_MLKEM_PUBLIC_KEY_SIZE \
 	MLKEM_PUBLICKEYBYTES(MLK_CONFIG_PARAMETER_SET)
@@ -29,11 +30,20 @@ enum pq_mlkem_diagnostic_status {
 	PQ_MLKEM_STATUS_CIPHERTEXT_INCOMPLETE = 0x02,
 	PQ_MLKEM_STATUS_DECAPSULATION_FAILURE = 0x03,
 	PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE = 0x04,
+	PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE = 0x05,
+};
+
+enum pq_mlkem_job_mode {
+	PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC = 0,
+	PQ_MLKEM_JOB_PHASE3_SECURE = 1,
 };
 
 typedef void (*pq_mlkem_result_callback_t)(
+	enum pq_mlkem_job_mode mode,
 	enum pq_mlkem_diagnostic_status status,
-	uint32_t shared_secret_crc32);
+	uint32_t shared_secret_crc32,
+	const uint8_t *secure_wire,
+	size_t secure_wire_len);
 
 /*
  * Start the dedicated worker and wait for deterministic on-device KeyGen.
@@ -52,4 +62,9 @@ const uint8_t *pq_mlkem_session_public_key(size_t *public_key_len);
  */
 int pq_mlkem_session_submit(const uint8_t *ciphertext, size_t ciphertext_len);
 
+int pq_mlkem_session_submit_secure(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE]);
+	
 #endif /* PQ_BLE_MLKEM_SESSION_H_ */

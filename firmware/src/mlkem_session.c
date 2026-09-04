@@ -54,6 +54,13 @@ static uint8_t secret_key[PQ_MLKEM_SECRET_KEY_SIZE];
 static uint8_t ciphertext_job[PQ_MLKEM_CIPHERTEXT_SIZE];
 static uint8_t shared_secret[PQ_MLKEM_SHARED_SECRET_SIZE];
 
+static enum pq_mlkem_job_mode pending_job_mode =
+	PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC;
+
+static uint8_t session_id_job[PQ_SECURE_SESSION_ID_SIZE];
+
+static uint8_t secure_wire[PQ_SECURE_TEST_WIRE_SIZE];
+
 static K_THREAD_STACK_DEFINE(crypto_thread_stack,
 			     CONFIG_PQ_MLKEM_THREAD_STACK_SIZE);
 static struct k_thread crypto_thread;
@@ -156,6 +163,9 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		enum pq_mlkem_diagnostic_status status;
 		uint32_t crc = 0U;
 
+		enum pq_mlkem_job_mode mode;
+		size_t secure_wire_len = 0U;
+
 		k_sem_take(&job_available, K_FOREVER);
 
 		k_mutex_lock(&session_lock, K_FOREVER);
@@ -167,6 +177,7 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		}
 		job_pending = false;
 		job_active = true;
+		mode = pending_job_mode;
 		k_mutex_unlock(&session_lock);
 
 		/*
@@ -180,7 +191,30 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		if (ret == 0) {
 			crc = crc32_ieee(shared_secret, sizeof(shared_secret));
 			status = PQ_MLKEM_STATUS_SUCCESS;
+
 			LOG_INF("ML-KEM decapsulation operation completed");
+
+			if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+				ret = pq_secure_encrypt_test_message(
+					shared_secret,
+					session_id_job,
+					secure_wire,
+					sizeof(secure_wire),
+					&secure_wire_len);
+
+				report_crypto_stack(
+					"after HKDF-SHA256 + AES-256-GCM");
+
+				if (ret != 0) {
+					LOG_ERR("Phase 3 secure-channel generation failed: %d",
+						ret);
+					status = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+					secure_wire_len = 0U;
+				} else {
+					LOG_INF("Phase 3 secure application message ready: %zu B",
+						secure_wire_len);
+				}
+			}
 		} else {
 			status = PQ_MLKEM_STATUS_DECAPSULATION_FAILURE;
 			LOG_ERR("ML-KEM decapsulation local/API failure: %d", ret);
@@ -193,7 +227,15 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		job_active = false;
 		k_mutex_unlock(&session_lock);
 
-		result_callback(status, crc);
+		result_callback(
+			mode,
+			status,
+			crc,
+			secure_wire_len > 0U ? secure_wire : NULL,
+			secure_wire_len);
+		
+		secure_clear(secure_wire, sizeof(secure_wire));
+		secure_clear(session_id_job, sizeof(session_id_job));
 	}
 }
 
@@ -203,6 +245,13 @@ int pq_mlkem_session_init(pq_mlkem_result_callback_t callback)
 
 	if (callback == NULL) {
 		return -EINVAL;
+	}
+
+	int crypto_ret = pq_secure_channel_init();
+
+	if (crypto_ret != 0) {
+		LOG_ERR("Phase 3 PSA Crypto initialization failed: %d", crypto_ret);
+		return crypto_ret;
 	}
 
 	k_mutex_lock(&session_lock, K_FOREVER);
@@ -259,26 +308,73 @@ const uint8_t *pq_mlkem_session_public_key(size_t *public_key_len)
 	return public_key;
 }
 
-int pq_mlkem_session_submit(const uint8_t *ciphertext, size_t ciphertext_len)
+static int submit_job(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	enum pq_mlkem_job_mode mode,
+	const uint8_t *session_id)
 {
 	if (ciphertext == NULL || ciphertext_len != sizeof(ciphertext_job)) {
 		return -EINVAL;
 	}
 
+	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE &&
+	    session_id == NULL) {
+		return -EINVAL;
+	}
+
 	k_mutex_lock(&session_lock, K_FOREVER);
+
 	if (!keypair_ready) {
 		k_mutex_unlock(&session_lock);
 		return -EACCES;
 	}
+
 	if (job_pending || job_active) {
 		k_mutex_unlock(&session_lock);
 		return -EBUSY;
 	}
 
 	memcpy(ciphertext_job, ciphertext, sizeof(ciphertext_job));
+
+	pending_job_mode = mode;
+
+	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+		memcpy(session_id_job,
+		       session_id,
+		       sizeof(session_id_job));
+	} else {
+		memset(session_id_job, 0, sizeof(session_id_job));
+	}
+
 	job_pending = true;
+
 	k_mutex_unlock(&session_lock);
 
 	k_sem_give(&job_available);
+
 	return 0;
+}
+
+int pq_mlkem_session_submit(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len)
+{
+	return submit_job(
+		ciphertext,
+		ciphertext_len,
+		PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC,
+		NULL);
+}
+
+int pq_mlkem_session_submit_secure(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE])
+{
+	return submit_job(
+		ciphertext,
+		ciphertext_len,
+		PQ_MLKEM_JOB_PHASE3_SECURE,
+		session_id);
 }

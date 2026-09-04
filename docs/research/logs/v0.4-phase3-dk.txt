@@ -1,0 +1,76 @@
+[00:46:49.843,376] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:46:49.843,655] <inf> pq_ble: Connected (generation 33)
+[00:46:49.869,495] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:46:50.814,653] <inf> pq_ble: Notifications ENABLED
+[00:46:50.904,625] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:46:50.994,651] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:46:51.069,642] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:46:51.099,644] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:46:51.129,646] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:46:51.249,889] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:46:51.249,911] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:46:51.369,666] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:46:51.474,671] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:46:51.579,677] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:46:51.611,558] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:46:51.611,713] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:46:51.639,982] <inf> pq_ble: Control write: len=22
+[00:46:51.639,999] <inf> pq_ble: Control data
+                                 53 54 41 52 54 33 3e 09  5a 54 d9 77 2a 21 d1 d9 |START3>. ZT.w*!..
+                                 ff 24 76 eb 7c 44                                |.$v.|D           
+[00:46:51.640,004] <inf> pq_ble: Received START3 secure-channel command
+[00:46:51.640,426] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START3 consumed CT_READY job
+[00:46:51.727,283] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:46:51.727,296] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:46:51.727,674] <inf> mlkem_session: Unused crypto-thread stack: 5984 B
+[00:46:51.727,678] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 22688 B
+[00:46:51.727,688] <inf> mlkem_session: ML-KEM decapsulation operation completed
+[00:46:51.728,501] <inf> pq_secure: HKDF-SHA256 session-key derivation: PASS
+[00:46:51.728,507] <inf> pq_secure: AES-256-GCM encryption: PASS
+[00:46:51.728,511] <inf> pq_secure: Secure notification wire size: 58 B
+[00:46:51.728,558] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after HKDF-SHA256 + AES-256-GCM
+[00:46:51.728,563] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:46:51.728,947] <inf> mlkem_session: Unused crypto-thread stack: 5984 B
+[00:46:51.728,951] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 22688 B
+[00:46:51.728,956] <inf> mlkem_session: Phase 3 secure application message ready: 58 B
+[00:46:51.729,650] <inf> pq_ble: Phase 3 AES-256-GCM notification sent: 58 B
+[00:46:51.759,704] <inf> pq_ble: Notifications DISABLED
+[00:46:54.954,926] <inf> pq_ble: Disconnected (reason 19)
+[00:47:46.410,365] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:47:46.410,644] <inf> pq_ble: Connected (generation 35)
+[00:47:46.437,617] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:47:47.427,780] <inf> pq_ble: Notifications ENABLED
+[00:47:47.517,748] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:47:47.607,775] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:47:47.667,765] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:47:47.697,767] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:47:47.727,768] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:47:47.863,013] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:47:47.863,035] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:47:47.967,789] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:47:48.087,795] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:47:48.192,800] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:47:48.224,674] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:47:48.224,829] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:47:48.253,107] <inf> pq_ble: Control write: len=22
+[00:47:48.253,124] <inf> pq_ble: Control data
+                                 53 54 41 52 54 33 33 2d  04 81 75 7e 73 12 89 b7 |START33- ..u~s...
+                                 a5 92 86 ff f7 fe                                |......           
+[00:47:48.253,129] <inf> pq_ble: Received START3 secure-channel command
+[00:47:48.253,552] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START3 consumed CT_READY job
+[00:47:48.340,337] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:47:48.340,351] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:47:48.340,730] <inf> mlkem_session: Unused crypto-thread stack: 5984 B
+[00:47:48.340,734] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 22688 B
+[00:47:48.340,744] <inf> mlkem_session: ML-KEM decapsulation operation completed
+[00:47:48.341,558] <inf> pq_secure: HKDF-SHA256 session-key derivation: PASS
+[00:47:48.341,564] <inf> pq_secure: AES-256-GCM encryption: PASS
+[00:47:48.341,568] <inf> pq_secure: Secure notification wire size: 58 B
+[00:47:48.341,615] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after HKDF-SHA256 + AES-256-GCM
+[00:47:48.341,620] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:47:48.342,004] <inf> mlkem_session: Unused crypto-thread stack: 5984 B
+[00:47:48.342,008] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 22688 B
+[00:47:48.342,012] <inf> mlkem_session: Phase 3 secure application message ready: 58 B
+[00:47:48.342,604] <inf> pq_ble: Phase 3 AES-256-GCM notification sent: 58 B
+[00:47:48.372,827] <inf> pq_ble: Notifications DISABLED
+[00:47:51.523,046] <inf> pq_ble: Disconnected (reason 19)

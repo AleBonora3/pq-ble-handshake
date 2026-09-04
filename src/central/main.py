@@ -8,6 +8,7 @@ Options:
     --no-sas-confirm     Skip interactive SAS confirmation (auto-accept)
     --demo               Legacy demo: send START, wait for raw notify
     --phase2-e2e         Run ML-KEM-768 liboqs/mlkem-native BLE interop test
+    --phase3-secure      Run ML-KEM + HKDF + AES-256-GCM real-DK test
     --mtu SIZE           Request specific MTU (default: negotiated by stack)
     --log-level LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)
 """
@@ -23,6 +24,7 @@ from ..common.constants import (
 )
 from .ble_client import BLECentralClient
 from .mlkem_e2e import Phase2E2EError, run_phase2_e2e
+from .phase3_secure import Phase3SecureError, run_phase3_secure
 
 logger = logging.getLogger("pq-ble.central.main")
 
@@ -67,6 +69,27 @@ def parse_args(argv=None):
             "(liboqs Central to mlkem-native DK)"
         ),
     )
+    execution_mode.add_argument(
+        "--phase3-secure",
+        action="store_true",
+        help=(
+            "Phase 3 real-hardware PQ secure-channel test "
+            "(ML-KEM + HKDF-SHA256 + AES-256-GCM)"
+        ),
+    )
+
+    parser.add_argument(
+        "--phase3-negative",
+        choices=("tamper", "aad", "replay"),
+        default=None,
+        help=(
+            "Run an optional Phase 3 negative test: "
+            "'tamper' flips one AES-GCM tag bit; "
+            "'aad' uses a wrong session_id; "
+            "'replay' submits the authenticated frame twice"
+        ),
+    )
+
     parser.add_argument(
         "--mtu",
         type=int,
@@ -144,6 +167,88 @@ async def _run_phase2_e2e_cli(args) -> int:
         except Exception as exc:
             logger.warning("Phase 2 disconnect failed: %s", exc)
 
+async def _run_phase3_secure_cli(args) -> int:
+    """Run Phase 3 without constructing legacy handshake/session state."""
+
+    client = BLECentralClient(device_name=args.device)
+
+    logger.info("Scanning for peripheral '%s'...", args.device)
+
+    try:
+        connected = await client.scan_and_connect(timeout=15.0)
+    except Exception as exc:
+        logger.error("Phase 3 BLE scan/connect failed: %s", exc)
+        try:
+            await client.disconnect()
+        except Exception as disconnect_exc:
+            logger.warning(
+                "Phase 3 disconnect after connect failure failed: %s",
+                disconnect_exc,
+            )
+        return 1
+
+    if not connected:
+        logger.error(
+            "Could not find '%s'. Make sure the Phase 3 firmware is running.",
+            args.device,
+        )
+        return 1
+
+    try:
+        logger.info(
+            "=== PHASE 3 SECURE CHANNEL: "
+            "ML-KEM + HKDF-SHA256 + AES-256-GCM ==="
+        )
+
+        result = await run_phase3_secure(
+            client,
+            negative_test=args.phase3_negative,
+        )
+
+        print()
+        print("ML-KEM key establishment: PASS")
+        print("HKDF-SHA256 session-key derivation: PASS")
+        print("AES-256-GCM authentication: PASS")
+        print(
+            "Decrypted payload: "
+            f"{result.plaintext.decode('ascii')}"
+        )
+        print(
+            f"Authenticated secure-wire length: "
+            f"{result.wire_size} bytes"
+        )
+        print()
+        print("PQ-BLE SECURE CHANNEL E2E: PASS")
+        print()
+
+        return 0
+
+    except Phase3SecureError as exc:
+        logger.error("Phase 3 secure channel failed: %s", exc)
+
+        print()
+        print("PQ-BLE SECURE CHANNEL E2E: FAIL")
+        print()
+
+        return 1
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected Phase 3 transport/crypto failure: %s",
+            exc,
+        )
+
+        print()
+        print("PQ-BLE SECURE CHANNEL E2E: FAIL")
+        print()
+
+        return 1
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning("Phase 3 disconnect failed: %s", exc)
 
 async def main():
     args = parse_args()
@@ -153,9 +258,25 @@ async def main():
     logger.info("=" * 50)
     logger.info("PQ-BLE-HANDSHAKE — Central (Client)")
     logger.info("=" * 50)
-    logger.info("Device: %s | Demo: %s | Phase 2 E2E: %s | MTU: %s",
-                args.device, args.demo, args.phase2_e2e, args.mtu or "auto")
+    logger.info(
+        "Device: %s | Demo: %s | Phase 2 E2E: %s | "
+        "Phase 3 Secure: %s | MTU: %s",
+        args.device,
+        args.demo,
+        args.phase2_e2e,
+        args.phase3_secure,
+        args.mtu or "auto",
+    )
 
+    if args.phase3_negative is not None and not args.phase3_secure:
+        logger.error(
+            "--phase3-negative can only be used with --phase3-secure"
+        )
+        return 2
+
+    if args.phase3_secure:
+        return await _run_phase3_secure_cli(args)
+    
     # Exit through the isolated path before constructing SessionStore,
     # CentralHandshake, SAS/HKDF, CentralSecureChannel, or persistence state.
     if args.phase2_e2e:
