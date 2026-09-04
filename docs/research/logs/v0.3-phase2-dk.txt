@@ -1,0 +1,58 @@
+*** Booting nRF Connect SDK v3.0.0-3bfc46578e42 ***
+*** Using Zephyr OS v4.0.99-3e0ce7636fa6 ***
+[00:00:00.002,138] <inf> pq_ble: ========================================
+[00:00:00.002,142] <inf> pq_ble: PQ-BLE Handshake - nRF54L15 DK Peripheral
+[00:00:00.002,146] <inf> pq_ble: Mode: PHASE2_MLKEM_E2E_TEST_ONLY
+[00:00:00.002,161] <inf> pq_ble: Device: PQ-BLE-Device
+[00:00:00.002,165] <inf> pq_ble: ========================================
+[00:00:00.003,744] <inf> mlkem_session: ML-KEM worker started: preemptible priority 14, stack 28672 B
+[00:00:00.055,545] <inf> mlkem_session: TEST-ONLY shared-secret diagnostic checksum vector (CRC-32/IEEE, 32 zero bytes): PASS (0x190a55ad)
+[00:00:00.064,450] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after deterministic ML-KEM KeyGen
+[00:00:00.064,457] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:00.065,336] <inf> mlkem_session: Unused crypto-thread stack: 14024 B
+[00:00:00.065,340] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 14648 B
+[00:00:00.065,347] <inf> mlkem_session: ML-KEM keypair initialization: PASS
+[00:00:00.065,460] <inf> bt_sdc_hci_driver: SoftDevice Controller build revision: 
+                                            c7 53 7d bc 06 12 f7 c0  b3 3a 3e 28 8e 56 1e d7 |.S}..... .:>(.V..
+                                            a0 be 95 b0                                      |....             
+[00:00:00.066,608] <inf> bt_hci_core: HW Platform: Nordic Semiconductor (0x0002)
+[00:00:00.066,622] <inf> bt_hci_core: HW Variant: nRF54Lx (0x0005)
+[00:00:00.066,635] <inf> bt_hci_core: Firmware: Standard Bluetooth controller (0x00) Version 199.32083 Build 4145153724
+[00:00:00.067,064] <inf> bt_hci_core: Identity: C0:48:FF:F5:9D:B8 (random)
+[00:00:00.067,079] <inf> bt_hci_core: HCI: version 6.0 (0x0e) revision 0x30e8, manufacturer 0x0059
+[00:00:00.067,093] <inf> bt_hci_core: LMP: version 6.0 (0x0e) subver 0x30e8
+[00:00:00.067,099] <inf> pq_ble: Bluetooth initialized
+[00:00:00.067,610] <inf> pq_ble: Advertising as 'PQ-BLE-Device'; waiting for Central
+[00:00:00.067,616] <inf> pq_ble: Dynamic public key: 1184 bytes; ciphertext: 1088 bytes
+
+
+
+[00:08:34.151,707] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:08:34.152,027] <inf> pq_ble: Connected (generation 1)
+[00:08:34.664,455] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:08:36.929,536] <inf> pq_ble: Notifications ENABLED
+[00:08:36.959,650] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:08:37.004,661] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:08:37.034,663] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:08:37.064,666] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:08:37.094,666] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:08:37.259,954] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:08:37.259,977] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:08:37.364,691] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:08:37.484,698] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:08:37.589,704] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:08:37.636,575] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:08:37.636,738] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:08:37.664,710] <inf> pq_ble: Control write: len=5
+[00:08:37.664,726] <inf> pq_ble: Control data
+                                 53 54 41 52 54                                   |START            
+[00:08:37.664,732] <inf> pq_ble: Received START command
+[00:08:37.665,084] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START consumed CT_READY job
+[00:08:37.677,829] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:08:37.677,836] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:37.678,246] <inf> mlkem_session: Unused crypto-thread stack: 6032 B
+[00:08:37.678,256] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 22640 B
+[00:08:37.678,266] <inf> mlkem_session: ML-KEM decapsulation operation completed
+[00:08:37.678,733] <inf> pq_ble: TEST-ONLY shared-secret diagnostic checksum sent: 0xdf8b566a
+[00:08:37.694,721] <inf> pq_ble: Notifications DISABLED
+[00:08:40.859,943] <inf> pq_ble: Disconnected (reason 19)

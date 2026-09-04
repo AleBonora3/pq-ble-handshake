@@ -15,8 +15,12 @@ The protocol combines:
 
 > [!IMPORTANT]
 > The Python implementation validates the complete cryptographic protocol.
-> The current nRF54L15 DK firmware validates the real BLE/GATT transport path,
-> but it does **not** yet perform ML-KEM decapsulation, HKDF or AES-GCM on-chip.
+> Phase 2 integrates deterministic on-device ML-KEM-768 KeyGen and
+> decapsulation with the existing BLE/GATT transport, using mlkem-native on the
+> DK and liboqs on the PC. The code and build can be validated without hardware,
+> but the real-DK end-to-end shared-secret comparison is still pending.
+> HKDF, AES-GCM, ECDH and the hybrid handshake are deliberately not part of
+> Phase 2.
 
 ---
 
@@ -36,15 +40,14 @@ The protocol combines:
 | Reproducible benchmark suite | ✅ Completed |
 | Protocol-overhead validation | ✅ Implemented and tested |
 | LaTeX report and compiled PDF | ✅ Included |
-| ML-KEM decapsulation on nRF54L15 DK | ⏳ Future work |
+| On-device ML-KEM-768 self-test (Phase 1) | ✅ Validated on real hardware and frozen as `v0.2-mlkem-ondevice` |
+| Phase 2 liboqs ↔ mlkem-native BLE integration | Implemented; real-DK E2E run pending |
+| Phase 2 shared-secret equality over real BLE | ⏳ Hardware validation pending |
 | HKDF and AES-256-GCM on nRF54L15 DK | ⏳ Future work |
 | Persistent session storage on the DK | ⏳ Future work |
 
-Current active automated test suite:
-
-```text
-109 passed
-```
+The current automated result is recorded in
+[`docs/test-results.md`](docs/test-results.md).
 
 ---
 
@@ -72,7 +75,31 @@ The Python implementation covers:
 - MITM simulations;
 - mocked GATT transport.
 
-### 2. Real BLE/GATT hardware validation
+### 2. Phase 2 ML-KEM interoperability implementation
+
+The explicit `--phase2-e2e` path performs only:
+
+```text
+connect -> subscribe -> read dynamic DK public key
+        -> liboqs ML-KEM-768 encapsulation
+        -> existing fragmented ciphertext write -> START
+        -> exact PQM2 notification -> compare diagnostic checksums
+```
+
+It bypasses `SessionStore`/resumption, SAS, HKDF, AES SecureChannel semantics
+and session persistence. The DK performs deterministic KeyGen at startup and
+decapsulation in a dedicated preemptible Zephyr worker with a 28672-byte stack;
+ML-KEM never runs in a GATT callback. The firmware reports that worker's
+cumulative configured, unused and estimated peak stack after KeyGen and each
+decapsulation.
+
+The final result is a nine-byte **TEST-ONLY shared-secret diagnostic checksum**
+message, not the shared secret itself. It is not authentication, a KDF,
+cryptographic key confirmation or part of the final protocol. Software tests
+cover the exact message format and Central behavior. A real-DK Phase 2 E2E run
+is still required before reporting `MATCH: YES` as hardware evidence.
+
+### 3. Historical real BLE/GATT transport validation
 
 Validated setup:
 
@@ -80,7 +107,7 @@ Validated setup:
 Windows PC + Python/Bleak  <---- BLE/GATT ---->  nRF54L15 DK + Zephyr
 ```
 
-The PC central successfully:
+Before Phase 2, the PC central successfully:
 
 1. discovers `PQ-BLE-Device`;
 2. connects to the nRF54L15 DK;
@@ -104,10 +131,12 @@ Raw demo notification received: 57 bytes
 BLE/GATT transport validation completed.
 ```
 
-The complete execution log is available in
+This historical transport result used the former offline public key and
+57-byte placeholder notification; it is not evidence of Phase 2 shared-secret
+equality. The complete execution log is available in
 [`docs/hardware-validation-log.txt`](docs/hardware-validation-log.txt).
 
-### 3. Passive packet-level validation
+### 4. Passive packet-level validation
 
 The BLE exchange was captured with:
 
@@ -161,37 +190,17 @@ hardware demo.
 
 ---
 
-## Firmware public key
+## Firmware keypair strategy
 
-The nRF54L15 firmware embeds a **valid ML-KEM-768 public key generated
-offline**.
+For Phase 2, the nRF54L15 firmware generates an ML-KEM-768 keypair on-device
+at startup through the deterministic mlkem-native API. The fixed coins are
+prominently marked **TEST ONLY - NOT FOR PRODUCTION**. The secret key exists
+only in DK RAM and is never logged or exposed over GATT. The generated public
+key is returned by the unchanged Public Key characteristic.
 
-The key is generated with:
-
-```powershell
-python scripts\generate_firmware_public_key.py
-```
-
-The generated header is stored in:
-
-```text
-firmware/nrf54l15_pq_gatt_skeleton/src/demo_public_key.h
-```
-
-The PC central logs the SHA-256 fingerprint of the public key read over BLE.
-This fingerprint can be compared with the value recorded in the generated
-header.
-
-> [!NOTE]
-> The corresponding ML-KEM secret key is intentionally not stored in the
-> repository or on the DK. Therefore, the current firmware cannot decapsulate
-> the ciphertext. The public key is real, while the embedded demo remains a
-> BLE/GATT transport validation rather than a complete embedded cryptographic
-> endpoint.
-
-The final 57-byte notification is explicitly a **raw demo payload** used to
-validate the GATT notification path. It is not an AES-GCM payload generated
-from a session key shared with the DK.
+The historical `demo_public_key.h` may remain as reference material, but it is
+not the active Phase 2 public key. A production RNG/PSA integration is outside
+this milestone.
 
 ---
 
@@ -207,7 +216,7 @@ Service UUID:
 |---|---|---|---:|---|
 | Public Key | `9abd` | READ | `0x0012` | Exposes the 1184-byte ML-KEM public key |
 | Ciphertext | `9abe` | WRITE | `0x0014` | Receives the 1088-byte ciphertext |
-| Secure Data | `9abf` | NOTIFY | `0x0016` | Sends the 57-byte raw demo notification |
+| Secure Data | `9abf` | NOTIFY | `0x0016` | Sends the 9-byte Phase 2 `PQM2` result |
 | Secure Data CCCD | — | READ/WRITE | `0x0017` | Enables notifications |
 | Control | `9ac0` | WRITE | `0x0019` | Receives `START` and resume messages |
 
@@ -264,6 +273,22 @@ The 247-byte value is the budget passed to the PQ-BLE fragmentation function;
 it must not be interpreted as the raw payload of a single ATT Write PDU.
 On Windows/Bleak, the stack can map each logical write to ATT Prepare Write
 and Execute Write procedures and can apply further lower-layer fragmentation.
+If a backend reports MTU 517, the Central caps the logical value at the GATT
+attribute maximum of 512 bytes (508 bytes after the existing header).
+
+The Phase 2 firmware hardens the receiver without changing this wire format.
+Its connection-scoped states are `EMPTY`, `RECEIVING`, `CT_READY` and
+`CRYPTO_BUSY`. It rejects `idx >= total`, inconsistent totals and any final
+length other than the mlkem-native ML-KEM-768 ciphertext size (1088 bytes),
+handles duplicates without mixing transfers, resets stale reassembly for a new
+valid transfer, and rejects fragments while crypto is busy. A successful
+`START` consumes `CT_READY`, so the same ciphertext cannot be reused by a
+second `START`. Disconnect clears the peer's transfer state.
+
+The `START` callback gives the worker a complete ciphertext copy and a protected
+Zephyr connection reference. If that peer disconnects while decapsulation is
+running, the operation may finish, but the result is not sent to a stale or
+replacement connection and all references are released.
 
 ### `START` control write
 
@@ -281,11 +306,14 @@ is the ASCII encoding of:
 START
 ```
 
-### Final 57-byte notification
+### Historical final 57-byte notification
 
 ![Final 57-byte notification](docs/images/wireshark_start_notification_57_byte.png)
 
-The notification is sent through the Secure Data value handle `0x0016`.
+This captured Phase 1 transport-demo notification was sent through the Secure
+Data value handle `0x0016`. Phase 2 reuses the same characteristic and
+attribute order for its nine-byte `PQM2` result; no Phase 2 packet capture has
+yet been recorded.
 
 Useful display filters:
 
@@ -307,18 +335,34 @@ btatt.opcode == 0x1b
 ```text
 Peripheral / DK                         Central / PC
 
-exposes valid pk through GATT READ  --> read pk
+generates pk/sk in worker RAM
+exposes dynamic pk through READ     --> read pk
                                         encapsulate(pk) -> ct, ss
 receives ct through GATT WRITE      <-- write ct
+worker decapsulates(sk, ct) -> ss
+PQM2(status, CRC32(ss))             --> compare with CRC32(ss)
 ```
 
-In the complete protocol, the peripheral would decapsulate:
+The Phase 2 implementation performs the decapsulation shown above on the DK,
+but its real-BLE interoperability result is not considered validated until the
+hardware run is completed. The checksum is diagnostic only; it does not add
+authentication or key confirmation to the protocol.
+
+The exact notification is:
 
 ```text
-decapsulate(sk, ct) -> ss
+"PQM2" (4) || status (1) || CRC-32/IEEE(shared_secret) (4, big-endian)
 ```
 
-This final step is not yet executed on the nRF54L15 DK.
+Status values are `0x00` success, `0x01` keypair unavailable, `0x02`
+ciphertext incomplete, `0x03` genuine local/API decapsulation failure and
+`0x04` invalid protocol state. The known vector is 32 zero bytes →
+`0x190A55AD`.
+
+ML-KEM has implicit rejection: a structurally valid modified ciphertext can
+complete normally with status `0x00` but derive a different secret. The Phase 2
+observable is then checksum mismatch and `MATCH: NO`, not necessarily a
+decapsulation API error.
 
 ML-KEM-768 sizes:
 
@@ -469,12 +513,6 @@ Run the complete suite:
 python -m pytest tests/ -v
 ```
 
-Expected result:
-
-```text
-109 passed
-```
-
 | Test module | Tests | Scope |
 |---|---:|---|
 | `test_ml_kem.py` | 6 | FIPS 203 sizes, key generation, encapsulation, decapsulation and roundtrip |
@@ -484,10 +522,15 @@ Expected result:
 | `test_session_store.py` | 23 | Persistence, expiry, usage limit and resumption |
 | `test_handshake_mock.py` | 2 | Complete mocked handshake |
 | `test_mitm_simulation.py` | 2 | SAS-based MITM detection |
-| `test_firmware_uuids.py` | 3 | Firmware name, SMP configuration and notification path |
-| `test_central_transport_mock.py` | 17 | Mocked GATT read/write transport |
+| `test_firmware_uuids.py` | 9 | Firmware/Python UUID parity, name, SMP configuration and notification path |
+| `test_central_transport_mock.py` | 18 | Mocked GATT read/write transport, including the 512-byte logical-frame cap |
 | `test_protocol_overhead.py` | 8 | Fixed 37-byte overhead, 2292-byte full handshake and 30-byte resume exchange |
-| **Total** | **109** | Active automated suite |
+| `test_phase2_diagnostic.py` | 7 | Exact `PQM2` codec, big-endian CRC and zero-secret vector |
+| `test_phase2_e2e.py` | 16 | Isolated Central flow, strict response validation and nonzero failure paths |
+| **Total** | **139** | Complete active Python suite |
+
+The exact current pass count and commands used are recorded in
+[`docs/test-results.md`](docs/test-results.md).
 
 The protocol-overhead tests verify that:
 
@@ -595,15 +638,17 @@ pip install -r requirements.txt
 python -m pytest tests\ -v
 ```
 
-Run the hardware central:
+Run the Phase 2 interoperability central after flashing the Phase 2 firmware:
 
 ```powershell
 python -m src.central.main `
     --device PQ-BLE-Device `
-    --demo `
-    --no-sas-confirm `
+    --phase2-e2e `
     --log-level DEBUG
 ```
+
+`--demo` remains an explicit legacy/deprecated path and is not an alias for
+Phase 2.
 
 Run all benchmarks and regenerate the LaTeX values:
 
@@ -632,13 +677,13 @@ python -m pytest tests/ -v
 Firmware directory:
 
 ```text
-firmware/nrf54l15_pq_gatt_skeleton/
+firmware/
 ```
 
 Build and flash:
 
 ```bash
-cd firmware/nrf54l15_pq_gatt_skeleton
+cd firmware
 west build -b nrf54l15dk/nrf54l15/cpuapp -p always
 west flash
 ```
@@ -648,7 +693,7 @@ problems:
 
 ```powershell
 Copy-Item -Recurse `
-    firmware\nrf54l15_pq_gatt_skeleton `
+    firmware `
     C:\myfw\pq
 
 cd C:\myfw\pq
@@ -675,20 +720,25 @@ pq-ble-handshake/
 ├── experimental/
 │   └── peripheral/              # Experimental Python peripheral
 ├── firmware/
-│   └── nrf54l15_pq_gatt_skeleton/
-│       ├── src/
-│       │   ├── main.c
-│       │   └── demo_public_key.h
-│       ├── CMakeLists.txt
-│       ├── prj.conf
-│       └── README.md
+│   ├── src/
+│   │   ├── main.c
+│   │   ├── mlkem_session.c
+│   │   ├── mlkem_selftest.c
+│   │   └── demo_public_key.h       # historical, inactive in Phase 2
+│   ├── third_party/mlkem-native/   # pinned upstream v2.0.0
+│   ├── CMakeLists.txt
+│   ├── Kconfig
+│   ├── phase1_selftest.conf   # optional frozen Phase 1 regression profile
+│   ├── prj.conf
+│   └── README.md
 ├── scripts/
 │   ├── generate_firmware_public_key.py
 │   ├── generate_demo_vectors.py
 │   └── generate_benchmark_latex.py
 ├── tests/
-│   ├── test_protocol_overhead.py
-│   └── ...                      # 109 active tests
+│   ├── test_phase2_diagnostic.py
+│   ├── test_phase2_e2e.py
+│   └── ...
 ├── benchmarks/
 │   ├── results/                 # Measured TXT/JSON artifacts
 │   ├── benchmark_handshake.py
@@ -718,12 +768,14 @@ pq-ble-handshake/
 - The protocol is a research proof of concept, not a Bluetooth SIG standard.
 - BLE SMP is intentionally disabled in the DK firmware:
   `CONFIG_BT_SMP=n`.
-- The current demo provides application-layer design and transport validation,
-  not BLE link-layer encryption.
-- The nRF54L15 DK does not yet perform ML-KEM decapsulation.
-- The nRF54L15 DK does not yet derive the session key or produce AES-GCM
-  ciphertext.
-- The final DK notification is a raw transport-demo payload.
+- Phase 2 adds on-device ML-KEM KeyGen and decapsulation, but its deterministic
+  coins are **TEST ONLY - NOT FOR PRODUCTION** and real-DK E2E validation is
+  still pending.
+- Phase 2 does not derive a session key or produce AES-GCM ciphertext on the
+  DK. Its nine-byte `PQM2` notification is only a TEST-ONLY shared-secret
+  diagnostic checksum.
+- That CRC32 is not authentication, a KDF, cryptographic key confirmation or
+  part of the final protocol; the ML-KEM shared secret itself is never sent.
 - SAS requires human comparison and does not scale to large unattended IoT
   deployments.
 - Session resumption preserves resistance to passive store-now-decrypt-later
@@ -747,21 +799,27 @@ pq-ble-handshake/
 - [x] 100-successful-resume limit
 - [x] GATT fragmentation and reassembly
 - [x] protocol-overhead and key-size validation
-- [x] 109 automated tests
+- [x] automated Python test suite, including Phase 2 diagnostic/Central tests
 - [x] nRF54L15 DK Zephyr firmware build
 - [x] firmware flash and phone inspection
 - [x] Windows PC ↔ nRF54L15 DK demo
-- [x] valid offline-generated ML-KEM public key in firmware
+- [x] valid offline-generated ML-KEM public key in the historical transport demo
 - [x] public-key fingerprint verification over BLE
 - [x] nRF52840/Wireshark passive capture
 - [x] `.pcapng` evidence
 - [x] five Wireshark screenshots
 - [x] reproducible benchmark suite and measured result files
 - [x] LaTeX report and compiled PDF
+- [x] on-device deterministic ML-KEM-768 KeyGen/Encaps/Decaps self-test on the
+  real DK (`v0.2-mlkem-ondevice`)
+- [x] Phase 2 dedicated ML-KEM worker and hardened ciphertext state machine
+- [x] explicit Central `--phase2-e2e` implementation and strict `PQM2` parser
 
 ### Future work
 
-- [ ] ML-KEM decapsulation on the nRF54L15 DK
+- [ ] run and capture Phase 2 liboqs ↔ mlkem-native shared-secret equality on
+  the real nRF54L15 DK
+- [ ] replace deterministic test coins with an approved production RNG/PSA
 - [ ] HKDF and AES-256-GCM on-chip
 - [ ] persistent session store in DK flash
 - [ ] end-to-end encrypted DK notification

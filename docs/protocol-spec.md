@@ -8,6 +8,16 @@ L'obiettivo è stabilire un canale applicativo cifrato e autenticato, resistente
 
 Il progetto usa BLE/GATT come trasporto. La sicurezza del payload applicativo è fornita dal protocollo PQ-BLE, non dal BLE Security Manager.
 
+Questa specifica distingue due profili implementativi:
+
+- il **protocollo Python completo**, che comprende SAS, HKDF, AES-256-GCM e
+  session resumption ed è coperto dai test software esistenti;
+- il **profilo sperimentale Phase 2 E2E**, limitato alla verifica di
+  interoperabilità ML-KEM-768 tra liboqs sul PC e mlkem-native sul DK reale.
+
+Il profilo Phase 2 E2E non implementa né rivendica SAS, HKDF, AES-GCM, ECDH,
+handshake ibrido o persistenza della sessione sul DK.
+
 ---
 
 ## 1.1 Modello di riferimento
@@ -53,6 +63,7 @@ Il progetto usa BLE/GATT come trasporto. La sicurezza del payload applicativo è
 | Default MTU assumption | 512 byte | Used by tests/default configuration |
 | Validated hardware MTU | 247 byte | Observed in PC Windows ↔ nRF54L15 DK demo |
 | Fragment header | 4 byte | `[idx:1][total:1][len:2]` |
+| Phase 2 diagnostic | 9 byte | `"PQM2" || status || crc32_be` |
 
 ---
 
@@ -70,7 +81,7 @@ Il progetto usa BLE/GATT come trasporto. La sicurezza del payload applicativo è
 |---|---|---|---|
 | Public Key | `12345678-1234-1234-1234-123456789abd` | READ | Peripheral public key, 1184 byte |
 | Ciphertext | `12345678-1234-1234-1234-123456789abe` | WRITE | Central ciphertext, 1088 byte |
-| Secure Data | `12345678-1234-1234-1234-123456789abf` | NOTIFY | Secure data or raw hardware-demo notification |
+| Secure Data | `12345678-1234-1234-1234-123456789abf` | NOTIFY | Secure data nel profilo completo; risultato `PQM2` nel profilo Phase 2 E2E |
 | Control | `12345678-1234-1234-1234-123456789ac0` | WRITE | `START`, SAS confirm, resume request |
 
 ---
@@ -109,7 +120,75 @@ Peripheral:
     decapsulate(sk_A, ct) -> ss
 ```
 
-In the current hardware firmware, the DK exposes a 1184-byte demo/public-key buffer and receives the ciphertext, but it does not perform on-chip decapsulation yet. Full on-chip ML-KEM execution is future work.
+Nel firmware Phase 2 il DK genera la coppia ML-KEM-768 all'avvio tramite
+l'API deterministica già validata di mlkem-native. I coins fissi sono marcati
+**TEST ONLY - NOT FOR PRODUCTION**. La chiave segreta resta esclusivamente in
+RAM sul DK e non viene letta, notificata o registrata nei log. La Public Key
+characteristic restituisce la chiave pubblica generata dinamicamente; il
+vecchio `demo_pk` non è attivo in questo profilo.
+
+KeyGen e decapsulazione sono eseguiti da un thread Zephyr dedicato, non dalle
+callback Bluetooth/GATT. Lo stack iniziale del worker è 28672 byte. Il worker
+è preemptible e configurato con priorità applicativa inferiore al Bluetooth RX,
+così il processing Bluetooth/sistema può interrompere il calcolo ML-KEM. Dopo
+KeyGen e dopo ogni decapsulazione, il firmware riporta il water mark cumulativo
+del worker: stack configurato, stack inutilizzato e picco stimato.
+
+### Profilo sperimentale Phase 2 E2E
+
+Il flag esplicito del Central è `--phase2-e2e`. Questo percorso non costruisce
+lo store delle sessioni e non esegue resumption, SAS, HKDF, AES SecureChannel o
+persistenza:
+
+```text
+PC Central / liboqs                         nRF54L15 DK / mlkem-native
+    connect + subscribe
+    read pk                         <----- dynamic pk from DK RAM
+    encapsulate(pk) -> ct, ss_PC
+    fragmented WRITE(ct)            -----> validate and reassemble 1088 B
+    WRITE("START")                  -----> schedule worker decapsulation
+                                            decapsulate(sk, ct) -> ss_DK
+    CRC32/IEEE(ss_PC)                       CRC32/IEEE(ss_DK)
+    exact 9-byte PQM2 result         <----- Secure Data NOTIFY
+    compare checksums
+```
+
+Formato esatto della notifica:
+
+| Offset | Size | Contenuto |
+|---:|---:|---|
+| 0 | 4 | ASCII `PQM2` (`50 51 4d 32`) |
+| 4 | 1 | status |
+| 5 | 4 | CRC-32/IEEE del shared secret di 32 byte, unsigned big-endian |
+
+Status definiti:
+
+| Status | Significato |
+|---:|---|
+| `0x00` | Decapsulazione completata; checksum significativo |
+| `0x01` | Keypair non disponibile / inizializzazione fallita |
+| `0x02` | Ciphertext incompleto |
+| `0x03` | Errore interno/API locale di decapsulazione |
+| `0x04` | Stato di protocollo non valido |
+
+Per gli status non-success il campo CRC è zero. Il vettore noto è verificato
+dai test Python; lo stesso KAT è compilato nel firmware e verrà confermato dal
+log al primo avvio sul DK:
+
+```text
+CRC-32/IEEE(32 zero bytes) = 0x190A55AD
+PQM2 success bytes         = 50 51 4d 32 00 19 0a 55 ad
+```
+
+Il CRC è sempre descritto come **TEST-ONLY shared-secret diagnostic
+checksum**. Non è autenticazione, non è una KDF, non è cryptographic key
+confirmation e non fa parte del protocollo finale. Il shared secret ML-KEM non
+viene mai trasmesso.
+
+ML-KEM usa implicit rejection. Un ciphertext modificato ma strutturalmente
+valido può completare normalmente la decapsulazione e produrre un secret
+diverso. In questo caso il risultato previsto è status `0x00` con checksum
+diversi e `MATCH: NO`, non un errore artificiale di "bad ciphertext".
 
 ### Phase 2 — SAS Numeric Comparison
 
@@ -191,6 +270,21 @@ The public key is read through ATT long read operations. The ciphertext is fragm
 
 On Windows/Bleak, Wireshark can show these writes as ATT Prepare Write / Execute Write operations.
 
+Nel firmware Phase 2 il trasferimento mantiene lo stesso wire format ma usa
+gli stati espliciti `EMPTY`, `RECEIVING`, `CT_READY` e `CRYPTO_BUSY`.
+L'implementazione rifiuta `idx >= total`, totali incoerenti, payload non validi
+e riassemblaggi con lunghezza finale diversa da 1088 byte. I duplicati sono
+gestiti senza mescolare trasferimenti. Un nuovo trasferimento valido azzera lo
+stato stale; durante `CRYPTO_BUSY` non vengono accettati nuovi frammenti. Uno
+`START` valido consuma `CT_READY`, quindi un secondo `START` richiede un nuovo
+ciphertext completo. La disconnessione pulisce lo stato associato al peer.
+
+La callback `START` conserva un riferimento Zephyr alla connessione destinata
+al risultato e consegna al worker una copia completa del ciphertext. Il
+riferimento viene rilasciato dopo il completamento o la disconnessione. Se il
+peer si disconnette durante la decapsulazione, il calcolo può terminare ma il
+firmware non notifica una connessione stale o sostitutiva.
+
 ---
 
 ## 6. Session resumption
@@ -217,7 +311,8 @@ Production note: a production central should limit resume attempts or use shorte
 
 ## 7. Hardware validation
 
-Validated hardware setup:
+Il seguente setup e la cattura descrivono la milestone hardware precedente,
+con public key offline e notifica raw di 57 byte:
 
 ```text
 PC Windows + Python/Bleak  <--- BLE/GATT --->  nRF54L15 DK
@@ -245,13 +340,20 @@ Observed Wireshark evidence:
 | Write on handle `0x0019` | `START` command |
 | ATT Handle Value Notification | DK notification |
 
+Questa evidenza storica di trasporto resta valida e non viene reinterpretata
+come prova Phase 2. Il firmware e il Central Phase 2 sono implementati e
+sottoposti a test/build software; la dimostrazione fisica
+`shared_secret_PC == shared_secret_DK` tramite `--phase2-e2e` richiede ancora
+esecuzione sul nRF54L15 DK reale. Fino a quella prova non si dichiara un PASS
+E2E hardware.
+
 ---
 
 ## 8. Security properties
 
 | Property | Status |
 |---|---|
-| Post-quantum key establishment | Provided by ML-KEM-768 in Python implementation |
+| Post-quantum key establishment | Implementato nel protocollo Python; interop liboqs/mlkem-native implementata in Phase 2 ma hardware E2E ancora da validare |
 | MITM detection | SAS Numeric Comparison |
 | Payload confidentiality | AES-256-GCM |
 | Payload integrity | AES-256-GCM tag |
@@ -267,6 +369,11 @@ Observed Wireshark evidence:
 - The protocol is not a Bluetooth SIG standard.
 - BLE SMP is intentionally disabled in the DK firmware.
 - BLE link-layer encryption is not used in the current demo.
-- The DK firmware validates BLE/GATT transport but does not yet execute ML-KEM/AES-GCM on-chip.
-- The final DK notification is a raw hardware-demo payload.
-- Full on-chip cryptographic processing and persistent session store are future work.
+- Il firmware Phase 2 esegue KeyGen e decapsulazione ML-KEM-768 on-chip, ma la
+  verifica E2E sul DK reale è ancora pendente.
+- La notifica Phase 2 contiene solo il risultato diagnostico `PQM2` di 9 byte;
+  non è un payload protetto AES-GCM.
+- HKDF, AES-GCM, ECDH, handshake ibrido, RNG/PSA di produzione e persistent
+  session store sul DK non sono inclusi nella Phase 2.
+- I coins deterministici Phase 2 e il checksum CRC32 sono esclusivamente
+  strumenti TEST-ONLY e non sono adatti alla produzione.

@@ -2,17 +2,21 @@
 
 Risultati aggiornati della validazione del progetto **PQ-BLE-HANDSHAKE**.
 
-Comando usato per eseguire la suite Python:
+Comando riproducibile per eseguire la suite Python:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-Risultato corrente della suite attiva:
+Risultato verificato dopo l'implementazione Phase 2:
 
 ```text
-101 passed
+139 passed, 1 warning in 1.61s
 ```
+
+Il warning segnala che il wrapper temporaneo `liboqs-python` 0.16.0 ha trovato
+la libreria liboqs 0.15.0 installata. `ML-KEM-768` era disponibile e tutti i
+test crittografici liboqs sono passati.
 
 La suite attiva valida la parte crittografica, la frammentazione GATT, la logica di sessione, la protezione replay, il mock del trasporto BLE central e alcuni controlli firmware di base.
 
@@ -29,28 +33,59 @@ La suite attiva valida la parte crittografica, la frammentazione GATT, la logica
 | `test_session_store.py` | 23 | Session ID generation, resume request parsing, persistent store, expiry, usage counter and re-handshake mitigation |
 | `test_handshake_mock.py` | 2 | Full handshake pipeline without real BLE hardware |
 | `test_mitm_simulation.py` | 2 | MITM simulation and SAS mismatch detection |
-| `test_firmware_uuids.py` | 3 | Firmware device name, SMP disabled, `bt_gatt_notify()` present |
-| `test_central_transport_mock.py` | 17 | Fragmented public-key read and ciphertext write with mock GATT client, header validation, reassembly and MTU handling |
-| **Total** | **101** | Current active proof-of-concept validation |
+| `test_firmware_uuids.py` | 9 | Firmware/Python UUID parity, device name, SMP disabled and `bt_gatt_notify()` present |
+| `test_central_transport_mock.py` | 18 | Fragmented public-key read and ciphertext write with mock GATT client, reassembly, MTU handling and 512-byte frame cap |
+| `test_phase2_diagnostic.py` | 7 | Exact 9-byte `PQM2` codec, big-endian checksum and known CRC vector |
+| `test_phase2_e2e.py` | 16 | Isolated Phase 2 Central flow, cross-thread notification delivery, exact-result validation and failure exits |
+| **Total** | **139** | Complete active Python suite |
+
+---
+
+## Phase 2 implementation validation status
+
+Implemented in source:
+
+- deterministic on-device ML-KEM-768 KeyGen with coins labelled
+  **TEST ONLY - NOT FOR PRODUCTION**;
+- dynamic GATT Public Key value and RAM-only DK secret key;
+- dedicated 28672-byte preemptible ML-KEM worker for KeyGen and Decaps;
+- cumulative worker stack watermark reporting after KeyGen and every Decaps;
+- explicit ciphertext states `EMPTY`, `RECEIVING`, `CT_READY` and
+  `CRYPTO_BUSY`, with hardened validation and one-use `START` semantics;
+- protected Zephyr connection lifetime across asynchronous decapsulation;
+- exact nine-byte `PQM2` result and explicit Central `--phase2-e2e` path;
+- Python validation of the 32-zero-byte CRC-32/IEEE vector `0x190A55AD`, plus
+  a firmware startup KAT that is compiled and awaits execution on the DK.
+
+The Phase 2 Central deliberately bypasses resumption, SAS, HKDF, AES
+SecureChannel semantics and persistence. The **TEST-ONLY shared-secret
+diagnostic checksum** is not authentication, not a KDF, not cryptographic key
+confirmation and not part of the final protocol. No shared-secret bytes are
+sent over BLE.
+
+Validation matrix:
+
+| Item | Status |
+|---|---|
+| Focused Phase 2/transport/firmware Python tests | **50 passed** |
+| Complete Python suite | **139 passed**, 1 version warning |
+| NCS 3.0.0 pristine build for `nrf54l15dk/nrf54l15/cpuapp` | **PASS**; 183716 B flash, 104944 B RAM |
+| NCS 3.0.0 build with `phase1_selftest.conf` | **PASS**; opt-in symbol enabled |
+| Real-DK `--phase2-e2e` shared-secret equality | **Pending hardware validation** |
+
+No `MATCH: YES` claim is made for Phase 2 hardware until the final row is
+executed on the physical DK.
 
 ---
 
 ## Notes on firmware UUID tests
 
-The previous strict UUID parser tests were disabled/commented because they were tied to an older firmware UUID declaration format.
-
-The currently active firmware checks still validate that:
-
-- the firmware uses the expected device name;
-- BLE SMP is disabled as intended;
-- the firmware contains a real `bt_gatt_notify()` path.
-
-UUID consistency is currently validated through:
-
-1. the firmware source and README UUID table;
-2. nRF Connect Mobile GATT inspection;
-3. the real PC central ↔ nRF54L15 DK hardware demo;
-4. the passive nRF52840/Wireshark capture.
+The parser now normalizes the C preprocessor line continuations used by active
+`firmware/src/main.c`. Six assertions compare all five firmware UUIDs with the
+Python constants and require the complete set. Three additional checks cover
+the advertised device name, disabled SMP, and the real `bt_gatt_notify()`
+path. Historical nRF Connect and Wireshark evidence remains useful as a
+separate hardware-level check.
 
 ---
 
@@ -65,10 +100,10 @@ A real BLE/GATT hardware validation was performed using:
 
 The nRF54L15 DK firmware was successfully built and flashed.
 
-Validated firmware path:
+Validated historical firmware source is now located under:
 
 ```text
-firmware/nrf54l15_pq_gatt_skeleton/
+firmware/
 ```
 
 Validated board target:
@@ -119,9 +154,9 @@ This is expected when `START` is sent before writing the ciphertext.
 
 ---
 
-## PC central ↔ nRF54L15 DK hardware demo
+## Historical PC central ↔ nRF54L15 DK transport demo
 
-The PC central demo was executed with:
+The pre-Phase-2 Central demo was executed with:
 
 ```bash
 python -m src.central.main --device PQ-BLE-Device --demo --no-sas-confirm --log-level DEBUG
@@ -143,7 +178,7 @@ Raw demo notification received: 57 bytes
 BLE/GATT transport validation completed.
 ```
 
-Validated hardware flow:
+Validated historical hardware flow:
 
 1. PC central discovered `PQ-BLE-Device`;
 2. PC central connected to the nRF54L15 DK;
@@ -162,6 +197,9 @@ A raw execution log is available in:
 ```text
 docs/hardware-validation-log.txt
 ```
+
+This run used the former offline public key and raw 57-byte placeholder. It is
+preserved as transport evidence and is not a Phase 2 E2E ML-KEM result.
 
 ---
 
@@ -213,12 +251,20 @@ The current implementation validates:
 - BLE central transport logic;
 - real BLE/GATT communication between PC and nRF54L15 DK;
 - passive packet-level observation with nRF52840/Wireshark.
+- real-DK execution of the deterministic Phase 1 mlkem-native
+  KeyGen → Encaps → Decaps self-test, frozen as `v0.2-mlkem-ondevice`.
 
-The current firmware does **not** yet validate:
+The implemented Phase 2 source adds on-device ML-KEM KeyGen/Decaps integrated
+with GATT. The following are **not yet validated as a Phase 2 real-hardware
+result**:
 
-- on-chip ML-KEM decapsulation;
+- liboqs Central and mlkem-native DK deriving the same secret over real BLE;
+- the hardened connection/state behavior under real disconnect and error cases;
+- the crypto-worker stack watermark after the integrated E2E exchange;
 - on-chip HKDF/session key derivation;
 - on-chip AES-256-GCM encryption;
 - persistent session storage on the DK.
 
-Therefore, in the current hardware demo, the final DK notification is treated as a **raw hardware-demo notification**, not as a fully decryptable secure-channel message.
+The old capture's raw notification remains historical. The Phase 2 firmware
+uses `PQM2 || status || crc32_be` on the same Secure Data characteristic, and
+the Phase 2 real-DK result remains pending.

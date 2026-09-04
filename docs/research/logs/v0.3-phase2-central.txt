@@ -1,0 +1,29 @@
+(.venv) PS C:\pq_ble> python -m src.central.main --phase2-e2e
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+17:07:22 [INFO   ] pq-ble.central.main: ==================================================
+17:07:22 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+17:07:22 [INFO   ] pq-ble.central.main: ==================================================
+17:07:22 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: True | MTU: auto
+17:07:22 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+17:07:22 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+17:07:24 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+17:07:25 [INFO   ] pq-ble.central.client: Connected. MTU: 23
+17:07:25 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+17:07:25 [INFO   ] pq-ble.central.main: === PHASE 2 E2E: liboqs Central -> mlkem-native DK ===
+17:07:26 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+17:07:27 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+17:07:27 [INFO   ] pq-ble.central.phase2: Central TEST-ONLY shared-secret diagnostic checksum: 0xF98CD5F2
+17:07:27 [INFO   ] pq-ble.central.phase2: The TEST-ONLY shared-secret diagnostic checksum is not authentication, a KDF, cryptographic key confirmation, or part of the final protocol.
+17:07:27 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+17:07:27 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+17:07:27 [INFO   ] pq-ble.central.phase2: Peripheral TEST-ONLY shared-secret diagnostic checksum: 0xF98CD5F2
+
+Central TEST-ONLY shared-secret diagnostic checksum: 0xF98CD5F2
+Peripheral TEST-ONLY shared-secret diagnostic checksum: 0xF98CD5F2
+ML-KEM E2E SHARED SECRET MATCH: YES
+
+The TEST-ONLY shared-secret diagnostic checksum is not authentication, not a KDF, not cryptographic key confirmation, and not part of the final protocol.
+17:07:27 [WARNING] pq-ble.central.client: Unexpected disconnect from C0:48:FF:F5:9D:B8
+17:07:27 [INFO   ] pq-ble.central.client: Disconnected.

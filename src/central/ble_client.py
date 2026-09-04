@@ -127,13 +127,20 @@ class BLECentralClient:
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
 
-        # Calculate payload size from negotiated MTU
-        mtu = self.mtu_size if self.mtu_size > 23 else BLE_MTU
+        # A GATT attribute value is capped at 512 bytes. Some backends report
+        # an ATT MTU of 517, which would otherwise produce a 517-byte logical
+        # fragment that the peripheral must reject. Keep the established wire
+        # format and cap only the logical frame size.
+        negotiated_mtu = self.mtu_size
+        mtu = min(negotiated_mtu, BLE_MTU) if negotiated_mtu > 23 else BLE_MTU
         fragment_payload = mtu - FRAGMENT_HEADER_SIZE
 
         fragments = fragment_data(data, mtu=mtu)
-        logger.info("Writing ciphertext: %d bytes in %d fragments (MTU=%d, payload=%d)",
-                     len(data), len(fragments), mtu, fragment_payload)
+        logger.info(
+            "Writing ciphertext: %d bytes in %d fragments "
+            "(negotiated MTU=%d, logical frame=%d, payload=%d)",
+            len(data), len(fragments), negotiated_mtu, mtu, fragment_payload,
+        )
 
         for i, frag in enumerate(fragments):
             await self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, frag)

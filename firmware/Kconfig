@@ -1,0 +1,33 @@
+mainmenu "PQ-BLE Phase 2 firmware"
+
+menu "PQ-BLE application options"
+
+config PQ_MLKEM_PHASE1_SELFTEST
+	bool "Run the full Phase 1 ML-KEM startup self-test"
+	default n
+	help
+	  Run the frozen deterministic KeyGen -> Encapsulation ->
+	  Decapsulation regression test before the Phase 2 session worker starts.
+	  This is test-only behavior and is disabled for normal Phase 2 boots.
+
+config PQ_MLKEM_THREAD_STACK_SIZE
+	int "Dedicated ML-KEM worker stack size"
+	default 28672
+	range 28672 28672
+	help
+	  Initial conservative stack allocation for Phase 2 KeyGen and
+	  Decapsulation. Keep this at 28672 bytes until on-device watermark data
+	  justifies a separate stack-optimization milestone.
+
+config PQ_MLKEM_THREAD_PRIORITY
+	int "Dedicated ML-KEM worker preemptible priority"
+	default 14
+	range 14 14
+	help
+	  NCS 3.0.0 configures 15 preemptible priorities (0 through 14), making
+	  14 the lowest-priority application thread. Bluetooth and system
+	  processing can therefore preempt the CPU-intensive ML-KEM worker.
+
+endmenu
+
+source "Kconfig.zephyr"
