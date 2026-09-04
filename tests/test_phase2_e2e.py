@@ -200,6 +200,8 @@ async def test_main_phase2_branch_bypasses_session_store():
         device="PQ-BLE-Device",
         demo=False,
         phase2_e2e=True,
+        phase3_secure=False,
+        phase3_negative=None,
         mtu=None,
         log_level="INFO",
     )

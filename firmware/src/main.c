@@ -1,13 +1,22 @@
 /*
- * PQ-BLE Handshake - nRF54L15 DK Phase 2 firmware
+ * PQ-BLE Handshake - nRF54L15 DK Phase 3 firmware
  *
- * Phase 2 proves ML-KEM-768 interoperability between liboqs on the PC and
- * mlkem-native on the DK. It intentionally does not implement HKDF, AES-GCM,
- * ECDH, a production RNG, or the eventual hybrid handshake.
+ * Phase 3 implements an application-layer post-quantum secure channel:
  *
- * The Secure Data characteristic carries only a nine-byte
- * TEST-ONLY shared-secret diagnostic checksum. It is not authentication, a
- * KDF, cryptographic key confirmation, or part of the final protocol.
+ * - ML-KEM-768 key establishment over BLE/GATT
+ * - HKDF-SHA256 session-key derivation
+ * - AES-256-GCM authenticated encryption
+ * - session binding through AAD
+ * - monotonic sequence numbers / replay protection on the Central
+ *
+ * The current ML-KEM keypair generation still uses deterministic
+ * TEST-ONLY coins and is not production-ready.
+ *
+ * The firmware intentionally does not yet implement:
+ * - production ML-KEM RNG
+ * - ECDH / hybrid key establishment
+ * - bidirectional encrypted application traffic
+ * - transcript-bound FINISHED authentication
  */
 
 #include <errno.h>
@@ -26,6 +35,7 @@
 
 #include "mlkem_selftest.h"
 #include "mlkem_session.h"
+#include "pq_secure_channel.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 
@@ -56,6 +66,10 @@ LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 
 #define CTRL_START "START"
 #define CTRL_START_LEN 5U
+#define CTRL_START3 "START3"
+#define CTRL_START3_LEN 6U
+#define CTRL_START3_MESSAGE_LEN \
+	(CTRL_START3_LEN + PQ_SECURE_SESSION_ID_SIZE)
 #define CTRL_SAS_OK "OK"
 #define CTRL_SAS_OK_LEN 2U
 #define RESUME_MAGIC "PQBL"
@@ -108,8 +122,12 @@ static ssize_t write_control(struct bt_conn *conn,
 			     uint16_t offset, uint8_t flags);
 static void ccc_config_changed(const struct bt_gatt_attr *attr,
 			       uint16_t value);
-static void mlkem_result_ready(enum pq_mlkem_diagnostic_status status,
-			       uint32_t shared_secret_crc32);
+static void mlkem_result_ready(
+	enum pq_mlkem_job_mode mode,
+	enum pq_mlkem_diagnostic_status status,
+	uint32_t shared_secret_crc32,
+	const uint8_t *secure_wire,
+	size_t secure_wire_len);
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
@@ -351,7 +369,11 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 	return len;
 }
 
-static ssize_t handle_start(struct bt_conn *conn, uint16_t len)
+static ssize_t handle_start(
+	struct bt_conn *conn,
+	uint16_t len,
+	bool secure_mode,
+	const uint8_t *session_id)
 {
 	struct bt_conn *failed_job_ref = NULL;
 	struct bt_conn *job_ref;
@@ -418,7 +440,17 @@ static ssize_t handle_start(struct bt_conn *conn, uint16_t len)
 	crypto_job_generation = connection_generation;
 	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
 
-	ret = pq_mlkem_session_submit(ciphertext, sizeof(ciphertext));
+	if (secure_mode) {
+		ret = pq_mlkem_session_submit_secure(
+			ciphertext,
+			sizeof(ciphertext),
+			session_id);
+	} else {
+		ret = pq_mlkem_session_submit(
+			ciphertext,
+			sizeof(ciphertext));
+	}
+
 	if (ret != 0) {
 		failed_job_ref = crypto_job_conn;
 		crypto_job_conn = NULL;
@@ -435,7 +467,9 @@ static ssize_t handle_start(struct bt_conn *conn, uint16_t len)
 
 	/* The worker has its own copy. This consumed ciphertext cannot be reused. */
 	clear_transfer_storage_locked();
-	LOG_INF("Ciphertext state: CRYPTO_BUSY; START consumed CT_READY job");
+	LOG_INF(
+		"Ciphertext state: CRYPTO_BUSY; %s consumed CT_READY job",
+		secure_mode ? "START3" : "START");
 	k_mutex_unlock(&protocol_lock);
 
 	return len;
@@ -458,22 +492,35 @@ static ssize_t write_control(struct bt_conn *conn,
 	LOG_INF("Control write: len=%u", len);
 	LOG_HEXDUMP_INF(data, len, "Control data");
 
-	if (len == CTRL_START_LEN &&
-	    memcmp(data, CTRL_START, CTRL_START_LEN) == 0) {
-		LOG_INF("Received START command");
-		return handle_start(conn, len);
+	if (len == CTRL_START3_MESSAGE_LEN &&
+	    memcmp(data, CTRL_START3, CTRL_START3_LEN) == 0) {
+
+		LOG_INF("Received START3 secure-channel command");
+
+		return handle_start(
+			conn,
+			len,
+			true,
+			data + CTRL_START3_LEN);
 	}
 
-	/* Retained legacy commands; Phase 2 does not act on either one. */
-	if (len == CTRL_SAS_OK_LEN &&
-	    memcmp(data, CTRL_SAS_OK, CTRL_SAS_OK_LEN) == 0) {
-		LOG_WRN("Legacy SAS confirmation ignored in Phase 2 mode");
-		return len;
+	if (len == CTRL_START_LEN &&
+	    memcmp(data, CTRL_START, CTRL_START_LEN) == 0) {
+
+		LOG_INF("Received START Phase 2 diagnostic command");
+
+		return handle_start(
+			conn,
+			len,
+			false,
+			NULL);
 	}
+
 	if (len == (RESUME_MAGIC_LEN + 1U + 16U) &&
 	    memcmp(data, RESUME_MAGIC, RESUME_MAGIC_LEN) == 0 &&
 	    data[RESUME_MAGIC_LEN] == RESUME_REQ_BYTE) {
-		LOG_WRN("Legacy resume request ignored in Phase 2 mode");
+
+		LOG_WRN("Legacy resume request ignored in Phase 3 mode");
 		return len;
 	}
 
@@ -495,8 +542,12 @@ static void ccc_config_changed(const struct bt_gatt_attr *attr, uint16_t value)
 	LOG_INF("Notifications %s", enabled ? "ENABLED" : "DISABLED");
 }
 
-static void mlkem_result_ready(enum pq_mlkem_diagnostic_status status,
-			       uint32_t shared_secret_crc32)
+static void mlkem_result_ready(
+	enum pq_mlkem_job_mode mode,
+	enum pq_mlkem_diagnostic_status status,
+	uint32_t shared_secret_crc32,
+	const uint8_t *secure_wire,
+	size_t secure_wire_len)
 {
 	uint8_t result[PQ_MLKEM_DIAGNOSTIC_SIZE] = {
 		PQM2_MAGIC[0], PQM2_MAGIC[1], PQM2_MAGIC[2], PQM2_MAGIC[3],
@@ -538,6 +589,28 @@ static void mlkem_result_ready(enum pq_mlkem_diagnostic_status status,
 
 	if (!connection_is_current) {
 		LOG_WRN("ML-KEM result discarded: originating connection is stale");
+		bt_conn_unref(job_conn);
+		return;
+	}
+
+		if (mode == PQ_MLKEM_JOB_PHASE3_SECURE &&
+		status == PQ_MLKEM_STATUS_SUCCESS &&
+		secure_wire != NULL &&
+		secure_wire_len > 0U) {
+
+		err = bt_gatt_notify(
+			job_conn,
+			&pq_service.attrs[6],
+			secure_wire,
+			secure_wire_len);
+
+		if (err != 0) {
+			LOG_ERR("Phase 3 encrypted notification failure: %d", err);
+		} else {
+			LOG_INF("Phase 3 AES-256-GCM notification sent: %zu B",
+				secure_wire_len);
+		}
+
 		bt_conn_unref(job_conn);
 		return;
 	}
@@ -662,7 +735,7 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
-	LOG_INF("Mode: PHASE2_MLKEM_E2E_TEST_ONLY");
+	LOG_INF("Mode: PHASE3_PQ_SECURE_CHANNEL");
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 

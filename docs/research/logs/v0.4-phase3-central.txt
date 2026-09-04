@@ -1,0 +1,38 @@
+(.venv) PS C:\pq_ble> python -m src.central.main --phase3-secure
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+19:31:16 [INFO   ] pq-ble.central.main: ==================================================
+19:31:16 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+19:31:16 [INFO   ] pq-ble.central.main: ==================================================
+19:31:16 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo:False | Phase 2 E2E: False | Phase 3 Secure: True | MTU: auto
+19:31:16 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+19:31:16 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+19:31:17 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+19:31:18 [INFO   ] pq-ble.central.client: Connected. MTU: 23
+19:31:18 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+19:31:18 [INFO   ] pq-ble.central.main: === PHASE 3 SECURE CHANNEL: ML-KEM + HKDF-SHA256 + AES-256-GCM ===
+19:31:19 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+19:31:19 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes(MTU=247)
+19:31:19 [INFO   ] pq-ble.central.phase3: Dynamic ML-KEM-768 public key received: 1184 bytes
+19:31:19 [INFO   ] pq-ble.central.phase3: liboqs ML-KEM-768 encapsulation: PASS
+19:31:19 [INFO   ] pq-ble.central.phase3: Ciphertext size: 1088 bytes
+19:31:19 [INFO   ] pq-ble.central.phase3: Fresh Phase 3 session_id generated: 16 bytes
+19:31:19 [INFO   ] pq-ble.central.phase3: Central HKDF-SHA256 session-key derivation: PASS
+19:31:19 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+19:31:19 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+19:31:19 [INFO   ] pq-ble.central.phase3: Sending START3 secure-channel command: 22 bytes
+19:31:20 [INFO   ] pq-ble.central.phase3: Encrypted notification received: 58 bytes
+19:31:20 [INFO   ] pq-ble.central.phase3: AES-256-GCM authentication:PASS
+19:31:20 [INFO   ] pq-ble.central.phase3: Authenticated plaintext recovered: PQ-BLE SECURE CHANNEL
+
+ML-KEM key establishment: PASS
+HKDF-SHA256 session-key derivation: PASS
+AES-256-GCM authentication: PASS
+Decrypted payload: PQ-BLE SECURE CHANNEL
+Authenticated secure-wire length: 58 bytes
+
+PQ-BLE SECURE CHANNEL E2E: PASS
+
+19:31:20 [WARNING] pq-ble.central.client: Unexpected disconnect from C0:48:FF:F5:9D:B8
+19:31:20 [INFO   ] pq-ble.central.client: Disconnected.

@@ -16,6 +16,7 @@ target_sources(app PRIVATE
     src/main.c
     src/mlkem_session.c
     src/mlkem_selftest.c
+    src/pq_secure_channel.c
     ${MLKEM_NATIVE_DIR}/mlkem_native.c
 )
 
