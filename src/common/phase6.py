@@ -16,6 +16,10 @@ expanded into two independent directional AES-256 traffic keys:
     )
 
 K_app itself is not used directly for application encryption in Phase 6.
+
+Checkpoint 2 also defines a small Phase 6 control/status frame. The ACK is
+not application data; it exists only to confirm that the asynchronous DK
+crypto worker has authenticated the Central-to-Peripheral secure write.
 """
 
 from dataclasses import dataclass
@@ -32,6 +36,13 @@ PHASE6_P2C_LABEL = (
     b"PQ-BLE-TRAFFIC-v0.6/PERIPHERAL-TO-CENTRAL"
 )
 
+PHASE6_FRAME_MAGIC = b"PQS6"
+PHASE6_FRAME_VERSION = 0x06
+PHASE6_FRAME_HEADER_SIZE = 8
+
+PHASE6_C2P_ACK = 0x01
+PHASE6_ERROR = 0x7F
+
 
 @dataclass(frozen=True)
 class Phase6TrafficKeys:
@@ -39,6 +50,14 @@ class Phase6TrafficKeys:
 
     central_to_peripheral: bytes
     peripheral_to_central: bytes
+
+
+@dataclass(frozen=True)
+class Phase6Frame:
+    """Parsed Phase 6 control/status frame."""
+
+    subtype: int
+    payload: bytes
 
 
 def derive_phase6_traffic_keys(
@@ -67,4 +86,48 @@ def derive_phase6_traffic_keys(
     return Phase6TrafficKeys(
         central_to_peripheral=central_to_peripheral,
         peripheral_to_central=peripheral_to_central,
+    )
+
+
+def encode_phase6_frame(subtype: int, payload: bytes = b"") -> bytes:
+    """Encode one versioned PQS6 control/status frame."""
+
+    if not 0 <= subtype <= 0xFF:
+        raise ValueError("Phase 6 subtype must fit in one byte")
+
+    payload = bytes(payload)
+
+    if len(payload) > 0xFFFF:
+        raise ValueError("Phase 6 payload is too large")
+
+    return (
+        PHASE6_FRAME_MAGIC
+        + bytes((PHASE6_FRAME_VERSION, subtype))
+        + len(payload).to_bytes(2, "big")
+        + payload
+    )
+
+
+def parse_phase6_frame(frame: bytes | bytearray) -> Phase6Frame:
+    """Parse and strictly validate one PQS6 frame."""
+
+    frame = bytes(frame)
+
+    if len(frame) < PHASE6_FRAME_HEADER_SIZE:
+        raise ValueError("Phase 6 frame is too short")
+
+    if frame[:4] != PHASE6_FRAME_MAGIC:
+        raise ValueError("Invalid Phase 6 frame magic")
+
+    if frame[4] != PHASE6_FRAME_VERSION:
+        raise ValueError("Unsupported Phase 6 frame version")
+
+    declared_len = int.from_bytes(frame[6:8], "big")
+
+    if len(frame) != PHASE6_FRAME_HEADER_SIZE + declared_len:
+        raise ValueError("Phase 6 frame length mismatch")
+
+    return Phase6Frame(
+        subtype=frame[5],
+        payload=frame[PHASE6_FRAME_HEADER_SIZE:],
     )

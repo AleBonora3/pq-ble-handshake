@@ -142,3 +142,93 @@ out:
 
 	return ret;
 }
+
+
+int pq_phase6_encode_frame(
+	uint8_t subtype,
+	const uint8_t *payload,
+	size_t payload_len,
+	uint8_t *output,
+	size_t output_capacity,
+	size_t *output_len)
+{
+	static const uint8_t magic[] = PQ_PHASE6_FRAME_MAGIC;
+
+	if (output == NULL ||
+	    output_len == NULL ||
+	    payload_len > UINT16_MAX ||
+	    (payload_len > 0U && payload == NULL)) {
+		return -EINVAL;
+	}
+
+	if (output_capacity <
+	    PQ_PHASE6_FRAME_HEADER_SIZE + payload_len) {
+		return -ENOBUFS;
+	}
+
+	memcpy(
+		output,
+		magic,
+		PQ_PHASE6_FRAME_MAGIC_SIZE);
+
+	output[4] = PQ_PHASE6_FRAME_VERSION;
+	output[5] = subtype;
+	output[6] = (uint8_t)(payload_len >> 8);
+	output[7] = (uint8_t)payload_len;
+
+	if (payload_len > 0U) {
+		memcpy(
+			output + PQ_PHASE6_FRAME_HEADER_SIZE,
+			payload,
+			payload_len);
+	}
+
+	*output_len =
+		PQ_PHASE6_FRAME_HEADER_SIZE + payload_len;
+
+	return 0;
+}
+
+
+int pq_phase6_parse_frame(
+	const uint8_t *frame,
+	size_t frame_len,
+	uint8_t *subtype,
+	const uint8_t **payload,
+	size_t *payload_len)
+{
+	static const uint8_t magic[] = PQ_PHASE6_FRAME_MAGIC;
+	size_t declared_len;
+
+	if (frame == NULL ||
+	    subtype == NULL ||
+	    payload == NULL ||
+	    payload_len == NULL ||
+	    frame_len < PQ_PHASE6_FRAME_HEADER_SIZE) {
+		return -EINVAL;
+	}
+
+	if (memcmp(
+		    frame,
+		    magic,
+		    PQ_PHASE6_FRAME_MAGIC_SIZE) != 0 ||
+	    frame[4] != PQ_PHASE6_FRAME_VERSION) {
+		return -EINVAL;
+	}
+
+	declared_len =
+		((size_t)frame[6] << 8) |
+		frame[7];
+
+	if (frame_len !=
+	    PQ_PHASE6_FRAME_HEADER_SIZE + declared_len) {
+		return -EINVAL;
+	}
+
+	*subtype = frame[5];
+	*payload =
+		frame + PQ_PHASE6_FRAME_HEADER_SIZE;
+	*payload_len = declared_len;
+
+	return 0;
+}

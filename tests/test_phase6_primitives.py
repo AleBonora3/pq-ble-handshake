@@ -11,6 +11,10 @@ from src.common.constants import (
 from src.common.phase6 import (
     PHASE6_TRAFFIC_KEY_SIZE,
     derive_phase6_traffic_keys,
+    PHASE6_C2P_ACK,
+    PHASE6_ERROR,
+    encode_phase6_frame,
+    parse_phase6_frame,
 )
 from src.common.session import SecureChannel
 
@@ -217,3 +221,67 @@ def test_phase6_directional_sequence_spaces_both_start_at_zero():
 
     assert c2p_seq == 0
     assert p2c_seq == 0
+
+def test_phase6_ack_frame_roundtrip():
+    encoded = encode_phase6_frame(
+        PHASE6_C2P_ACK
+    )
+
+    assert encoded == (
+        b"PQS6"
+        b"\x06"
+        b"\x01"
+        b"\x00\x00"
+    )
+
+    decoded = parse_phase6_frame(
+        encoded
+    )
+
+    assert decoded.subtype == PHASE6_C2P_ACK
+    assert decoded.payload == b""
+
+
+def test_phase6_error_frame_roundtrip():
+    encoded = encode_phase6_frame(
+        PHASE6_ERROR,
+        b"\x06",
+    )
+
+    decoded = parse_phase6_frame(
+        encoded
+    )
+
+    assert decoded.subtype == PHASE6_ERROR
+    assert decoded.payload == b"\x06"
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        b"",
+        b"PQS6",
+        b"BAD!\x06\x01\x00\x00",
+        b"PQS6\x05\x01\x00\x00",
+        b"PQS6\x06\x01\x00\x01",
+        b"PQS6\x06\x01\x00\x00\x00",
+    ],
+)
+def test_phase6_frame_parser_rejects_malformed_frames(
+    frame,
+):
+    with pytest.raises(ValueError):
+        parse_phase6_frame(frame)
+
+
+def test_phase6_cli_mode_is_parsed():
+    from src.central.main import parse_args
+
+    args = parse_args(
+        ["--phase6-c2p"]
+    )
+
+    assert args.phase6_c2p is True
+    assert args.phase5_auth_pq is False
+    assert args.phase3_secure is False
+    assert args.phase2_e2e is False

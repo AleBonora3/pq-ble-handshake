@@ -7,6 +7,7 @@
  */
 
 #include "mlkem_session.h"
+#include "pq_phase6.h"
 
 #include <errno.h>
 #include <string.h>
@@ -52,6 +53,12 @@ static enum pq_mlkem_job_mode pending_job_mode =
 static uint8_t session_id_job[PQ_SECURE_SESSION_ID_SIZE];
 static uint8_t finished_c_job[PQ_PHASE5_FINISHED_SIZE];
 
+static uint8_t phase6_rx_wire_job[
+	PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE
+];
+
+static size_t phase6_rx_wire_job_len;
+
 static uint8_t secure_wire[PQ_SECURE_TEST_WIRE_SIZE];
 
 /* Phase 5 material retained only between its explicit worker jobs. */
@@ -62,6 +69,19 @@ static uint32_t phase5_epoch;
 static uint32_t pending_phase5_epoch;
 static bool phase5_wait_finished;
 static bool phase5_application_ready;
+/*
+ * Phase 6 state becomes active only after the first authenticated
+ * Central -> Peripheral frame has been successfully verified.
+ *
+ * Until then, the v0.5 K_app remains available so the old DATA_REQUEST
+ * path continues to work unchanged.
+ */
+static struct pq_phase6_traffic_keys phase6_traffic_keys;
+static uint8_t phase6_session_id[PQ_PHASE5_SESSION_ID_SIZE];
+
+static bool phase6_active;
+static bool phase6_has_last_recv_seq;
+static uint64_t phase6_last_recv_seq;
 
 static K_THREAD_STACK_DEFINE(crypto_thread_stack,
 			     CONFIG_PQ_MLKEM_THREAD_STACK_SIZE);
@@ -78,6 +98,7 @@ static bool job_active;
 static int initialization_result = -EINPROGRESS;
 
 static void clear_phase5_material_locked(void);
+static void clear_phase6_material_locked(void);
 
 static void secure_clear(void *buffer, size_t len)
 {
@@ -183,6 +204,32 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		uint8_t peripheral_finished[PQ_PHASE5_FINISHED_SIZE];
 		uint8_t application_key[PQ_PHASE5_KEY_SIZE];
 		uint8_t application_session_id[PQ_PHASE5_SESSION_ID_SIZE];
+
+		struct pq_phase6_traffic_keys local_phase6_keys;
+
+		uint8_t local_phase6_session_id[
+			PQ_PHASE5_SESSION_ID_SIZE
+		];
+
+		uint8_t local_phase6_wire[
+			PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE
+		];
+
+		uint8_t local_phase6_plaintext[
+			PQ_MLKEM_PHASE6_MAX_PLAINTEXT_SIZE
+		];
+
+		size_t local_phase6_wire_len = 0U;
+		size_t local_phase6_plaintext_len = 0U;
+
+		bool local_phase6_active = false;
+		bool local_phase6_has_last_recv_seq = false;
+
+		uint64_t local_phase6_last_recv_seq = 0U;
+		uint64_t local_phase6_accepted_seq = 0U;
+
+		bool phase6_committed = false;
+
 		enum pq_mlkem_diagnostic_status status =
 			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
 		uint32_t crc = 0U;
@@ -201,6 +248,26 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		memset(application_key, 0, sizeof(application_key));
 		memset(application_session_id, 0,
 		       sizeof(application_session_id));
+		
+		memset(
+			&local_phase6_keys,
+			0,
+			sizeof(local_phase6_keys));
+
+		memset(
+			local_phase6_session_id,
+			0,
+			sizeof(local_phase6_session_id));
+
+		memset(
+			local_phase6_wire,
+			0,
+			sizeof(local_phase6_wire));
+
+		memset(
+			local_phase6_plaintext,
+			0,
+			sizeof(local_phase6_plaintext));
 
 		k_sem_take(&job_available, K_FOREVER);
 
@@ -242,6 +309,58 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 				       sizeof(application_session_id));
 				/* Consumed before crypto, so duplicate DATA_REQUEST fails. */
 				clear_phase5_material_locked();
+			}
+		} else if (mode == PQ_MLKEM_JOB_PHASE6_C2P) {
+			if (job_epoch != phase5_epoch ||
+				phase6_rx_wire_job_len < PQ_SECURE_FIXED_OVERHEAD ||
+				phase6_rx_wire_job_len >
+					sizeof(local_phase6_wire) ||
+				(!phase6_active &&
+				!phase5_application_ready)) {
+				job_valid = false;
+			} else {
+				memcpy(
+					local_phase6_wire,
+					phase6_rx_wire_job,
+					phase6_rx_wire_job_len);
+
+				local_phase6_wire_len =
+					phase6_rx_wire_job_len;
+
+				local_phase6_active =
+					phase6_active;
+
+				if (phase6_active) {
+					memcpy(
+						&local_phase6_keys,
+						&phase6_traffic_keys,
+						sizeof(local_phase6_keys));
+
+					memcpy(
+						local_phase6_session_id,
+						phase6_session_id,
+						sizeof(local_phase6_session_id));
+
+					local_phase6_has_last_recv_seq =
+						phase6_has_last_recv_seq;
+
+					local_phase6_last_recv_seq =
+						phase6_last_recv_seq;
+				} else {
+					/*
+					* First v0.6 application frame:
+					* K_app is still the authenticated v0.5 application root.
+					*/
+					memcpy(
+						application_key,
+						phase5_keys.application,
+						sizeof(application_key));
+
+					memcpy(
+						local_phase6_session_id,
+						phase5_session_id,
+						sizeof(local_phase6_session_id));
+				}
 			}
 		}
 		k_mutex_unlock(&session_lock);
@@ -410,6 +529,171 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			} else {
 				status = PQ_MLKEM_STATUS_SUCCESS;
 			}
+		} else if (mode == PQ_MLKEM_JOB_PHASE6_C2P) {
+			/*
+			* On the first v0.6 application frame, derive both directional
+			* traffic keys from the authenticated v0.5 K_app.
+			*
+			* On later frames, reuse the already-committed directional keys.
+			*/
+			if (!local_phase6_active) {
+				ret = pq_phase6_derive_traffic_keys(
+					application_key,
+					&local_phase6_keys);
+
+				if (ret != 0) {
+					LOG_ERR(
+						"Phase 6 directional key derivation failed: %d",
+						ret);
+
+					status =
+						PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+
+					goto job_done;
+				}
+
+				LOG_INF(
+					"Phase 6 directional traffic keys derived: PASS");
+			}
+
+			ret = pq_secure_decrypt_with_key(
+				local_phase6_keys.central_to_peripheral,
+				local_phase6_session_id,
+				PQ_SECURE_CENTRAL_ROLE,
+				PQ_SECURE_MSG_TYPE_DATA,
+				local_phase6_has_last_recv_seq,
+				local_phase6_last_recv_seq,
+				local_phase6_wire,
+				local_phase6_wire_len,
+				local_phase6_plaintext,
+				sizeof(local_phase6_plaintext),
+				&local_phase6_plaintext_len,
+				&local_phase6_accepted_seq);
+
+			report_crypto_stack(
+				"after Phase 6 C->P AES-256-GCM");
+
+			if (ret != 0) {
+				if (ret == -EBADMSG) {
+					LOG_ERR(
+						"Phase 6 C->P AES-256-GCM authentication: FAIL");
+
+					status =
+						PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE;
+				} else if (ret == -EALREADY) {
+					LOG_ERR(
+						"Phase 6 C->P replay/out-of-order frame rejected");
+
+					status =
+						PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+				} else {
+					LOG_ERR(
+						"Phase 6 C->P secure decrypt failed: %d",
+						ret);
+
+					status =
+						PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+				}
+
+				secure_wire_len = 0U;
+				goto job_done;
+			}
+
+			LOG_INF(
+				"Phase 6 C->P AES-256-GCM authentication: PASS");
+
+			LOG_INF(
+				"Phase 6 C->P accepted sequence: %llu",
+				(unsigned long long)local_phase6_accepted_seq);
+
+			LOG_INF(
+				"Phase 6 C->P decrypted payload (%zu B): %.*s",
+				local_phase6_plaintext_len,
+				(int)local_phase6_plaintext_len,
+				(char *)local_phase6_plaintext);
+
+			/*
+			* Commit keys and replay state only AFTER successful GCM
+			* authentication.
+			*/
+			k_mutex_lock(&session_lock, K_FOREVER);
+
+			if (job_epoch == phase5_epoch &&
+				(phase6_active ||
+				phase5_application_ready)) {
+
+				if (!phase6_active) {
+					memcpy(
+						&phase6_traffic_keys,
+						&local_phase6_keys,
+						sizeof(phase6_traffic_keys));
+
+					memcpy(
+						phase6_session_id,
+						local_phase6_session_id,
+						sizeof(phase6_session_id));
+
+					/*
+					* K_app is no longer used directly once v0.6 is
+					* activated.
+					*/
+					secure_clear(
+						phase5_keys.application,
+						sizeof(phase5_keys.application));
+
+					secure_clear(
+						phase5_session_id,
+						sizeof(phase5_session_id));
+
+					phase5_application_ready = false;
+					phase6_active = true;
+				}
+
+				phase6_last_recv_seq =
+					local_phase6_accepted_seq;
+
+				phase6_has_last_recv_seq = true;
+				phase6_committed = true;
+			}
+
+			k_mutex_unlock(&session_lock);
+
+			if (!phase6_committed) {
+				LOG_WRN(
+					"Phase 6 result canceled by session epoch change");
+
+				status =
+					PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+
+				secure_wire_len = 0U;
+				goto job_done;
+			}
+
+			/*
+			* This is only a control/status ACK proving that the asynchronous
+			* worker finished authentication. It is NOT encrypted P->C
+			* application traffic.
+			*/
+			ret = pq_phase6_encode_frame(
+				PQ_PHASE6_C2P_ACK,
+				NULL,
+				0U,
+				secure_wire,
+				sizeof(secure_wire),
+				&secure_wire_len);
+
+			if (ret != 0) {
+				LOG_ERR(
+					"Phase 6 ACK generation failed: %d",
+					ret);
+
+				status =
+					PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+
+				secure_wire_len = 0U;
+			} else {
+				status = PQ_MLKEM_STATUS_SUCCESS;
+			}
 		}
 
 	job_done:
@@ -419,6 +703,11 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 		k_mutex_lock(&session_lock, K_FOREVER);
 		job_active = false;
+		secure_clear(
+			phase6_rx_wire_job,
+			sizeof(phase6_rx_wire_job));
+
+		phase6_rx_wire_job_len = 0U;
 		k_mutex_unlock(&session_lock);
 
 		result_callback(
@@ -438,6 +727,21 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		secure_clear(application_key, sizeof(application_key));
 		secure_clear(application_session_id,
 			     sizeof(application_session_id));
+		secure_clear(
+			&local_phase6_keys,
+			sizeof(local_phase6_keys));
+
+		secure_clear(
+			local_phase6_session_id,
+			sizeof(local_phase6_session_id));
+
+		secure_clear(
+			local_phase6_wire,
+			sizeof(local_phase6_wire));
+
+		secure_clear(
+			local_phase6_plaintext,
+			sizeof(local_phase6_plaintext));
 	}
 }
 
@@ -449,6 +753,25 @@ static void clear_phase5_material_locked(void)
 	secure_clear(phase5_session_id, sizeof(phase5_session_id));
 	phase5_wait_finished = false;
 	phase5_application_ready = false;
+}
+static void clear_phase6_material_locked(void)
+{
+	pq_phase6_clear_traffic_keys(
+		&phase6_traffic_keys);
+
+	secure_clear(
+		phase6_session_id,
+		sizeof(phase6_session_id));
+
+	secure_clear(
+		phase6_rx_wire_job,
+		sizeof(phase6_rx_wire_job));
+
+	phase6_rx_wire_job_len = 0U;
+
+	phase6_active = false;
+	phase6_has_last_recv_seq = false;
+	phase6_last_recv_seq = 0U;
 }
 
 int pq_mlkem_session_init(pq_mlkem_result_callback_t callback)
@@ -563,6 +886,8 @@ static int submit_job(
 	}
 	if (mode == PQ_MLKEM_JOB_PHASE5_START) {
 		clear_phase5_material_locked();
+		clear_phase6_material_locked();
+
 		phase5_epoch++;
 		pending_phase5_epoch = phase5_epoch;
 	}
@@ -656,11 +981,67 @@ int pq_mlkem_session_submit_phase5_data(void)
 	k_sem_give(&job_available);
 	return 0;
 }
+int pq_mlkem_session_submit_phase6_c2p(
+	const uint8_t *incoming_secure_wire,
+	size_t incoming_secure_wire_len)
+{
+	if (incoming_secure_wire == NULL ||
+	    incoming_secure_wire_len <
+		    PQ_SECURE_FIXED_OVERHEAD ||
+	    incoming_secure_wire_len >
+		    sizeof(phase6_rx_wire_job)) {
+		return -EINVAL;
+	}
+
+	k_mutex_lock(&session_lock, K_FOREVER);
+
+	if (!keypair_ready ||
+	    (!phase5_application_ready &&
+	     !phase6_active)) {
+		k_mutex_unlock(&session_lock);
+		return -EACCES;
+	}
+
+	if (job_pending || job_active) {
+		k_mutex_unlock(&session_lock);
+		return -EBUSY;
+	}
+
+	secure_clear(
+		phase6_rx_wire_job,
+		sizeof(phase6_rx_wire_job));
+
+	memcpy(
+		phase6_rx_wire_job,
+		incoming_secure_wire,
+		incoming_secure_wire_len);
+
+	phase6_rx_wire_job_len =
+		incoming_secure_wire_len;
+
+	pending_job_mode =
+		PQ_MLKEM_JOB_PHASE6_C2P;
+
+	pending_phase5_epoch =
+		phase5_epoch;
+
+	job_pending = true;
+
+	k_mutex_unlock(&session_lock);
+
+	k_sem_give(&job_available);
+
+	return 0;
+}
 
 void pq_mlkem_session_reset_phase5(void)
 {
 	k_mutex_lock(&session_lock, K_FOREVER);
+
 	phase5_epoch++;
+
 	clear_phase5_material_locked();
+	clear_phase6_material_locked();
+
 	k_mutex_unlock(&session_lock);
 }
