@@ -285,3 +285,75 @@ def test_phase6_cli_mode_is_parsed():
     assert args.phase5_auth_pq is False
     assert args.phase3_secure is False
     assert args.phase2_e2e is False
+
+def test_phase6_three_round_trip_sequence_spaces():
+    keys = derive_phase6_traffic_keys(
+        K_APP
+    )
+
+    central_tx = SecureChannel(
+        keys.central_to_peripheral,
+        session_id=SESSION_ID,
+        role=CENTRAL_ROLE,
+    )
+
+    peripheral_rx = SecureChannel(
+        keys.central_to_peripheral,
+        session_id=SESSION_ID,
+        role=PERIPHERAL_ROLE,
+    )
+
+    peripheral_tx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=PERIPHERAL_ROLE,
+    )
+
+    central_rx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=CENTRAL_ROLE,
+    )
+
+    for index in range(3):
+        ping = f"PING {index}".encode()
+        pong = f"PONG {index}".encode()
+
+        c2p_wire = central_tx.encrypt(
+            ping
+        )
+
+        p2c_wire = peripheral_tx.encrypt(
+            pong
+        )
+
+        assert int.from_bytes(
+            c2p_wire[:8],
+            "big",
+        ) == index
+
+        assert int.from_bytes(
+            p2c_wire[:8],
+            "big",
+        ) == index
+
+        assert (
+            peripheral_rx.decrypt(
+                c2p_wire
+            )
+            == ping
+        )
+
+        assert (
+            central_rx.decrypt(
+                p2c_wire
+            )
+            == pong
+        )
+
+    assert central_tx.sent_count == 3
+    assert peripheral_rx.recv_count == 3
+
+    assert peripheral_tx.sent_count == 3
+    assert central_rx.recv_count == 3
+

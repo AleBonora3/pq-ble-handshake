@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import inspect
 import logging
+from cryptography.exceptions import InvalidTag
 
 from ..common.constants import (
     CENTRAL_ROLE,
@@ -31,8 +32,8 @@ from ..common.phase5 import (
     parse_phase5_frame,
 )
 from ..common.phase6 import (
-    PHASE6_C2P_ACK,
     PHASE6_ERROR,
+    PHASE6_FRAME_MAGIC,
     derive_phase6_traffic_keys,
     parse_phase6_frame,
 )
@@ -42,22 +43,39 @@ from .ble_client import BLECentralClient
 
 logger = logging.getLogger("pq-ble.central.phase6")
 
-PHASE6_C2P_TEST_MESSAGE = b"PING 0"
+PHASE6_DEFAULT_ROUNDS = 3
 
 SASCallback = Callable[[str], bool | Awaitable[bool]]
 
 
-class Phase6C2PError(RuntimeError):
-    """Raised when the v0.6 C->P checkpoint fails."""
+class Phase6BidirectionalError(RuntimeError):
+    """Raised when authenticated v0.6 bidirectional traffic fails."""
+
+
+# Backward-compatible name for the CP2 helper/CLI.
+Phase6C2PError = Phase6BidirectionalError
 
 
 @dataclass(frozen=True)
-class Phase6C2PResult:
-    plaintext_sent: bytes
-    wire_size: int
-    sequence: int
-    sas: str
+class Phase6RoundTripResult:
+    """One authenticated application-data round trip."""
 
+    c2p_plaintext: bytes
+    p2c_plaintext: bytes
+
+    c2p_sequence: int
+    p2c_sequence: int
+
+    c2p_wire_size: int
+    p2c_wire_size: int
+
+
+@dataclass(frozen=True)
+class Phase6BidirectionalResult:
+    """Successful v0.6 authenticated bidirectional exchange."""
+
+    round_trips: tuple[Phase6RoundTripResult, ...]
+    sas: str
 
 async def _confirm_sas(
     sas: str,
@@ -102,14 +120,19 @@ async def _receive(
         ) from exc
 
 
-async def run_phase6_c2p(
+async def run_phase6_bidirectional(
     client: BLECentralClient,
     *,
+    rounds: int = PHASE6_DEFAULT_ROUNDS,
     sas_callback: SASCallback | None = None,
     notification_timeout: float = 10.0,
-) -> Phase6C2PResult:
-    """Authenticate with v0.5, then send one v0.6 C->P secure frame."""
+) -> Phase6BidirectionalResult:
+    """Authenticate with v0.5 and run bidirectional secure traffic."""
 
+    if rounds < 1:
+        raise Phase6BidirectionalError(
+            "rounds must be at least 1"
+        )    
     if not client.is_connected:
         raise Phase6C2PError("BLE client not connected")
 
@@ -419,85 +442,195 @@ async def run_phase6_c2p(
             role=CENTRAL_ROLE,
         )
 
-        secure_wire = c2p_channel.encrypt(
-            PHASE6_C2P_TEST_MESSAGE,
-            msg_type=MSG_TYPE_DATA,
+        p2c_channel = SecureChannel(
+            bytes(p2c_key_buffer),
+            session_id=session_id,
+            role=CENTRAL_ROLE,
         )
 
-        sequence = int.from_bytes(
-            secure_wire[:8],
-            "big",
-        )
+        round_results: list[
+            Phase6RoundTripResult
+        ] = []
 
-        if sequence != 0:
-            raise Phase6C2PError(
-                f"First C->P sequence must be 0, "
-                f"got {sequence}"
+        for round_index in range(rounds):
+            ping = (
+                f"PING {round_index}"
+                .encode("ascii")
             )
 
-        await client.write_secure_data(
-            secure_wire
-        )
-
-        logger.info(
-            "C->P encrypted test message sent: "
-            "seq=%d, wire=%d B",
-            sequence,
-            len(secure_wire),
-        )
-
-        raw_ack = await _receive(
-            notifications,
-            notification_timeout,
-            "Phase 6 C->P ACK",
-        )
-
-        try:
-            ack = parse_phase6_frame(
-                raw_ack
-            )
-        except ValueError as exc:
-            raise Phase6C2PError(
-                f"Invalid Phase 6 ACK: {exc}"
-            ) from exc
-
-        if ack.subtype == PHASE6_ERROR:
-            status = (
-                ack.payload[0]
-                if len(ack.payload) == 1
-                else None
+            expected_pong = (
+                f"PONG {round_index}"
+                .encode("ascii")
             )
 
-            if status is None:
-                raise Phase6C2PError(
-                    "Peripheral returned malformed "
-                    "Phase 6 error frame"
+            #
+            # Central -> Peripheral
+            #
+            c2p_wire = c2p_channel.encrypt(
+                ping,
+                msg_type=MSG_TYPE_DATA,
+            )
+
+            c2p_sequence = int.from_bytes(
+                c2p_wire[:8],
+                "big",
+            )
+
+            if c2p_sequence != round_index:
+                raise Phase6BidirectionalError(
+                    "Unexpected C->P sequence: "
+                    f"expected {round_index}, "
+                    f"got {c2p_sequence}"
                 )
 
-            raise Phase6C2PError(
-                "Peripheral rejected C->P secure "
-                f"message with status 0x{status:02x}"
+            await client.write_secure_data(
+                c2p_wire
             )
 
-        if (
-            ack.subtype != PHASE6_C2P_ACK or
-            ack.payload != b""
-        ):
-            raise Phase6C2PError(
-                "Unexpected Phase 6 ACK "
-                f"subtype/payload: "
-                f"0x{ack.subtype:02x}/"
-                f"{len(ack.payload)} B"
+            logger.info(
+                "C->P secure message sent: "
+                "seq=%d, plaintext=%s, wire=%d B",
+                c2p_sequence,
+                ping.decode("ascii"),
+                len(c2p_wire),
+            )
+
+            #
+            # Peripheral -> Central
+            #
+            raw_response = await _receive(
+                notifications,
+                notification_timeout,
+                (
+                    "Phase 6 P->C secure response "
+                    f"for round {round_index}"
+                ),
+            )
+
+            #
+            # A Phase 6 control/status frame at this point
+            # means the DK rejected processing.
+            #
+            if raw_response.startswith(
+                PHASE6_FRAME_MAGIC
+            ):
+                try:
+                    control = parse_phase6_frame(
+                        raw_response
+                    )
+                except ValueError as exc:
+                    raise Phase6BidirectionalError(
+                        "Malformed Phase 6 "
+                        "control/status response"
+                    ) from exc
+
+                if control.subtype == PHASE6_ERROR:
+                    if len(control.payload) != 1:
+                        raise Phase6BidirectionalError(
+                            "Malformed Phase 6 "
+                            "error payload"
+                        )
+
+                    status = control.payload[0]
+
+                    raise Phase6BidirectionalError(
+                        "Peripheral rejected "
+                        "secure application frame "
+                        f"with status 0x{status:02x}"
+                    )
+
+                raise Phase6BidirectionalError(
+                    "Unexpected non-error PQS6 "
+                    "control frame during "
+                    "bidirectional traffic"
+                )
+
+            if len(raw_response) < 8:
+                raise Phase6BidirectionalError(
+                    "P->C secure response "
+                    "is too short"
+                )
+
+            p2c_sequence = int.from_bytes(
+                raw_response[:8],
+                "big",
+            )
+
+            try:
+                pong = p2c_channel.decrypt(
+                    raw_response,
+                    msg_type=MSG_TYPE_DATA,
+                )
+
+            except InvalidTag as exc:
+                raise Phase6BidirectionalError(
+                    "P->C AES-256-GCM "
+                    "authentication failed"
+                ) from exc
+
+            except ValueError as exc:
+                raise Phase6BidirectionalError(
+                    "P->C secure-channel "
+                    f"validation failed: {exc}"
+                ) from exc
+
+            if p2c_sequence != round_index:
+                raise Phase6BidirectionalError(
+                    "Unexpected P->C sequence: "
+                    f"expected {round_index}, "
+                    f"got {p2c_sequence}"
+                )
+
+            if pong != expected_pong:
+                raise Phase6BidirectionalError(
+                    "Unexpected P->C plaintext: "
+                    f"expected "
+                    f"{expected_pong!r}, "
+                    f"got {pong!r}"
+                )
+
+            logger.info(
+                "P->C secure response "
+                "authenticated: "
+                "seq=%d, plaintext=%s, wire=%d B",
+                p2c_sequence,
+                pong.decode("ascii"),
+                len(raw_response),
+            )
+
+            round_results.append(
+                Phase6RoundTripResult(
+                    c2p_plaintext=ping,
+                    p2c_plaintext=pong,
+                    c2p_sequence=c2p_sequence,
+                    p2c_sequence=p2c_sequence,
+                    c2p_wire_size=len(c2p_wire),
+                    p2c_wire_size=len(
+                        raw_response
+                    ),
+                )
+            )
+
+        if c2p_channel.sent_count != rounds:
+            raise Phase6BidirectionalError(
+                "Unexpected Central send count"
+            )
+
+        if p2c_channel.recv_count != rounds:
+            raise Phase6BidirectionalError(
+                "Unexpected Central receive count"
             )
 
         logger.info(
-            "Peripheral C->P authentication ACK: PASS"
+            "Phase 6 bidirectional secure traffic: "
+            "PASS (%d round trips)",
+            rounds,
         )
 
-        return Phase6C2PResult(
-            plaintext_sent=PHASE6_C2P_TEST_MESSAGE,
-            wire_size=len(secure_wire),
-            sequence=sequence,
+        return Phase6BidirectionalResult(
+            round_trips=tuple(
+                round_results
+            ),
             sas=sas,
         )
 
@@ -524,3 +657,18 @@ async def run_phase6_c2p(
                     "notifications: %s",
                     exc,
                 )
+
+async def run_phase6_c2p(
+    client: BLECentralClient,
+    *,
+    sas_callback: SASCallback | None = None,
+    notification_timeout: float = 10.0,
+) -> Phase6BidirectionalResult:
+    """Backward-compatible one-round Phase 6 hardware regression."""
+
+    return await run_phase6_bidirectional(
+        client,
+        rounds=1,
+        sas_callback=sas_callback,
+        notification_timeout=notification_timeout,
+    )

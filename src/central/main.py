@@ -35,7 +35,9 @@ from .phase5_auth import (
     run_phase5_auth_pq,
 )
 from .phase6_c2p import (
+    Phase6BidirectionalError,
     Phase6C2PError,
+    run_phase6_bidirectional,
     run_phase6_c2p,
 )
 
@@ -110,7 +112,15 @@ def parse_args(argv=None):
             "Central-to-Peripheral AES-256-GCM traffic"
         ),
     )
-
+    execution_mode.add_argument(
+        "--phase6-bidirectional",
+        action="store_true",
+        help=(
+            "v0.6 Checkpoint 3: authenticated "
+            "bidirectional AES-256-GCM traffic "
+            "(3 secure round trips)"
+        ),
+    )
     parser.add_argument(
         "--phase3-negative",
         choices=("tamper", "aad", "replay"),
@@ -429,31 +439,52 @@ async def _run_phase6_c2p_cli(args) -> int:
             client
         )
 
+        round_trip = result.round_trips[0]
+
         print()
         print(
             "Authenticated PQ handshake: PASS"
         )
+
         print(
             "Directional traffic keys derived: PASS"
         )
+
         print(
-            f"Central secure message sent: "
-            f"{result.plaintext_sent.decode('ascii')}"
+            "Central secure message sent: "
+            f"{round_trip.c2p_plaintext.decode('ascii')}"
         )
+
         print(
-            f"C->P sequence: {result.sequence}"
+            f"C->P sequence: "
+            f"{round_trip.c2p_sequence}"
         )
+
         print(
             f"C->P secure-wire length: "
-            f"{result.wire_size} bytes"
+            f"{round_trip.c2p_wire_size} bytes"
         )
+
         print(
-            "Peripheral AES-GCM verification: PASS"
+            "Peripheral secure response: "
+            f"{round_trip.p2c_plaintext.decode('ascii')}"
         )
+
+        print(
+            f"P->C sequence: "
+            f"{round_trip.p2c_sequence}"
+        )
+
+        print(
+            "Bidirectional AES-GCM verification: PASS"
+        )
+
         print()
+
         print(
-            "PQ-BLE PHASE6 C->P SECURE TRAFFIC: PASS"
+            "PQ-BLE PHASE6 SINGLE ROUND-TRIP: PASS"
         )
+
         print()
 
         return 0
@@ -497,6 +528,160 @@ async def _run_phase6_c2p_cli(args) -> int:
                 exc,
             )
 
+async def _run_phase6_bidirectional_cli(
+    args,
+) -> int:
+    """Run v0.6 Checkpoint 3: three authenticated round trips."""
+
+    client = BLECentralClient(
+        device_name=args.device
+    )
+
+    logger.info(
+        "Scanning for peripheral '%s'...",
+        args.device,
+    )
+
+    try:
+        connected = (
+            await client.scan_and_connect(
+                timeout=15.0
+            )
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Phase 6 BLE scan/connect "
+            "failed: %s",
+            exc,
+        )
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+        return 1
+
+    if not connected:
+        logger.error(
+            "Could not find '%s'. "
+            "Make sure the v0.6 firmware "
+            "is running.",
+            args.device,
+        )
+
+        return 1
+
+    try:
+        logger.info(
+            "=== v0.6 CHECKPOINT 3: "
+            "AUTHENTICATED BIDIRECTIONAL "
+            "SECURE TRAFFIC ==="
+        )
+
+        result = await run_phase6_bidirectional(
+            client,
+            rounds=3,
+        )
+
+        print()
+        print(
+            "Authenticated PQ handshake: PASS"
+        )
+        print(
+            "Directional traffic keys derived: PASS"
+        )
+        print()
+
+        for index, round_trip in enumerate(
+            result.round_trips
+        ):
+            print(
+                f"Round {index}:"
+            )
+
+            print(
+                "  C->P "
+                f"seq={round_trip.c2p_sequence}: "
+                f"{round_trip.c2p_plaintext.decode('ascii')}"
+            )
+
+            print(
+                "  P->C "
+                f"seq={round_trip.p2c_sequence}: "
+                f"{round_trip.p2c_plaintext.decode('ascii')}"
+            )
+
+            print(
+                "  AES-256-GCM: PASS"
+            )
+
+        print()
+
+        print(
+            f"Central sent:     "
+            f"{len(result.round_trips)}"
+        )
+
+        print(
+            f"Central received: "
+            f"{len(result.round_trips)}"
+        )
+
+        print()
+
+        print(
+            "PQ-BLE BIDIRECTIONAL "
+            "SECURE CHANNEL E2E: PASS"
+        )
+
+        print()
+
+        return 0
+
+    except Phase6BidirectionalError as exc:
+        logger.error(
+            "Phase 6 bidirectional "
+            "traffic failed: %s",
+            exc,
+        )
+
+        print()
+        print(
+            "PQ-BLE BIDIRECTIONAL "
+            "SECURE CHANNEL E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected Phase 6 "
+            "bidirectional failure: %s",
+            exc,
+        )
+
+        print()
+        print(
+            "PQ-BLE BIDIRECTIONAL "
+            "SECURE CHANNEL E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning(
+                "Phase 6 disconnect "
+                "failed: %s",
+                exc,
+            )
+            
 async def main():
     args = parse_args()
     level = getattr(logging, args.log_level)
@@ -507,12 +692,27 @@ async def main():
     logger.info("=" * 50)
     logger.info(
         "Device: %s | Demo: %s | Phase 2 E2E: %s | "
-        "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | MTU: %s",
+        "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | "
+        "Phase 6 C2P: %s | Phase 6 Bidi: %s | MTU: %s",
         args.device,
         args.demo,
         args.phase2_e2e,
         args.phase3_secure,
-        getattr(args, "phase5_auth_pq", False),
+        getattr(
+            args,
+            "phase5_auth_pq",
+            False,
+        ),
+        getattr(
+            args,
+            "phase6_c2p",
+            False,
+        ),
+        getattr(
+            args,
+            "phase6_bidirectional",
+            False,
+        ),
         args.mtu or "auto",
     )
 
@@ -541,15 +741,33 @@ async def main():
                 "phase6_c2p",
                 False,
             )
+            or getattr(
+                args,
+                "phase6_bidirectional",
+                False,
+            )
         )
         and args.no_sas_confirm
     ):
         logger.error(
-            "--no-sas-confirm is not allowed with "
-            "--phase5-auth-pq or --phase6-c2p; "
-            "explicit human SAS confirmation is required"
+            "--no-sas-confirm is not allowed "
+            "with authenticated Phase 5/6 modes; "
+            "explicit human SAS confirmation "
+            "is required"
         )
+
         return 2
+
+    if getattr(
+        args,
+        "phase6_bidirectional",
+        False,
+    ):
+        return await (
+            _run_phase6_bidirectional_cli(
+                args
+            )
+        )
     
     if getattr(args, "phase6_c2p", False):
         return await _run_phase6_c2p_cli(args)

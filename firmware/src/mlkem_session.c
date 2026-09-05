@@ -59,7 +59,7 @@ static uint8_t phase6_rx_wire_job[
 
 static size_t phase6_rx_wire_job_len;
 
-static uint8_t secure_wire[PQ_SECURE_TEST_WIRE_SIZE];
+static uint8_t secure_wire[PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE];
 
 /* Phase 5 material retained only between its explicit worker jobs. */
 static struct pq_phase5_keys phase5_keys;
@@ -80,8 +80,19 @@ static struct pq_phase6_traffic_keys phase6_traffic_keys;
 static uint8_t phase6_session_id[PQ_PHASE5_SESSION_ID_SIZE];
 
 static bool phase6_active;
+
+/*
+ * Central -> Peripheral receive state.
+ */
 static bool phase6_has_last_recv_seq;
 static uint64_t phase6_last_recv_seq;
+
+/*
+ * Peripheral -> Central send state.
+ *
+ * This sequence space is independent from the C->P receive sequence.
+ */
+static uint64_t phase6_next_send_seq;
 
 static K_THREAD_STACK_DEFINE(crypto_thread_stack,
 			     CONFIG_PQ_MLKEM_THREAD_STACK_SIZE);
@@ -228,6 +239,11 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		uint64_t local_phase6_last_recv_seq = 0U;
 		uint64_t local_phase6_accepted_seq = 0U;
 
+		/*
+		* Independent Peripheral -> Central send sequence.
+		*/
+		uint64_t local_phase6_send_seq = 0U;
+
 		bool phase6_committed = false;
 
 		enum pq_mlkem_diagnostic_status status =
@@ -346,6 +362,9 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 					local_phase6_last_recv_seq =
 						phase6_last_recv_seq;
+
+					local_phase6_send_seq =
+						phase6_next_send_seq;
 				} else {
 					/*
 					* First v0.6 application frame:
@@ -531,11 +550,13 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			}
 		} else if (mode == PQ_MLKEM_JOB_PHASE6_C2P) {
 			/*
-			* On the first v0.6 application frame, derive both directional
-			* traffic keys from the authenticated v0.5 K_app.
-			*
-			* On later frames, reuse the already-committed directional keys.
-			*/
+			 * First Phase 6 frame:
+			 *
+			 * derive the two independent directional traffic
+			 * keys from authenticated v0.5 K_app.
+			 *
+			 * Later frames reuse the retained traffic keys.
+			 */
 			if (!local_phase6_active) {
 				ret = pq_phase6_derive_traffic_keys(
 					application_key,
@@ -543,7 +564,8 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 				if (ret != 0) {
 					LOG_ERR(
-						"Phase 6 directional key derivation failed: %d",
+						"Phase 6 directional key derivation "
+						"failed: %d",
 						ret);
 
 					status =
@@ -553,9 +575,16 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 				}
 
 				LOG_INF(
-					"Phase 6 directional traffic keys derived: PASS");
+					"Phase 6 directional traffic keys "
+					"derived: PASS");
 			}
 
+			/*
+			 * Authenticate and decrypt Central -> Peripheral.
+			 *
+			 * accepted_seq is written by pq_secure_decrypt_with_key()
+			 * only after successful AES-GCM authentication.
+			 */
 			ret = pq_secure_decrypt_with_key(
 				local_phase6_keys.central_to_peripheral,
 				local_phase6_session_id,
@@ -576,19 +605,24 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			if (ret != 0) {
 				if (ret == -EBADMSG) {
 					LOG_ERR(
-						"Phase 6 C->P AES-256-GCM authentication: FAIL");
+						"Phase 6 C->P AES-256-GCM "
+						"authentication: FAIL");
 
 					status =
 						PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE;
+
 				} else if (ret == -EALREADY) {
 					LOG_ERR(
-						"Phase 6 C->P replay/out-of-order frame rejected");
+						"Phase 6 C->P replay/out-of-order "
+						"frame rejected");
 
 					status =
 						PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+
 				} else {
 					LOG_ERR(
-						"Phase 6 C->P secure decrypt failed: %d",
+						"Phase 6 C->P secure decrypt "
+						"failed: %d",
 						ret);
 
 					status =
@@ -613,54 +647,21 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 				(char *)local_phase6_plaintext);
 
 			/*
-			* Commit keys and replay state only AFTER successful GCM
-			* authentication.
-			*/
-			k_mutex_lock(&session_lock, K_FOREVER);
-
-			if (job_epoch == phase5_epoch &&
-				(phase6_active ||
-				phase5_application_ready)) {
-
-				if (!phase6_active) {
-					memcpy(
-						&phase6_traffic_keys,
-						&local_phase6_keys,
-						sizeof(phase6_traffic_keys));
-
-					memcpy(
-						phase6_session_id,
-						local_phase6_session_id,
-						sizeof(phase6_session_id));
-
-					/*
-					* K_app is no longer used directly once v0.6 is
-					* activated.
-					*/
-					secure_clear(
-						phase5_keys.application,
-						sizeof(phase5_keys.application));
-
-					secure_clear(
-						phase5_session_id,
-						sizeof(phase5_session_id));
-
-					phase5_application_ready = false;
-					phase6_active = true;
-				}
-
-				phase6_last_recv_seq =
-					local_phase6_accepted_seq;
-
-				phase6_has_last_recv_seq = true;
-				phase6_committed = true;
-			}
-
-			k_mutex_unlock(&session_lock);
-
-			if (!phase6_committed) {
-				LOG_WRN(
-					"Phase 6 result canceled by session epoch change");
+			 * CP3 test responder.
+			 *
+			 * Keep this explicitly a small test application:
+			 * PING 0 -> PONG 0
+			 * PING 1 -> PONG 1
+			 * PING 2 -> PONG 2
+			 *
+			 * Sequence numbers themselves are NOT taken from the
+			 * plaintext. The secure-channel sequence space is the
+			 * independent local_phase6_send_seq below.
+			 */
+			if (local_phase6_accepted_seq > 9U) {
+				LOG_ERR(
+					"Phase 6 CP3 test responder supports "
+					"single-digit PONG labels only");
 
 				status =
 					PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
@@ -669,31 +670,151 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 				goto job_done;
 			}
 
+			local_phase6_plaintext[0] = 'P';
+			local_phase6_plaintext[1] = 'O';
+			local_phase6_plaintext[2] = 'N';
+			local_phase6_plaintext[3] = 'G';
+			local_phase6_plaintext[4] = ' ';
+			local_phase6_plaintext[5] =
+				(uint8_t)(
+					'0' +
+					local_phase6_accepted_seq);
+
+			local_phase6_plaintext_len = 6U;
+
 			/*
-			* This is only a control/status ACK proving that the asynchronous
-			* worker finished authentication. It is NOT encrypted P->C
-			* application traffic.
-			*/
-			ret = pq_phase6_encode_frame(
-				PQ_PHASE6_C2P_ACK,
-				NULL,
-				0U,
+			 * Encrypt the real Peripheral -> Central application
+			 * response using the independent P->C key and
+			 * sequence space.
+			 */
+			ret = pq_secure_encrypt_with_key(
+				local_phase6_keys.peripheral_to_central,
+				local_phase6_session_id,
+				PQ_SECURE_PERIPHERAL_ROLE,
+				local_phase6_send_seq,
+				PQ_SECURE_MSG_TYPE_DATA,
+				local_phase6_plaintext,
+				local_phase6_plaintext_len,
 				secure_wire,
 				sizeof(secure_wire),
 				&secure_wire_len);
 
+			report_crypto_stack(
+				"after Phase 6 P->C AES-256-GCM");
+
 			if (ret != 0) {
 				LOG_ERR(
-					"Phase 6 ACK generation failed: %d",
+					"Phase 6 P->C AES-256-GCM "
+					"encryption failed: %d",
 					ret);
 
 				status =
 					PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
 
 				secure_wire_len = 0U;
-			} else {
-				status = PQ_MLKEM_STATUS_SUCCESS;
+				goto job_done;
 			}
+
+			LOG_INF(
+				"Phase 6 P->C AES-256-GCM encryption: PASS");
+
+			LOG_INF(
+				"Phase 6 P->C response sequence: %llu",
+				(unsigned long long)local_phase6_send_seq);
+
+			LOG_INF(
+				"Phase 6 P->C encrypted payload (%zu B): %.*s",
+				local_phase6_plaintext_len,
+				(int)local_phase6_plaintext_len,
+				(char *)local_phase6_plaintext);
+
+			/*
+			 * Only now, after BOTH:
+			 *
+			 *   C->P authentication PASS
+			 *   P->C encryption PASS
+			 *
+			 * commit the directional keys and both sequence states.
+			 */
+			k_mutex_lock(
+				&session_lock,
+				K_FOREVER);
+
+			if (job_epoch == phase5_epoch &&
+			    (phase6_active ||
+			     phase5_application_ready)) {
+
+				if (!phase6_active) {
+					memcpy(
+						&phase6_traffic_keys,
+						&local_phase6_keys,
+						sizeof(
+							phase6_traffic_keys));
+
+					memcpy(
+						phase6_session_id,
+						local_phase6_session_id,
+						sizeof(
+							phase6_session_id));
+
+					/*
+					 * Once v0.6 is active, K_app is only
+					 * an application root and must not be
+					 * used directly for AES traffic.
+					 */
+					secure_clear(
+						phase5_keys.application,
+						sizeof(
+							phase5_keys.application));
+
+					secure_clear(
+						phase5_session_id,
+						sizeof(
+							phase5_session_id));
+
+					phase5_application_ready = false;
+					phase6_active = true;
+				}
+
+				/*
+				 * C->P receive state.
+				 */
+				phase6_last_recv_seq =
+					local_phase6_accepted_seq;
+
+				phase6_has_last_recv_seq = true;
+
+				/*
+				 * P->C send state.
+				 */
+				if (local_phase6_send_seq ==
+				    UINT64_MAX) {
+					phase6_committed = false;
+				} else {
+					phase6_next_send_seq =
+						local_phase6_send_seq + 1U;
+
+					phase6_committed = true;
+				}
+			}
+
+			k_mutex_unlock(
+				&session_lock);
+
+			if (!phase6_committed) {
+				LOG_WRN(
+					"Phase 6 result canceled by session "
+					"epoch/state change");
+
+				status =
+					PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+
+				secure_wire_len = 0U;
+				goto job_done;
+			}
+
+			status =
+				PQ_MLKEM_STATUS_SUCCESS;
 		}
 
 	job_done:
@@ -772,6 +893,7 @@ static void clear_phase6_material_locked(void)
 	phase6_active = false;
 	phase6_has_last_recv_seq = false;
 	phase6_last_recv_seq = 0U;
+	phase6_next_send_seq = 0U;
 }
 
 int pq_mlkem_session_init(pq_mlkem_result_callback_t callback)

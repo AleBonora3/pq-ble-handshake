@@ -223,7 +223,7 @@ BT_GATT_SERVICE_DEFINE(
 BUILD_ASSERT(
 	ARRAY_SIZE(attr_pq_service) == 10U,
 	"GATT layout changed: review fixed Secure Data attribute index 6");
-	
+
 static const char *ciphertext_state_name(enum ciphertext_state state)
 {
 	switch (state) {
@@ -943,10 +943,7 @@ static void mlkem_result_ready(
 	uint8_t phase6_status_byte =
 		(uint8_t)status;
 
-	const uint8_t *phase6_payload;
-	size_t phase6_payload_len = 0U;
 	size_t phase6_error_len = 0U;
-	uint8_t phase6_subtype;
 
 	bool is_phase6 =
 		mode == PQ_MLKEM_JOB_PHASE6_C2P;
@@ -981,16 +978,20 @@ static void mlkem_result_ready(
 		} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA &&
 			   secure_wire_len == PQ_SECURE_TEST_WIRE_SIZE) {
 			phase5_result_valid = true;
-		} else if (mode == PQ_MLKEM_JOB_PHASE6_C2P &&
-			pq_phase6_parse_frame(
-				secure_wire,
-				secure_wire_len,
-				&phase6_subtype,
-				&phase6_payload,
-				&phase6_payload_len) == 0 &&
-			phase6_subtype == PQ_PHASE6_C2P_ACK &&
-			phase6_payload_len == 0U) {
+		} else if (
+			mode == PQ_MLKEM_JOB_PHASE6_C2P &&
+			secure_wire_len >=
+				PQ_SECURE_FIXED_OVERHEAD &&
+			secure_wire_len <=
+				PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE) {
 
+			/*
+			 * Phase 6 success is now a real encrypted
+			 * Peripheral -> Central application frame.
+			 *
+			 * PQS6 remains reserved for explicit status/error
+			 * notifications.
+			 */
 			phase6_result_valid = true;
 		}
 	}
@@ -1098,7 +1099,9 @@ static void mlkem_result_ready(
 			pq_mlkem_session_reset_phase5();
 		} else if (phase6_result_valid) {
 			LOG_INF(
-				"Phase 6 C->P authentication ACK sent");
+				"Phase 6 P->C encrypted response "
+				"notification sent: %zu B",
+				secure_wire_len);
 		} else {
 			LOG_INF(
 				"Phase 6 error sent: status 0x%02x",
@@ -1302,7 +1305,7 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
-	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_C2P");
+	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL");
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 
