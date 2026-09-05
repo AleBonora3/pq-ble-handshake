@@ -16,6 +16,11 @@ from src.common.phase6 import (
     encode_phase6_frame,
     parse_phase6_frame,
 )
+from src.central.phase6_c2p import (
+    PHASE6_NEGATIVE_MODES,
+    _tamper_secure_wire_copy,
+)
+
 from src.common.session import SecureChannel
 
 
@@ -357,3 +362,123 @@ def test_phase6_three_round_trip_sequence_spaces():
     assert peripheral_tx.sent_count == 3
     assert central_rx.recv_count == 3
 
+def test_phase6_negative_modes_are_stable():
+    assert PHASE6_NEGATIVE_MODES == (
+        "c2p-tamper",
+        "c2p-replay",
+        "p2c-tamper",
+        "p2c-replay",
+        "pre-auth",
+    )
+
+
+def test_phase6_secure_wire_tamper_changes_exactly_one_bit():
+    original = bytes(range(43))
+
+    tampered = _tamper_secure_wire_copy(
+        original
+    )
+
+    assert tampered[:-1] == original[:-1]
+
+    assert tampered[-1] == (
+        original[-1] ^ 0x01
+    )
+
+    assert original == bytes(range(43))
+
+
+def test_phase6_p2c_failed_auth_does_not_advance_receive_state():
+    keys = derive_phase6_traffic_keys(
+        K_APP
+    )
+
+    peripheral_tx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=PERIPHERAL_ROLE,
+    )
+
+    central_rx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=CENTRAL_ROLE,
+    )
+
+    legitimate = peripheral_tx.encrypt(
+        b"PONG 0"
+    )
+
+    tampered = _tamper_secure_wire_copy(
+        legitimate
+    )
+
+    with pytest.raises(InvalidTag):
+        central_rx.decrypt(
+            tampered
+        )
+
+    #
+    # Same legitimate seq=0 must still work.
+    #
+    assert (
+        central_rx.decrypt(
+            legitimate
+        )
+        == b"PONG 0"
+    )
+
+
+def test_phase6_p2c_replay_is_rejected_after_acceptance():
+    keys = derive_phase6_traffic_keys(
+        K_APP
+    )
+
+    peripheral_tx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=PERIPHERAL_ROLE,
+    )
+
+    central_rx = SecureChannel(
+        keys.peripheral_to_central,
+        session_id=SESSION_ID,
+        role=CENTRAL_ROLE,
+    )
+
+    legitimate = peripheral_tx.encrypt(
+        b"PONG 0"
+    )
+
+    assert (
+        central_rx.decrypt(
+            legitimate
+        )
+        == b"PONG 0"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Replay|replay|out-of-order",
+    ):
+        central_rx.decrypt(
+            legitimate
+        )
+
+
+def test_phase6_negative_cli_mode_is_parsed():
+    from src.central.main import parse_args
+
+    args = parse_args(
+        [
+            "--phase6-bidirectional",
+            "--phase6-negative",
+            "c2p-tamper",
+        ]
+    )
+
+    assert args.phase6_bidirectional
+    assert (
+        args.phase6_negative
+        == "c2p-tamper"
+    )

@@ -43,6 +43,9 @@ PHASE6_FRAME_HEADER_SIZE = 8
 PHASE6_C2P_ACK = 0x01
 PHASE6_ERROR = 0x7F
 
+# Firmware diagnostic/status values reused by Phase 6 negative tests.
+PHASE6_STATUS_INVALID_PROTOCOL_STATE = 0x04
+PHASE6_STATUS_AUTHENTICATION_FAILURE = 0x06
 
 @dataclass(frozen=True)
 class Phase6TrafficKeys:

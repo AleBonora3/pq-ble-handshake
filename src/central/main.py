@@ -35,8 +35,11 @@ from .phase5_auth import (
     run_phase5_auth_pq,
 )
 from .phase6_c2p import (
+    PHASE6_NEGATIVE_MODES,
     Phase6BidirectionalError,
     Phase6C2PError,
+    Phase6NegativeTestFailed,
+    Phase6NegativeTestPassed,
     run_phase6_bidirectional,
     run_phase6_c2p,
 )
@@ -140,6 +143,18 @@ def parse_args(argv=None):
         help=(
             "Run an isolated Phase 5 negative test: "
             "'finished-c', 'finished-p', or 'transcript'"
+        ),
+    )
+
+    parser.add_argument(
+        "--phase6-negative",
+        choices=PHASE6_NEGATIVE_MODES,
+        default=None,
+        help=(
+            "Run one isolated v0.6 negative test: "
+            "'c2p-tamper', 'c2p-replay', "
+            "'p2c-tamper', 'p2c-replay', "
+            "or 'pre-auth'"
         ),
     )
 
@@ -583,7 +598,15 @@ async def _run_phase6_bidirectional_cli(
         result = await run_phase6_bidirectional(
             client,
             rounds=3,
+            negative_test=args.phase6_negative,
         )
+
+        if args.phase6_negative is not None:
+            raise Phase6NegativeTestFailed(
+                "NEGATIVE TEST FAIL: deliberately "
+                "invalid Phase 6 traffic unexpectedly "
+                "completed"
+            )
 
         print()
         print(
@@ -639,7 +662,17 @@ async def _run_phase6_bidirectional_cli(
         print()
 
         return 0
+    
+    except Phase6NegativeTestPassed as exc:
+        print()
+        print(str(exc))
+        print(
+            "PQ-BLE PHASE6 NEGATIVE TEST: PASS"
+        )
+        print()
 
+        return 0
+    
     except Phase6BidirectionalError as exc:
         logger.error(
             "Phase 6 bidirectional "
@@ -648,10 +681,20 @@ async def _run_phase6_bidirectional_cli(
         )
 
         print()
-        print(
-            "PQ-BLE BIDIRECTIONAL "
-            "SECURE CHANNEL E2E: FAIL"
-        )
+
+        if args.phase6_negative is not None:
+            print(
+                f"NEGATIVE TEST FAIL: {exc}"
+            )
+            print(
+                "PQ-BLE PHASE6 NEGATIVE TEST: FAIL"
+            )
+        else:
+            print(
+                "PQ-BLE BIDIRECTIONAL "
+                "SECURE CHANNEL E2E: FAIL"
+            )
+
         print()
 
         return 1
@@ -757,7 +800,26 @@ async def main():
         )
 
         return 2
-
+    
+    if (
+        getattr(
+            args,
+            "phase6_negative",
+            None,
+        )
+        is not None
+        and not getattr(
+            args,
+            "phase6_bidirectional",
+            False,
+        )
+    ):
+        logger.error(
+            "--phase6-negative can only be used "
+            "with --phase6-bidirectional"
+        )
+        return 2
+    
     if getattr(
         args,
         "phase6_bidirectional",

@@ -1,0 +1,484 @@
+Hardware test 1 — C→P tamper
+
+PC:
+(.venv) PS C:\pq_ble> python -m src.central.main `
+>>   --phase6-bidirectional `
+>>   --phase6-negative c2p-tamper
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:52:57 [INFO   ] pq-ble.central.main: ==================================================
+16:52:57 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:52:57 [INFO   ] pq-ble.central.main: ==================================================
+16:52:57 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:52:57 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:52:57 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:52:58 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:53:00 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:53:00 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:53:00 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:53:00 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:53:00 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:53:00 [INFO   ] pq-ble.central.phase6: ML-KEM public-key fingerprint: fa43c3087207b278
+16:53:00 [INFO   ] pq-ble.central.phase6: Dynamic ML-KEM PK received: 1184 bytes
+16:53:00 [INFO   ] pq-ble.central.phase6: ML-KEM encapsulation: PASS
+16:53:00 [INFO   ] pq-ble.central.phase6: Phase 5 transcript constructed
+16:53:00 [INFO   ] pq-ble.central.phase6: v0.5 key schedule: PASS
+16:53:00 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:53:00 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5fragments)
+16:53:00 [INFO   ] pq-ble.central.phase6: Ciphertext transported
+
+SAS on Central: 989489
+Compare with the nRF54L15 serial output.
+Do the values match? [y/N]: y
+16:53:02 [INFO   ] pq-ble.central.phase6: Central FINISHED sent
+16:53:02 [INFO   ] pq-ble.central.phase6: Peripheral FINISHED verified: PASS
+16:53:02 [INFO   ] pq-ble.central.phase6: Authenticated PQ handshake: PASS
+16:53:02 [INFO   ] pq-ble.central.phase6: Phase 6 directional traffic keys derived: PASS
+
+NEGATIVE TEST: one GCM-tag bit in C->P wire intentionally flipped.
+16:53:02 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+
+NEGATIVE TEST PASS: tampered C->P AES-GCM frame rejected by Peripheral
+PQ-BLE PHASE6 NEGATIVE TEST: PASS
+
+16:53:02 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:53:03 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK:
+[00:05:32.014,601] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:05:32.014,937] <inf> pq_ble: Connected (generation 5)
+[00:05:32.039,257] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:05:33.569,448] <inf> pq_ble: Notifications ENABLED
+[00:05:33.599,417] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:05:33.629,427] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:05:33.659,429] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:05:33.689,430] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:05:33.719,432] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:05:33.854,720] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:05:33.854,743] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:05:34.004,459] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:05:34.109,465] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:05:34.214,470] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:05:34.246,335] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:05:34.246,500] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:05:34.274,769] <inf> pq_ble: Control write: len=22
+[00:05:34.274,776] <inf> pq_ble: START5 received
+[00:05:34.275,264] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:05:34.288,036] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:05:34.288,043] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:05:34.288,380] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:05:34.288,384] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:05:34.288,394] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:05:34.374,382] <inf> mlkem_session: Transcript hash computed
+[00:05:34.375,489] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:05:34.375,496] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:05:34.375,833] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:05:34.375,837] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:05:34.375,841] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:05:34.376,117] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:05:34.376,124] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:05:34.376,461] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:05:34.376,465] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:05:34.376,475] <inf> mlkem_session: SAS Numeric Comparison: 989489
+[00:05:34.376,956] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:05:36.090,323] <inf> pq_ble: Control write: len=40
+[00:05:36.090,828] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:05:36.091,114] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:05:36.091,121] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:05:36.091,458] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:05:36.091,462] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:05:36.091,472] <inf> mlkem_session: Peripheral FINISHED generated
+[00:05:36.091,966] <inf> pq_ble: Phase 5 authenticated state reached
+[00:05:36.179,972] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:05:36.180,614] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:05:36.258,803] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:05:36.258,815] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:05:36.259,153] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:05:36.259,158] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:05:36.259,162] <err> mlkem_session: Phase 6 C->P AES-256-GCM authentication: FAIL
+[00:05:36.259,630] <inf> pq_ble: Phase 6 error sent: status 0x06
+[00:05:36.314,608] <inf> pq_ble: Notifications DISABLED
+[00:05:39.554,813] <inf> pq_ble: Disconnected (reason 19)
+
+
+Hardware test 2 — C→P replay
+PC:
+(.venv) PS C:\pq_ble> python -m src.central.main `
+>>   --phase6-bidirectional `
+>>   --phase6-negative c2p-replay
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:54:08 [INFO   ] pq-ble.central.main: ==================================================
+16:54:08 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:54:08 [INFO   ] pq-ble.central.main: ==================================================
+16:54:08 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:54:08 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:54:08 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:54:09 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:54:11 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:54:11 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:54:11 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:54:11 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:54:11 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:54:11 [INFO   ] pq-ble.central.phase6: ML-KEM public-key fingerprint: fa43c3087207b278
+16:54:11 [INFO   ] pq-ble.central.phase6: Dynamic ML-KEM PK received: 1184 bytes
+16:54:11 [INFO   ] pq-ble.central.phase6: ML-KEM encapsulation: PASS
+16:54:11 [INFO   ] pq-ble.central.phase6: Phase 5 transcript constructed
+16:54:11 [INFO   ] pq-ble.central.phase6: v0.5 key schedule: PASS
+16:54:11 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:54:12 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5fragments)
+16:54:12 [INFO   ] pq-ble.central.phase6: Ciphertext transported
+
+SAS on Central: 757379
+Compare with the nRF54L15 serial output.
+Do the values match? [y/N]: y
+16:54:18 [INFO   ] pq-ble.central.phase6: Central FINISHED sent
+16:54:18 [INFO   ] pq-ble.central.phase6: Peripheral FINISHED verified: PASS
+16:54:18 [INFO   ] pq-ble.central.phase6: Authenticated PQ handshake: PASS
+16:54:18 [INFO   ] pq-ble.central.phase6: Phase 6 directional traffic keys derived: PASS
+16:54:18 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+
+NEGATIVE TEST: replaying the exact accepted C->P seq=0 secure wire.
+16:54:18 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+
+NEGATIVE TEST PASS: replayed C->P secure frame rejected by Peripheral
+PQ-BLE PHASE6 NEGATIVE TEST: PASS
+
+16:54:18 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:54:19 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK:
+[00:06:43.349,340] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:06:43.349,677] <inf> pq_ble: Connected (generation 7)
+[00:06:43.374,511] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:06:44.964,704] <inf> pq_ble: Notifications ENABLED
+[00:06:44.994,674] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:06:45.024,684] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:06:45.054,686] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:06:45.084,687] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:06:45.129,690] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:06:45.264,977] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:06:45.265,000] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:06:45.369,714] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:06:45.474,720] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:06:45.579,725] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:06:45.611,598] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:06:45.611,761] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:06:45.640,022] <inf> pq_ble: Control write: len=22
+[00:06:45.640,029] <inf> pq_ble: START5 received
+[00:06:45.640,517] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:06:45.653,293] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:06:45.653,300] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:45.653,638] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:45.653,642] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:45.653,652] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:06:45.739,670] <inf> mlkem_session: Transcript hash computed
+[00:06:45.740,778] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:06:45.740,786] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:45.741,123] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:45.741,127] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:45.741,131] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:06:45.741,408] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:06:45.741,414] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:45.741,752] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:45.741,756] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:45.741,766] <inf> mlkem_session: SAS Numeric Comparison: 757379
+[00:06:45.742,247] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:06:51.940,428] <inf> pq_ble: Control write: len=40
+[00:06:51.940,932] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:06:51.941,219] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:06:51.941,225] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:51.941,563] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:51.941,567] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:51.941,577] <inf> mlkem_session: Peripheral FINISHED generated
+[00:06:51.942,070] <inf> pq_ble: Phase 5 authenticated state reached
+[00:06:52.030,463] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:06:52.031,105] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:06:52.109,378] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:06:52.109,391] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:52.109,728] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:52.109,732] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:52.109,736] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:06:52.109,743] <inf> mlkem_session: Phase 6 C->P accepted sequence: 0
+[00:06:52.109,765] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 0
+[00:06:52.110,043] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:06:52.110,050] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:52.110,387] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:52.110,396] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:52.110,401] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:06:52.110,408] <inf> mlkem_session: Phase 6 P->C response sequence: 0
+[00:06:52.110,431] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 0
+[00:06:52.110,929] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:06:52.165,474] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:06:52.246,931] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:06:52.246,943] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:06:52.247,281] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:06:52.247,285] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:06:52.247,289] <err> mlkem_session: Phase 6 C->P replay/out-of-order frame rejected
+[00:06:52.247,757] <inf> pq_ble: Phase 6 error sent: status 0x04
+[00:06:52.300,105] <inf> pq_ble: Notifications DISABLED
+[00:06:55.540,312] <inf> pq_ble: Disconnected (reason 19)
+
+
+Hardware test 3 — P→C tamper
+PC:
+(.venv) PS C:\pq_ble> python -m src.central.main `
+>>   --phase6-bidirectional `
+>>   --phase6-negative p2c-tamper
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:55:11 [INFO   ] pq-ble.central.main: ==================================================
+16:55:11 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:55:11 [INFO   ] pq-ble.central.main: ==================================================
+16:55:11 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:55:11 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:55:11 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:55:12 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:55:14 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:55:14 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:55:14 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:55:14 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:55:15 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:55:15 [INFO   ] pq-ble.central.phase6: ML-KEM public-key fingerprint: fa43c3087207b278
+16:55:15 [INFO   ] pq-ble.central.phase6: Dynamic ML-KEM PK received: 1184 bytes
+16:55:15 [INFO   ] pq-ble.central.phase6: ML-KEM encapsulation: PASS
+16:55:15 [INFO   ] pq-ble.central.phase6: Phase 5 transcript constructed
+16:55:15 [INFO   ] pq-ble.central.phase6: v0.5 key schedule: PASS
+16:55:15 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:55:15 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5fragments)
+16:55:15 [INFO   ] pq-ble.central.phase6: Ciphertext transported
+
+SAS on Central: 006988
+Compare with the nRF54L15 serial output.
+Do the values match? [y/N]: y
+16:55:22 [INFO   ] pq-ble.central.phase6: Central FINISHED sent
+16:55:22 [INFO   ] pq-ble.central.phase6: Peripheral FINISHED verified: PASS
+16:55:22 [INFO   ] pq-ble.central.phase6: Authenticated PQ handshake: PASS
+16:55:22 [INFO   ] pq-ble.central.phase6: Phase 6 directional traffic keys derived: PASS
+16:55:22 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+
+NEGATIVE TEST: one GCM-tag bit in the received P->C copy intentionally flipped.
+
+NEGATIVE TEST PASS: tampered P->C frame rejected by Central without advancing receive state
+PQ-BLE PHASE6 NEGATIVE TEST: PASS
+
+16:55:22 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:55:22 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK:
+[00:07:46.688,121] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:07:46.688,458] <inf> pq_ble: Connected (generation 9)
+[00:07:46.712,940] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:07:48.272,985] <inf> pq_ble: Notifications ENABLED
+[00:07:48.303,101] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:07:48.333,111] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:07:48.363,113] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:07:48.393,114] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:07:48.423,116] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:07:48.543,403] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:07:48.543,426] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:07:48.648,140] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:07:48.753,145] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:07:48.858,151] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:07:48.890,015] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:07:48.890,179] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:07:48.918,450] <inf> pq_ble: Control write: len=22
+[00:07:48.918,457] <inf> pq_ble: START5 received
+[00:07:48.918,945] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:07:48.931,721] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:07:48.931,728] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:48.932,065] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:48.932,069] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:48.932,079] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:07:49.018,101] <inf> mlkem_session: Transcript hash computed
+[00:07:49.019,209] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:07:49.019,215] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:49.019,553] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:49.019,557] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:49.019,561] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:07:49.019,837] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:07:49.019,844] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:49.020,181] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:49.020,185] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:49.020,195] <inf> mlkem_session: SAS Numeric Comparison: 006988
+[00:07:49.020,676] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:07:55.398,861] <inf> pq_ble: Control write: len=40
+[00:07:55.399,366] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:07:55.399,652] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:07:55.399,659] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:55.399,996] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:55.400,000] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:55.400,010] <inf> mlkem_session: Peripheral FINISHED generated
+[00:07:55.400,504] <inf> pq_ble: Phase 5 authenticated state reached
+[00:07:55.488,898] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:07:55.489,540] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:07:55.567,819] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:07:55.567,832] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:55.568,169] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:55.568,173] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:55.568,178] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:07:55.568,184] <inf> mlkem_session: Phase 6 C->P accepted sequence: 0
+[00:07:55.568,208] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 0
+[00:07:55.568,486] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:07:55.568,493] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:07:55.568,830] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:07:55.568,840] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:07:55.568,844] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:07:55.568,851] <inf> mlkem_session: Phase 6 P->C response sequence: 0
+[00:07:55.568,872] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 0
+[00:07:55.569,370] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:07:55.623,534] <inf> pq_ble: Notifications DISABLED
+[00:07:58.863,739] <inf> pq_ble: Disconnected (reason 19)
+
+
+Hardware test 4 — P→C replay
+PC:
+(.venv) PS C:\pq_ble> python -m src.central.main `
+>>   --phase6-bidirectional `
+>>   --phase6-negative p2c-replay
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:56:05 [INFO   ] pq-ble.central.main: ==================================================
+16:56:05 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:56:05 [INFO   ] pq-ble.central.main: ==================================================
+16:56:05 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:56:05 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:56:05 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:56:05 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:56:08 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:56:08 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:56:08 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:56:08 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:56:08 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:56:08 [INFO   ] pq-ble.central.phase6: ML-KEM public-key fingerprint: fa43c3087207b278
+16:56:08 [INFO   ] pq-ble.central.phase6: Dynamic ML-KEM PK received: 1184 bytes
+16:56:08 [INFO   ] pq-ble.central.phase6: ML-KEM encapsulation: PASS
+16:56:08 [INFO   ] pq-ble.central.phase6: Phase 5 transcript constructed
+16:56:08 [INFO   ] pq-ble.central.phase6: v0.5 key schedule: PASS
+16:56:08 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:56:08 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5fragments)
+16:56:08 [INFO   ] pq-ble.central.phase6: Ciphertext transported
+
+SAS on Central: 096741
+Compare with the nRF54L15 serial output.
+Do the values match? [y/N]: y
+16:56:17 [INFO   ] pq-ble.central.phase6: Central FINISHED sent
+16:56:17 [INFO   ] pq-ble.central.phase6: Peripheral FINISHED verified: PASS
+16:56:17 [INFO   ] pq-ble.central.phase6: Authenticated PQ handshake: PASS
+16:56:17 [INFO   ] pq-ble.central.phase6: Phase 6 directional traffic keys derived: PASS
+16:56:17 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+
+NEGATIVE TEST: replaying the exact already-accepted P->C seq=0 secure wire locally.
+
+NEGATIVE TEST PASS: replayed P->C secure frame rejected by Central
+PQ-BLE PHASE6 NEGATIVE TEST: PASS
+
+16:56:17 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:56:18 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK:
+[00:08:40.075,996] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:08:40.076,333] <inf> pq_ble: Connected (generation 11)
+[00:08:40.190,833] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:08:41.601,014] <inf> pq_ble: Notifications ENABLED
+[00:08:41.630,983] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:08:41.660,993] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:08:41.690,996] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:08:41.720,997] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:08:41.750,999] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:08:41.856,285] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:08:41.856,307] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:08:41.976,022] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:08:42.096,029] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:08:42.201,034] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:08:42.232,905] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:08:42.233,068] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:08:42.261,331] <inf> pq_ble: Control write: len=22
+[00:08:42.261,338] <inf> pq_ble: START5 received
+[00:08:42.261,826] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:08:42.274,608] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:08:42.274,615] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:42.274,953] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:42.274,957] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:42.274,967] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:08:42.360,984] <inf> mlkem_session: Transcript hash computed
+[00:08:42.362,092] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:08:42.362,098] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:42.362,436] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:42.362,440] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:42.362,444] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:08:42.362,720] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:08:42.362,727] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:42.363,064] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:42.363,068] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:42.363,078] <inf> mlkem_session: SAS Numeric Comparison: 096741
+[00:08:42.363,559] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:08:51.036,867] <inf> pq_ble: Control write: len=40
+[00:08:51.037,371] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:08:51.037,658] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:08:51.037,664] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:51.038,001] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:51.038,005] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:51.038,016] <inf> mlkem_session: Peripheral FINISHED generated
+[00:08:51.038,509] <inf> pq_ble: Phase 5 authenticated state reached
+[00:08:51.126,899] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:08:51.127,541] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:08:51.205,730] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:08:51.205,742] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:51.206,079] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:51.206,084] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:51.206,088] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:08:51.206,095] <inf> mlkem_session: Phase 6 C->P accepted sequence: 0
+[00:08:51.206,118] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 0
+[00:08:51.206,397] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:08:51.206,403] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:08:51.206,741] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:08:51.206,750] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:08:51.206,755] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:08:51.206,762] <inf> mlkem_session: Phase 6 P->C response sequence: 0
+[00:08:51.206,783] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 0
+[00:08:51.207,281] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:08:51.261,538] <inf> pq_ble: Notifications DISABLED
+[00:08:54.501,743] <inf> pq_ble: Disconnected (reason 19)
+
+
+Hardware test 5 — pre-auth
+PC:
+(.venv) PS C:\pq_ble> python -m src.central.main `
+>>   --phase6-bidirectional `
+>>   --phase6-negative pre-auth
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:57:02 [INFO   ] pq-ble.central.main: ==================================================
+16:57:02 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:57:02 [INFO   ] pq-ble.central.main: ==================================================
+16:57:02 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:57:02 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:57:02 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:57:04 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:57:06 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:57:06 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:57:06 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:57:06 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+
+NEGATIVE TEST: Secure Data WRITE before authentication.
+
+NEGATIVE TEST PASS: pre-auth Secure Data WRITE rejected by Peripheral
+PQ-BLE PHASE6 NEGATIVE TEST: PASS
+
+16:57:06 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:57:06 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK:
+[00:09:38.422,244] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:09:38.422,581] <inf> pq_ble: Connected (generation 13)
+[00:09:38.446,519] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:09:40.006,711] <inf> pq_ble: Notifications ENABLED
+[00:09:40.037,106] <wrn> pq_ble: Phase 6 secure write rejected in state IDLE
+[00:09:40.066,712] <inf> pq_ble: Notifications DISABLED
+[00:09:43.276,944] <inf> pq_ble: Disconnected (reason 19)

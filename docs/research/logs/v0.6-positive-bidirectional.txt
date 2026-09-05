@@ -1,0 +1,222 @@
+Dopo il Flash:
+*** Booting nRF Connect SDK v3.0.0-3bfc46578e42 *** *** Using Zephyr OS v4.0.99-3e0ce7636fa6 *** [00:00:00.002,140] <inf> pq_ble: ======================================== [00:00:00.002,144] <inf> pq_ble: PQ-BLE Handshake - nRF54L15 DK Peripheral [00:00:00.002,148] <inf> pq_ble: Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL [00:00:00.002,164] <inf> pq_ble: Device: PQ-BLE-Device [00:00:00.002,168] <inf> pq_ble: ======================================== [00:00:00.002,176] <inf> pq_secure: PSA Crypto initialization: PASS [00:00:00.002,180] <inf> pq_secure: Phase 3 crypto: HKDF-SHA256 + AES-256-GCM [00:00:00.003,758] <inf> mlkem_session: ML-KEM worker started: preemptible priority 14, stack 28672 B [00:00:00.073,825] <inf> mlkem_session: TEST-ONLY shared-secret diagnostic checksum vector (CRC-32/IEEE, 32 zero bytes): PASS (0x190a55ad) [00:00:00.082,869] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after production-random ML-KEM KeyGen [00:00:00.082,876] <inf> mlkem_session: Configured crypto-thread stack: 28672 B [00:00:00.083,710] <inf> mlkem_session: Unused crypto-thread stack: 13320 B [00:00:00.083,714] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 15352 B [00:00:00.083,721] <inf> mlkem_session: ML-KEM production-random KeyGen: PASS [00:00:00.083,834] <inf> bt_sdc_hci_driver: SoftDevice Controller build revision: c7 53 7d bc 06 12 f7 c0 b3 3a 3e 28 8e 56 1e d7 |.S}..... .:>(.V.. a0 be 95 b0 |.... [00:00:00.084,980] <inf> bt_hci_core: HW Platform: Nordic Semiconductor (0x0002) [00:00:00.084,994] <inf> bt_hci_core: HW Variant: nRF54Lx (0x0005) [00:00:00.085,007] <inf> bt_hci_core: Firmware: Standard Bluetooth controller (0x00) Version 199.32083 Build 4145153724 [00:00:00.085,429] <inf> bt_hci_core: Identity: C0:48:FF:F5:9D:B8 (random) [00:00:00.085,445] <inf> bt_hci_core: HCI: version 6.0 (0x0e) revision 0x30e8, manufacturer 0x0059 [00:00:00.085,459] <inf> bt_hci_core: LMP: version 6.0 (0x0e) subver 0x30e8 [00:00:00.085,464] <inf> pq_ble: Bluetooth initialized [00:00:00.085,974] <inf> pq_ble: Advertising as 'PQ-BLE-Device'; waiting for Central [00:00:00.085,981] <inf> pq_ble: Dynamic public key: 1184 bytes; ciphertext: 1088 bytes
+
+Il PC:
+(.venv) PS C:\pq_ble> python -m src.central.main --phase6-bidirectional                           
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+16:51:47 [INFO   ] pq-ble.central.main: ==================================================
+16:51:47 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:51:47 [INFO   ] pq-ble.central.main: ==================================================
+16:51:47 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: True | MTU: auto
+16:51:47 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:51:47 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:51:48 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:51:52 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:51:52 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:51:52 [INFO   ] pq-ble.central.main: === v0.6 CHECKPOINT 3: AUTHENTICATED BIDIRECTIONAL SECURE TRAFFIC ===
+16:51:52 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:51:53 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:51:53 [INFO   ] pq-ble.central.phase6: ML-KEM public-key fingerprint: fa43c3087207b278
+16:51:53 [INFO   ] pq-ble.central.phase6: Dynamic ML-KEM PK received: 1184 bytes
+16:51:53 [INFO   ] pq-ble.central.phase6: ML-KEM encapsulation: PASS
+16:51:53 [INFO   ] pq-ble.central.phase6: Phase 5 transcript constructed
+16:51:53 [INFO   ] pq-ble.central.phase6: v0.5 key schedule: PASS
+16:51:53 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:51:53 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5fragments)
+16:51:53 [INFO   ] pq-ble.central.phase6: Ciphertext transported
+
+SAS on Central: 889890
+Compare with the nRF54L15 serial output.
+Do the values match? [y/N]: y
+16:51:56 [INFO   ] pq-ble.central.phase6: Central FINISHED sent
+16:51:56 [INFO   ] pq-ble.central.phase6: Peripheral FINISHED verified: PASS
+16:51:56 [INFO   ] pq-ble.central.phase6: Authenticated PQ handshake: PASS
+16:51:56 [INFO   ] pq-ble.central.phase6: Phase 6 directional traffic keys derived: PASS
+16:51:56 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+16:51:56 [INFO   ] pq-ble.central.phase6: C->P secure message sent: seq=0, plaintext=PING 0, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.phase6: P->C secure response authenticated: seq=0, plaintext=PONG 0, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+16:51:56 [INFO   ] pq-ble.central.phase6: C->P secure message sent: seq=1, plaintext=PING 1, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.phase6: P->C secure response authenticated: seq=1, plaintext=PONG 1, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.client: Secure Data write completed: 43 bytes
+16:51:56 [INFO   ] pq-ble.central.phase6: C->P secure message sent: seq=2, plaintext=PING 2, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.phase6: P->C secure response authenticated: seq=2, plaintext=PONG 2, wire=43 B
+16:51:56 [INFO   ] pq-ble.central.phase6: Phase 6 bidirectional secure traffic: PASS (3 round trips)
+
+Authenticated PQ handshake: PASS
+Directional traffic keys derived: PASS
+
+Round 0:
+  C->P seq=0: PING 0
+  P->C seq=0: PONG 0
+  AES-256-GCM: PASS
+Round 1:
+  C->P seq=1: PING 1
+  P->C seq=1: PONG 1
+  AES-256-GCM: PASS
+Round 2:
+  C->P seq=2: PING 2
+  P->C seq=2: PONG 2
+  AES-256-GCM: PASS
+
+Central sent:     3
+Central received: 3
+
+PQ-BLE BIDIRECTIONAL SECURE CHANNEL E2E: PASS
+
+16:51:56 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+16:51:56 [INFO   ] pq-ble.central.client: Disconnected.
+
+Il DK:
+
+[00:00:09.428,180] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:00:09.428,516] <inf> pq_ble: Connected (generation 1)
+[00:00:09.457,565] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:00:11.032,758] <inf> pq_ble: Notifications ENABLED
+[00:00:11.062,727] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:00:11.092,738] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:00:11.122,739] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:00:11.152,741] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:00:11.182,742] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:00:11.318,030] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:00:11.318,053] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:00:11.422,767] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:00:11.527,773] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:00:11.632,778] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:00:11.664,651] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:00:11.664,814] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:00:11.693,075] <inf> pq_ble: Control write: len=22
+[00:00:11.693,082] <inf> pq_ble: START5 received
+[00:00:11.693,570] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:00:11.706,338] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:00:11.706,344] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:11.706,682] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:00:11.706,686] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:00:11.706,696] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:00:11.792,718] <inf> mlkem_session: Transcript hash computed
+[00:00:11.793,825] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:00:11.793,831] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:11.794,168] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:00:11.794,172] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:00:11.794,177] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:00:11.794,452] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:00:11.794,459] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:11.794,796] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:00:11.794,800] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:00:11.794,810] <inf> mlkem_session: SAS Numeric Comparison: 265362
+[00:00:11.795,291] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:00:21.833,682] <inf> pq_ble: Control write: len=40
+[00:00:21.834,187] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:00:21.834,475] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:00:21.834,481] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:21.834,818] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:00:21.834,822] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:00:21.834,833] <inf> mlkem_session: Peripheral FINISHED generated
+[00:00:21.835,326] <inf> pq_ble: Phase 5 authenticated state reached
+[00:00:21.923,719] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:00:21.924,361] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:00:22.002,638] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:00:22.002,650] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:22.002,988] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:00:22.002,992] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:00:22.002,996] <err> mlkem_session: Phase 6 C->P AES-256-GCM authentication: FAIL
+[00:00:22.003,464] <inf> pq_ble: Phase 6 error sent: status 0x06
+[00:00:22.058,355] <inf> pq_ble: Notifications DISABLED
+[00:00:25.298,561] <inf> pq_ble: Disconnected (reason 19)
+[00:04:24.643,219] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:04:24.643,555] <inf> pq_ble: Connected (generation 3)
+[00:04:24.668,084] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:04:26.228,276] <inf> pq_ble: Notifications ENABLED
+[00:04:26.258,245] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:04:26.288,255] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:04:26.318,257] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:04:26.348,258] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:04:26.378,260] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:04:26.498,547] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:04:26.498,570] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:04:26.603,284] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:04:26.708,289] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:04:26.813,295] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:04:26.845,159] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:04:26.845,324] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:04:26.873,594] <inf> pq_ble: Control write: len=22
+[00:04:26.873,601] <inf> pq_ble: START5 received
+[00:04:26.874,088] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job
+[00:04:26.886,861] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation
+[00:04:26.886,868] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:26.887,205] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:26.887,209] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:26.887,219] <inf> mlkem_session: ML-KEM Decapsulation: PASS
+[00:04:26.973,231] <inf> mlkem_session: Transcript hash computed
+[00:04:26.974,338] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule
+[00:04:26.974,344] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:26.974,681] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:26.974,685] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:26.974,690] <inf> mlkem_session: v0.5 key schedule: PASS
+[00:04:26.974,965] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing
+[00:04:26.974,972] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:26.975,309] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:26.975,313] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:26.975,323] <inf> mlkem_session: SAS Numeric Comparison: 889890
+[00:04:26.975,803] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent
+[00:04:29.363,796] <inf> pq_ble: Control write: len=40
+[00:04:29.364,300] <inf> mlkem_session: Central FINISHED verification: PASS
+[00:04:29.364,586] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after FINISHED processing
+[00:04:29.364,593] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.364,930] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.364,934] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.364,944] <inf> mlkem_session: Peripheral FINISHED generated
+[00:04:29.365,438] <inf> pq_ble: Phase 5 authenticated state reached
+[00:04:29.453,830] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:04:29.454,472] <inf> mlkem_session: Phase 6 directional traffic keys derived: PASS
+[00:04:29.532,645] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:04:29.532,658] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.532,995] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.533,000] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.533,005] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:04:29.533,012] <inf> mlkem_session: Phase 6 C->P accepted sequence: 0
+[00:04:29.533,033] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 0
+[00:04:29.533,312] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:04:29.533,319] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.533,655] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.533,665] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.533,670] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:04:29.533,676] <inf> mlkem_session: Phase 6 P->C response sequence: 0
+[00:04:29.533,697] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 0
+[00:04:29.534,196] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:04:29.588,841] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:04:29.670,672] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:04:29.670,685] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.671,022] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.671,026] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.671,030] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:04:29.671,037] <inf> mlkem_session: Phase 6 C->P accepted sequence: 1
+[00:04:29.671,058] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 1
+[00:04:29.671,334] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:04:29.671,341] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.671,678] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.671,687] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.671,692] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:04:29.671,699] <inf> mlkem_session: Phase 6 P->C response sequence: 1
+[00:04:29.671,720] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 1
+[00:04:29.672,173] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:04:29.724,276] <inf> pq_ble: Phase 6 C->P secure write accepted: 43 B
+[00:04:29.808,764] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 C->P AES-256-GCM
+[00:04:29.808,776] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.809,113] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.809,117] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.809,122] <inf> mlkem_session: Phase 6 C->P AES-256-GCM authentication: PASS
+[00:04:29.809,128] <inf> mlkem_session: Phase 6 C->P accepted sequence: 2
+[00:04:29.809,150] <inf> mlkem_session: Phase 6 C->P decrypted payload (6 B): PING 2
+[00:04:29.809,425] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after Phase 6 P->C AES-256-GCM
+[00:04:29.809,432] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:04:29.809,769] <inf> mlkem_session: Unused crypto-thread stack: 5328 B
+[00:04:29.809,779] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23344 B
+[00:04:29.809,784] <inf> mlkem_session: Phase 6 P->C AES-256-GCM encryption: PASS
+[00:04:29.809,790] <inf> mlkem_session: Phase 6 P->C response sequence: 2
+[00:04:29.809,811] <inf> mlkem_session: Phase 6 P->C encrypted payload (6 B): PONG 2
+[00:04:29.810,306] <inf> pq_ble: Phase 6 P->C encrypted response notification sent: 43 B
+[00:04:29.903,485] <inf> pq_ble: Notifications DISABLED
+[00:04:33.143,691] <inf> pq_ble: Disconnected (reason 19)

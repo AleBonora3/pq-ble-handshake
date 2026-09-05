@@ -34,9 +34,12 @@ from ..common.phase5 import (
 from ..common.phase6 import (
     PHASE6_ERROR,
     PHASE6_FRAME_MAGIC,
+    PHASE6_STATUS_AUTHENTICATION_FAILURE,
+    PHASE6_STATUS_INVALID_PROTOCOL_STATE,
     derive_phase6_traffic_keys,
     parse_phase6_frame,
 )
+
 from ..common.session import SecureChannel, generate_session_id
 from .ble_client import BLECentralClient
 
@@ -45,12 +48,26 @@ logger = logging.getLogger("pq-ble.central.phase6")
 
 PHASE6_DEFAULT_ROUNDS = 3
 
+PHASE6_NEGATIVE_MODES = (
+    "c2p-tamper",
+    "c2p-replay",
+    "p2c-tamper",
+    "p2c-replay",
+    "pre-auth",
+)
+
 SASCallback = Callable[[str], bool | Awaitable[bool]]
 
 
 class Phase6BidirectionalError(RuntimeError):
     """Raised when authenticated v0.6 bidirectional traffic fails."""
 
+class Phase6NegativeTestPassed(RuntimeError):
+    """Raised internally when the expected negative-test rejection occurs."""
+
+
+class Phase6NegativeTestFailed(Phase6BidirectionalError):
+    """Raised when deliberately invalid Phase 6 traffic is accepted."""
 
 # Backward-compatible name for the CP2 helper/CLI.
 Phase6C2PError = Phase6BidirectionalError
@@ -76,6 +93,21 @@ class Phase6BidirectionalResult:
 
     round_trips: tuple[Phase6RoundTripResult, ...]
     sas: str
+
+def _tamper_secure_wire_copy(
+    wire: bytes | bytearray,
+) -> bytes:
+    """Flip exactly one bit in the final GCM-tag byte."""
+
+    if len(wire) < 1:
+        raise ValueError(
+            "secure wire cannot be empty"
+        )
+
+    tampered = bytearray(wire)
+    tampered[-1] ^= 0x01
+
+    return bytes(tampered)
 
 async def _confirm_sas(
     sas: str,
@@ -119,6 +151,39 @@ async def _receive(
             f"({timeout:g} s)"
         ) from exc
 
+def _parse_phase6_error_status(
+    raw: bytes,
+) -> int | None:
+    """Return the one-byte PQS6 error status, or None if not an error."""
+
+    if not raw.startswith(
+        PHASE6_FRAME_MAGIC
+    ):
+        return None
+
+    try:
+        frame = parse_phase6_frame(
+            raw
+        )
+    except ValueError as exc:
+        raise Phase6NegativeTestFailed(
+            "NEGATIVE TEST FAIL: malformed "
+            "PQS6 response"
+        ) from exc
+
+    if frame.subtype != PHASE6_ERROR:
+        raise Phase6NegativeTestFailed(
+            "NEGATIVE TEST FAIL: unexpected "
+            "PQS6 control subtype"
+        )
+
+    if len(frame.payload) != 1:
+        raise Phase6NegativeTestFailed(
+            "NEGATIVE TEST FAIL: malformed "
+            "PQS6 error payload"
+        )
+
+    return frame.payload[0]
 
 async def run_phase6_bidirectional(
     client: BLECentralClient,
@@ -126,13 +191,22 @@ async def run_phase6_bidirectional(
     rounds: int = PHASE6_DEFAULT_ROUNDS,
     sas_callback: SASCallback | None = None,
     notification_timeout: float = 10.0,
+    negative_test: str | None = None,
 ) -> Phase6BidirectionalResult:
     """Authenticate with v0.5 and run bidirectional secure traffic."""
 
     if rounds < 1:
         raise Phase6BidirectionalError(
             "rounds must be at least 1"
-        )    
+        ) 
+    if negative_test not in (
+        None,
+        *PHASE6_NEGATIVE_MODES,
+    ):
+        raise Phase6BidirectionalError(
+            f"Unknown Phase 6 negative test: "
+            f"{negative_test}"
+        )   
     if not client.is_connected:
         raise Phase6C2PError("BLE client not connected")
 
@@ -163,6 +237,59 @@ async def run_phase6_bidirectional(
 
         notify_started = True
 
+        if negative_test == "pre-auth":
+            #
+            # Produce a structurally valid encrypted application frame,
+            # but deliberately send it BEFORE the authenticated v0.5
+            # handshake has run.
+            #
+            # The DK must reject the GATT write at the protocol-state
+            # boundary; crypto processing must never start.
+            #
+            dummy_channel = SecureChannel(
+                bytes(32),
+                session_id=bytes(16),
+                role=CENTRAL_ROLE,
+            )
+
+            preauth_wire = (
+                dummy_channel.encrypt(
+                    b"PREAUTH",
+                    msg_type=MSG_TYPE_DATA,
+                )
+            )
+
+            print()
+            print(
+                "NEGATIVE TEST: Secure Data "
+                "WRITE before authentication."
+            )
+
+            try:
+                await client.write_secure_data(
+                    preauth_wire
+                )
+
+            except Exception as exc:
+                if not client.is_connected:
+                    raise Phase6NegativeTestFailed(
+                        "NEGATIVE TEST FAIL: "
+                        "connection was lost while "
+                        "testing pre-auth rejection"
+                    ) from exc
+
+                raise Phase6NegativeTestPassed(
+                    "NEGATIVE TEST PASS: "
+                    "pre-auth Secure Data WRITE "
+                    "rejected by Peripheral"
+                ) from exc
+
+            raise Phase6NegativeTestFailed(
+                "NEGATIVE TEST FAIL: Peripheral "
+                "accepted Secure Data before "
+                "authentication"
+            )
+        
         public_key = bytes(
             await client.read_fragmented_public_key()
         )
@@ -448,6 +575,343 @@ async def run_phase6_bidirectional(
             role=CENTRAL_ROLE,
         )
 
+        if negative_test == "c2p-tamper":
+            legitimate_wire = (
+                c2p_channel.encrypt(
+                    b"PING 0",
+                    msg_type=MSG_TYPE_DATA,
+                )
+            )
+
+            tampered_wire = (
+                _tamper_secure_wire_copy(
+                    legitimate_wire
+                )
+            )
+
+            if (
+                tampered_wire[:-1] !=
+                legitimate_wire[:-1]
+                or tampered_wire[-1] !=
+                (legitimate_wire[-1] ^ 0x01)
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "tamper hook changed more "
+                    "than the requested bit"
+                )
+
+            print()
+            print(
+                "NEGATIVE TEST: one GCM-tag "
+                "bit in C->P wire intentionally "
+                "flipped."
+            )
+
+            await client.write_secure_data(
+                tampered_wire
+            )
+
+            raw_error = await _receive(
+                notifications,
+                notification_timeout,
+                "C->P tamper rejection",
+            )
+
+            status = (
+                _parse_phase6_error_status(
+                    raw_error
+                )
+            )
+
+            if (
+                status !=
+                PHASE6_STATUS_AUTHENTICATION_FAILURE
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: expected "
+                    "authentication status 0x06, "
+                    f"got {status!r}"
+                )
+
+            raise Phase6NegativeTestPassed(
+                "NEGATIVE TEST PASS: tampered "
+                "C->P AES-GCM frame rejected "
+                "by Peripheral"
+            )
+
+        if negative_test == "c2p-replay":
+            legitimate_wire = (
+                c2p_channel.encrypt(
+                    b"PING 0",
+                    msg_type=MSG_TYPE_DATA,
+                )
+            )
+
+            #
+            # First delivery must succeed.
+            #
+            await client.write_secure_data(
+                legitimate_wire
+            )
+
+            first_response = await _receive(
+                notifications,
+                notification_timeout,
+                "legitimate PONG 0",
+            )
+
+            if first_response.startswith(
+                PHASE6_FRAME_MAGIC
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "legitimate first C->P frame "
+                    "was rejected"
+                )
+
+            try:
+                first_plaintext = (
+                    p2c_channel.decrypt(
+                        first_response,
+                        msg_type=MSG_TYPE_DATA,
+                    )
+                )
+            except (
+                InvalidTag,
+                ValueError,
+            ) as exc:
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "legitimate PONG 0 could "
+                    "not be authenticated"
+                ) from exc
+
+            if first_plaintext != b"PONG 0":
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "unexpected first response"
+                )
+
+            print()
+            print(
+                "NEGATIVE TEST: replaying "
+                "the exact accepted C->P "
+                "seq=0 secure wire."
+            )
+
+            #
+            # Byte-for-byte replay.
+            #
+            await client.write_secure_data(
+                legitimate_wire
+            )
+
+            replay_response = await _receive(
+                notifications,
+                notification_timeout,
+                "C->P replay rejection",
+            )
+
+            status = (
+                _parse_phase6_error_status(
+                    replay_response
+                )
+            )
+
+            if (
+                status !=
+                PHASE6_STATUS_INVALID_PROTOCOL_STATE
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: expected "
+                    "replay/state status 0x04, "
+                    f"got {status!r}"
+                )
+
+            raise Phase6NegativeTestPassed(
+                "NEGATIVE TEST PASS: replayed "
+                "C->P secure frame rejected "
+                "by Peripheral"
+            )
+
+        if negative_test == "p2c-tamper":
+            c2p_wire = c2p_channel.encrypt(
+                b"PING 0",
+                msg_type=MSG_TYPE_DATA,
+            )
+
+            await client.write_secure_data(
+                c2p_wire
+            )
+
+            legitimate_response = (
+                await _receive(
+                    notifications,
+                    notification_timeout,
+                    "legitimate PONG 0",
+                )
+            )
+
+            if legitimate_response.startswith(
+                PHASE6_FRAME_MAGIC
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "Peripheral did not produce "
+                    "a legitimate secure response"
+                )
+
+            tampered_response = (
+                _tamper_secure_wire_copy(
+                    legitimate_response
+                )
+            )
+
+            print()
+            print(
+                "NEGATIVE TEST: one GCM-tag "
+                "bit in the received P->C "
+                "copy intentionally flipped."
+            )
+
+            try:
+                p2c_channel.decrypt(
+                    tampered_response,
+                    msg_type=MSG_TYPE_DATA,
+                )
+
+            except InvalidTag:
+                pass
+
+            else:
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "tampered P->C frame was "
+                    "accepted by Central"
+                )
+
+            #
+            # Very important:
+            # the failed authentication must NOT advance
+            # Central receive sequence state. The untouched
+            # legitimate frame must still be accepted.
+            #
+            try:
+                plaintext = (
+                    p2c_channel.decrypt(
+                        legitimate_response,
+                        msg_type=MSG_TYPE_DATA,
+                    )
+                )
+
+            except Exception as exc:
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "failed P->C authentication "
+                    "incorrectly advanced or "
+                    "corrupted receive state"
+                ) from exc
+
+            if plaintext != b"PONG 0":
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "legitimate P->C frame "
+                    "did not decrypt to PONG 0"
+                )
+
+            raise Phase6NegativeTestPassed(
+                "NEGATIVE TEST PASS: tampered "
+                "P->C frame rejected by Central "
+                "without advancing receive state"
+            )
+
+        if negative_test == "p2c-replay":
+            c2p_wire = c2p_channel.encrypt(
+                b"PING 0",
+                msg_type=MSG_TYPE_DATA,
+            )
+
+            await client.write_secure_data(
+                c2p_wire
+            )
+
+            legitimate_response = (
+                await _receive(
+                    notifications,
+                    notification_timeout,
+                    "legitimate PONG 0",
+                )
+            )
+
+            if legitimate_response.startswith(
+                PHASE6_FRAME_MAGIC
+            ):
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "Peripheral did not produce "
+                    "a legitimate secure response"
+                )
+
+            try:
+                plaintext = (
+                    p2c_channel.decrypt(
+                        legitimate_response,
+                        msg_type=MSG_TYPE_DATA,
+                    )
+                )
+            except Exception as exc:
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "first legitimate P->C frame "
+                    "was rejected"
+                ) from exc
+
+            if plaintext != b"PONG 0":
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: "
+                    "unexpected first P->C plaintext"
+                )
+
+            print()
+            print(
+                "NEGATIVE TEST: replaying "
+                "the exact already-accepted "
+                "P->C seq=0 secure wire locally."
+            )
+
+            try:
+                p2c_channel.decrypt(
+                    legitimate_response,
+                    msg_type=MSG_TYPE_DATA,
+                )
+
+            except ValueError:
+                raise Phase6NegativeTestPassed(
+                    "NEGATIVE TEST PASS: replayed "
+                    "P->C secure frame rejected "
+                    "by Central"
+                )
+
+            except InvalidTag as exc:
+                raise Phase6NegativeTestFailed(
+                    "NEGATIVE TEST FAIL: P->C "
+                    "replay reached tag verification "
+                    "instead of replay rejection"
+                ) from exc
+
+            raise Phase6NegativeTestFailed(
+                "NEGATIVE TEST FAIL: replayed "
+                "P->C secure frame was accepted "
+                "by Central"
+            )
+
+        if negative_test is not None:
+            raise Phase6NegativeTestFailed(
+                "NEGATIVE TEST FAIL: negative "
+                "mode reached positive traffic path"
+            )
+            
         round_results: list[
             Phase6RoundTripResult
         ] = []
