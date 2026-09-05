@@ -1,0 +1,35 @@
+PQ-BLE-HANDSHAKE
+Milestone: v0.5-authenticated-pq-handshake
+Test: Human SAS rejection
+
+Central SAS:    455602
+Peripheral SAS: 455602
+
+User response:
+n
+
+Expected:
+- no FINISHED_C
+- no FINISHED_P
+- no authenticated state
+- no DATA_REQUEST
+- no AES-GCM application data
+
+Observed Central:
+SAS rejected; FINISHED and application data were not sent
+
+Observed Peripheral:
+Last Phase 5 event:
+Phase 5 READY_FOR_SAS notification sent
+
+No subsequent FINISHED or AES event was observed.
+
+RESULT: PASS
+
+PC
+
+(.venv) PS C:\pq_ble> python -m src.central.main --phase5-auth-pq liboqs-python faulthandler is disabled C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0 from oqs.oqs import ( 11:29:37 [INFO ] pq-ble.central.main: ================================================== 11:29:37 [INFO ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client) 11:29:37 [INFO ] pq-ble.central.main: ================================================== 11:29:37 [INFO ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: True | MTU: auto 11:29:37 [INFO ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'... 11:29:37 [INFO ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)... 11:29:38 [INFO ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting... 11:29:40 [INFO ] pq-ble.central.client: Connected. MTU: 23 11:29:40 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection. 11:29:40 [INFO ] pq-ble.central.main: === v0.5 AUTHENTICATED PURE-PQ HANDSHAKE === 11:29:41 [INFO ] pq-ble.central.client: Subscribed to data notifications. 11:29:42 [INFO ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247) 11:29:42 [INFO ] pq-ble.central.phase5: Dynamic ML-KEM PK received: 1184 bytes 11:29:42 [INFO ] pq-ble.central.phase5: ML-KEM encapsulation: PASS 11:29:42 [INFO ] pq-ble.central.phase5: Phase 5 transcript constructed 11:29:42 [INFO ] pq-ble.central.phase5: HKDF key schedule: PASS 11:29:42 [INFO ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243) 11:29:42 [INFO ] pq-ble.central.client: Ciphertext written [OK] (5 fragments) 11:29:42 [INFO ] pq-ble.central.phase5: Ciphertext transported SAS on Central: 455602 Compare with the nRF54L15 serial output. Do the values match? [y/N]: n 11:29:48 [ERROR ] pq-ble.central.main: Phase 5 authenticated handshake failed: SAS rejected; FINISHED and application data were not sent PQ-BLE AUTHENTICATED HANDSHAKE E2E: FAIL 11:29:48 [WARNING] pq-ble.central.client: Unexpected disconnect from C0:48:FF:F5:9D:B8 11:29:48 [INFO ] pq-ble.central.client: Disconnected.
+
+DK
+
+[00:00:15.518,957] <inf> pq_ble: MTU updated: TX=23, RX=23 [00:00:15.519,245] <inf> pq_ble: Connected (generation 1) [00:00:15.633,964] <inf> pq_ble: MTU updated: TX=527, RX=247 [00:00:16.444,114] <inf> pq_ble: Notifications ENABLED [00:00:16.534,086] <inf> pq_ble: Public-key read: offset=0, len=246 [00:00:16.624,100] <inf> pq_ble: Public-key read: offset=246, len=246 [00:00:16.714,118] <inf> pq_ble: Public-key read: offset=492, len=246 [00:00:16.774,109] <inf> pq_ble: Public-key read: offset=738, len=246 [00:00:16.804,110] <inf> pq_ble: Public-key read: offset=984, len=246 [00:00:16.924,353] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5) [00:00:16.924,373] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload) [00:00:17.029,128] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload) [00:00:17.134,134] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload) [00:00:17.254,140] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload) [00:00:17.286,011] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload) [00:00:17.286,178] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes) [00:00:17.314,451] <inf> pq_ble: Control write: len=22 [00:00:17.314,458] <inf> pq_ble: START5 received [00:00:17.314,889] <inf> pq_ble: Ciphertext state: CRYPTO_BUSY; START5 consumed CT_READY job [00:00:17.401,643] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after ML-KEM Decapsulation [00:00:17.401,655] <inf> mlkem_session: Configured crypto-thread stack: 28672 B [00:00:17.402,012] <inf> mlkem_session: Unused crypto-thread stack: 5632 B [00:00:17.402,016] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23040 B [00:00:17.402,021] <inf> mlkem_session: ML-KEM Decapsulation: PASS [00:00:17.402,226] <inf> mlkem_session: Transcript hash computed [00:00:17.403,340] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after transcript hash + v0.5 key schedule [00:00:17.403,346] <inf> mlkem_session: Configured crypto-thread stack: 28672 B [00:00:17.403,759] <inf> mlkem_session: Unused crypto-thread stack: 5632 B [00:00:17.403,764] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23040 B [00:00:17.403,774] <inf> mlkem_session: v0.5 key schedule: PASS [00:00:17.497,636] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after SAS processing [00:00:17.497,649] <inf> mlkem_session: Configured crypto-thread stack: 28672 B [00:00:17.498,005] <inf> mlkem_session: Unused crypto-thread stack: 5632 B [00:00:17.498,009] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 23040 B [00:00:17.498,014] <inf> mlkem_session: SAS Numeric Comparison: 455602 [00:00:17.498,449] <inf> pq_ble: Phase 5 READY_FOR_SAS notification sent [00:00:22.789,417] <inf> pq_ble: Notifications DISABLED [00:00:25.984,676] <inf> pq_ble: Disconnected (reason 19)

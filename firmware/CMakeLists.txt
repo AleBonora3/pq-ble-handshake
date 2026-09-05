@@ -16,6 +16,7 @@ target_sources(app PRIVATE
     src/main.c
     src/mlkem_session.c
     src/mlkem_selftest.c
+    src/pq_phase5.c
     src/pq_secure_channel.c
     ${MLKEM_NATIVE_DIR}/mlkem_native.c
 )
@@ -24,7 +25,9 @@ target_include_directories(app PRIVATE
     ${MLKEM_NATIVE_DIR}
 )
 
-# ML-KEM-768 deterministic, portable-C integration.
+# ML-KEM-768 portable-C integration. Runtime KeyGen supplies production
+# randomness to the deterministic API; the randomized mlkem-native wrapper is
+# intentionally omitted so the vendored source needs no platform RNG shim.
 # Native arithmetic and FIPS-202 backends are intentionally not enabled.
 target_compile_definitions(app PRIVATE
     MLK_CONFIG_PARAMETER_SET=768

@@ -1,17 +1,17 @@
 /*
- * Phase 2 ML-KEM-768 session worker.
+ * ML-KEM-768 session worker shared by the isolated protocol modes.
  *
- * TEST ONLY - NOT FOR PRODUCTION
- *
- * This module deliberately uses deterministic KeyGen coins. A production
- * firmware must replace them with randomness from an approved CSPRNG. The
- * secret key is file-static RAM state and is never exposed by this API.
+ * Runtime KeyGen obtains its 64-byte d || z input from PSA Crypto after PSA
+ * initialization. The secret key is file-static RAM state and is never
+ * exposed by this API.
  */
 
 #include "mlkem_session.h"
 
 #include <errno.h>
 #include <string.h>
+
+#include <psa/crypto.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -30,24 +30,16 @@ BUILD_ASSERT(PQ_MLKEM_CIPHERTEXT_SIZE == 1088,
 	     "Unexpected ML-KEM-768 ciphertext size");
 BUILD_ASSERT(PQ_MLKEM_SHARED_SECRET_SIZE == 32,
 	     "Unexpected ML-KEM shared-secret size");
+BUILD_ASSERT(PQ_MLKEM_PUBLIC_KEY_SIZE == PQ_PHASE5_PUBLIC_KEY_SIZE,
+	     "Phase 5 public-key size mismatch");
+BUILD_ASSERT(PQ_MLKEM_CIPHERTEXT_SIZE == PQ_PHASE5_CIPHERTEXT_SIZE,
+	     "Phase 5 ciphertext size mismatch");
 BUILD_ASSERT(CONFIG_PQ_MLKEM_THREAD_PRIORITY >= 0,
 	     "ML-KEM worker must be preemptible");
 BUILD_ASSERT(CONFIG_PQ_MLKEM_THREAD_PRIORITY < CONFIG_NUM_PREEMPT_PRIORITIES,
 	     "ML-KEM worker priority is outside the preemptible range");
 BUILD_ASSERT(CONFIG_PQ_MLKEM_THREAD_PRIORITY > CONFIG_BT_RX_PRIO,
 	     "Bluetooth host RX must be able to preempt the ML-KEM worker");
-
-/* TEST ONLY - NOT FOR PRODUCTION: fixed deterministic KeyGen coins. */
-static const uint8_t keygen_coins[2 * MLKEM_SYMBYTES] = {
-	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
-	0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
-	0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
-	0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
-	0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
-	0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,
-	0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
-	0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf,
-};
 
 static uint8_t public_key[PQ_MLKEM_PUBLIC_KEY_SIZE];
 static uint8_t secret_key[PQ_MLKEM_SECRET_KEY_SIZE];
@@ -58,8 +50,18 @@ static enum pq_mlkem_job_mode pending_job_mode =
 	PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC;
 
 static uint8_t session_id_job[PQ_SECURE_SESSION_ID_SIZE];
+static uint8_t finished_c_job[PQ_PHASE5_FINISHED_SIZE];
 
 static uint8_t secure_wire[PQ_SECURE_TEST_WIRE_SIZE];
+
+/* Phase 5 material retained only between its explicit worker jobs. */
+static struct pq_phase5_keys phase5_keys;
+static uint8_t phase5_transcript_hash[PQ_PHASE5_HASH_SIZE];
+static uint8_t phase5_session_id[PQ_PHASE5_SESSION_ID_SIZE];
+static uint32_t phase5_epoch;
+static uint32_t pending_phase5_epoch;
+static bool phase5_wait_finished;
+static bool phase5_application_ready;
 
 static K_THREAD_STACK_DEFINE(crypto_thread_stack,
 			     CONFIG_PQ_MLKEM_THREAD_STACK_SIZE);
@@ -74,6 +76,8 @@ static bool keypair_ready;
 static bool job_pending;
 static bool job_active;
 static int initialization_result = -EINPROGRESS;
+
+static void clear_phase5_material_locked(void);
 
 static void secure_clear(void *buffer, size_t len)
 {
@@ -130,6 +134,8 @@ static int validate_diagnostic_crc(void)
 
 static void crypto_worker(void *unused1, void *unused2, void *unused3)
 {
+	uint8_t keygen_coins[2 * MLKEM_SYMBYTES];
+	psa_status_t random_status;
 	int ret;
 
 	ARG_UNUSED(unused1);
@@ -138,9 +144,19 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 	ret = validate_diagnostic_crc();
 	if (ret == 0) {
-		ret = pqble_mlkem_keypair_derand(public_key, secret_key,
-						 keygen_coins);
-		report_crypto_stack("after deterministic ML-KEM KeyGen");
+		random_status = psa_generate_random(keygen_coins,
+						    sizeof(keygen_coins));
+		if (random_status != PSA_SUCCESS) {
+			LOG_ERR("ML-KEM KeyGen random generation failed: %d",
+				(int)random_status);
+			ret = -EIO;
+		} else {
+			ret = pqble_mlkem_keypair_derand(public_key, secret_key,
+							 keygen_coins);
+		}
+
+		secure_clear(keygen_coins, sizeof(keygen_coins));
+		report_crypto_stack("after production-random ML-KEM KeyGen");
 	}
 
 	k_mutex_lock(&session_lock, K_FOREVER);
@@ -156,15 +172,35 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		return;
 	}
 
-	LOG_INF("ML-KEM keypair initialization: PASS");
+	LOG_INF("ML-KEM production-random KeyGen: PASS");
 	k_sem_give(&init_complete);
 
 	for (;;) {
-		enum pq_mlkem_diagnostic_status status;
+		struct pq_phase5_keys local_keys;
+		uint8_t local_hash[PQ_PHASE5_HASH_SIZE];
+		uint8_t received_finished_c[PQ_PHASE5_FINISHED_SIZE];
+		uint8_t expected_finished_c[PQ_PHASE5_FINISHED_SIZE];
+		uint8_t peripheral_finished[PQ_PHASE5_FINISHED_SIZE];
+		uint8_t application_key[PQ_PHASE5_KEY_SIZE];
+		uint8_t application_session_id[PQ_PHASE5_SESSION_ID_SIZE];
+		enum pq_mlkem_diagnostic_status status =
+			PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
 		uint32_t crc = 0U;
-
 		enum pq_mlkem_job_mode mode;
+		uint32_t job_epoch = 0U;
 		size_t secure_wire_len = 0U;
+		uint32_t sas = 0U;
+		bool job_valid = true;
+		bool phase5_committed = false;
+
+		memset(&local_keys, 0, sizeof(local_keys));
+		memset(local_hash, 0, sizeof(local_hash));
+		memset(received_finished_c, 0, sizeof(received_finished_c));
+		memset(expected_finished_c, 0, sizeof(expected_finished_c));
+		memset(peripheral_finished, 0, sizeof(peripheral_finished));
+		memset(application_key, 0, sizeof(application_key));
+		memset(application_session_id, 0,
+		       sizeof(application_session_id));
 
 		k_sem_take(&job_available, K_FOREVER);
 
@@ -178,33 +214,72 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		job_pending = false;
 		job_active = true;
 		mode = pending_job_mode;
+		job_epoch = pending_phase5_epoch;
+
+		if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+			if (job_epoch != phase5_epoch || !phase5_wait_finished) {
+				job_valid = false;
+			} else {
+				memcpy(local_keys.finished_c,
+				       phase5_keys.finished_c,
+				       sizeof(local_keys.finished_c));
+				memcpy(local_keys.finished_p,
+				       phase5_keys.finished_p,
+				       sizeof(local_keys.finished_p));
+				memcpy(local_hash, phase5_transcript_hash,
+				       sizeof(local_hash));
+				memcpy(received_finished_c, finished_c_job,
+				       sizeof(received_finished_c));
+			}
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA) {
+			if (job_epoch != phase5_epoch ||
+			    !phase5_application_ready) {
+				job_valid = false;
+			} else {
+				memcpy(application_key, phase5_keys.application,
+				       sizeof(application_key));
+				memcpy(application_session_id, phase5_session_id,
+				       sizeof(application_session_id));
+				/* Consumed before crypto, so duplicate DATA_REQUEST fails. */
+				clear_phase5_material_locked();
+			}
+		}
 		k_mutex_unlock(&session_lock);
 
-		/*
-		 * ML-KEM decapsulation uses implicit rejection. A structurally
-		 * valid modified ciphertext normally returns success and derives a
-		 * different shared secret; it is not reported as an API failure.
-		 */
-		ret = pqble_mlkem_dec(shared_secret, ciphertext_job, secret_key);
-		report_crypto_stack("after ML-KEM Decapsulation");
+		if (!job_valid) {
+			LOG_WRN("Canceled or stale Phase 5 worker job discarded");
+			goto job_done;
+		}
 
-		if (ret == 0) {
-			crc = crc32_ieee(shared_secret, sizeof(shared_secret));
+		if (mode == PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC ||
+		    mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
+		    mode == PQ_MLKEM_JOB_PHASE5_START) {
+			/*
+			 * ML-KEM decapsulation uses implicit rejection. A structurally
+			 * valid modified ciphertext normally returns success and derives
+			 * a different shared secret rather than an API failure.
+			 */
+			ret = pqble_mlkem_dec(
+				shared_secret, ciphertext_job, secret_key);
+			report_crypto_stack("after ML-KEM Decapsulation");
+			if (ret != 0) {
+				status = PQ_MLKEM_STATUS_DECAPSULATION_FAILURE;
+				LOG_ERR("ML-KEM decapsulation local/API failure: %d",
+					ret);
+				goto job_done;
+			}
 			status = PQ_MLKEM_STATUS_SUCCESS;
+			LOG_INF("ML-KEM Decapsulation: PASS");
 
-			LOG_INF("ML-KEM decapsulation operation completed");
-
-			if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+			if (mode == PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC) {
+				crc = crc32_ieee(shared_secret,
+						 sizeof(shared_secret));
+			} else if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
 				ret = pq_secure_encrypt_test_message(
-					shared_secret,
-					session_id_job,
-					secure_wire,
-					sizeof(secure_wire),
-					&secure_wire_len);
-
+					shared_secret, session_id_job, secure_wire,
+					sizeof(secure_wire), &secure_wire_len);
 				report_crypto_stack(
 					"after HKDF-SHA256 + AES-256-GCM");
-
 				if (ret != 0) {
 					LOG_ERR("Phase 3 secure-channel generation failed: %d",
 						ret);
@@ -214,14 +289,133 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 					LOG_INF("Phase 3 secure application message ready: %zu B",
 						secure_wire_len);
 				}
+			} else {
+				ret = pq_phase5_transcript_hash(
+					session_id_job, public_key, ciphertext_job,
+					local_hash);
+				if (ret == 0) {
+					LOG_INF("Transcript hash computed");
+					ret = pq_phase5_derive_keys(
+						shared_secret, local_hash, &local_keys);
+				}
+				/* Required immediately after all derived keys exist. */
+				secure_clear(shared_secret, sizeof(shared_secret));
+				report_crypto_stack(
+					"after transcript hash + v0.5 key schedule");
+				if (ret == 0) {
+					LOG_INF("v0.5 key schedule: PASS");
+					ret = pq_phase5_compute_sas(
+						local_keys.sas, local_hash, &sas);
+				}
+				report_crypto_stack("after SAS processing");
+				if (ret != 0) {
+					LOG_ERR("Phase 5 transcript/key schedule/SAS failed: %d",
+						ret);
+					status = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+					goto job_done;
+				}
+
+				LOG_INF("SAS Numeric Comparison: %06u", sas);
+				k_mutex_lock(&session_lock, K_FOREVER);
+				if (job_epoch == phase5_epoch) {
+					clear_phase5_material_locked();
+					memcpy(phase5_keys.application,
+					       local_keys.application,
+					       sizeof(phase5_keys.application));
+					memcpy(phase5_keys.finished_c,
+					       local_keys.finished_c,
+					       sizeof(phase5_keys.finished_c));
+					memcpy(phase5_keys.finished_p,
+					       local_keys.finished_p,
+					       sizeof(phase5_keys.finished_p));
+					memcpy(phase5_transcript_hash, local_hash,
+					       sizeof(phase5_transcript_hash));
+					memcpy(phase5_session_id, session_id_job,
+					       sizeof(phase5_session_id));
+					phase5_wait_finished = true;
+					phase5_committed = true;
+				}
+				k_mutex_unlock(&session_lock);
+				if (!phase5_committed) {
+					status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+					goto job_done;
+				}
+				ret = pq_phase5_encode_frame(
+					PQ_PHASE5_READY_FOR_SAS, NULL, 0U,
+					secure_wire, sizeof(secure_wire),
+					&secure_wire_len);
+				if (ret != 0) {
+					status = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+				}
 			}
-		} else {
-			status = PQ_MLKEM_STATUS_DECAPSULATION_FAILURE;
-			LOG_ERR("ML-KEM decapsulation local/API failure: %d", ret);
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+			ret = pq_phase5_compute_finished_c(
+				local_keys.finished_c, local_hash,
+				expected_finished_c);
+			if (ret == 0 && !pq_phase5_finished_equal(
+					expected_finished_c, received_finished_c)) {
+				ret = -EACCES;
+			}
+			if (ret == 0) {
+				LOG_INF("Central FINISHED verification: PASS");
+				ret = pq_phase5_compute_finished_p(
+					local_keys.finished_p, local_hash,
+					peripheral_finished);
+			}
+			if (ret == 0) {
+				ret = pq_phase5_encode_frame(
+					PQ_PHASE5_FINISHED_P, peripheral_finished,
+					sizeof(peripheral_finished), secure_wire,
+					sizeof(secure_wire), &secure_wire_len);
+			}
+			report_crypto_stack("after FINISHED processing");
+
+			k_mutex_lock(&session_lock, K_FOREVER);
+			if (job_epoch == phase5_epoch && phase5_wait_finished) {
+				phase5_committed = true;
+				if (ret == 0) {
+					secure_clear(phase5_keys.finished_c,
+						     sizeof(phase5_keys.finished_c));
+					secure_clear(phase5_keys.finished_p,
+						     sizeof(phase5_keys.finished_p));
+					secure_clear(phase5_transcript_hash,
+						     sizeof(phase5_transcript_hash));
+					phase5_wait_finished = false;
+					phase5_application_ready = true;
+				} else {
+					clear_phase5_material_locked();
+					phase5_epoch++;
+				}
+			}
+			k_mutex_unlock(&session_lock);
+			if (!phase5_committed) {
+				status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+				secure_wire_len = 0U;
+			} else if (ret != 0) {
+				LOG_ERR("Central FINISHED verification: FAIL");
+				status = PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE;
+				secure_wire_len = 0U;
+			} else {
+				status = PQ_MLKEM_STATUS_SUCCESS;
+				LOG_INF("Peripheral FINISHED generated");
+			}
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA) {
+			ret = pq_secure_encrypt_test_message_with_key(
+				application_key, application_session_id,
+				secure_wire, sizeof(secure_wire), &secure_wire_len);
+			report_crypto_stack("after Phase 5 AES-256-GCM");
+			if (ret != 0) {
+				status = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+				secure_wire_len = 0U;
+			} else {
+				status = PQ_MLKEM_STATUS_SUCCESS;
+			}
 		}
 
+	job_done:
 		secure_clear(shared_secret, sizeof(shared_secret));
 		secure_clear(ciphertext_job, sizeof(ciphertext_job));
+		secure_clear(finished_c_job, sizeof(finished_c_job));
 
 		k_mutex_lock(&session_lock, K_FOREVER);
 		job_active = false;
@@ -236,7 +430,25 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		
 		secure_clear(secure_wire, sizeof(secure_wire));
 		secure_clear(session_id_job, sizeof(session_id_job));
+		secure_clear(&local_keys, sizeof(local_keys));
+		secure_clear(local_hash, sizeof(local_hash));
+		secure_clear(received_finished_c, sizeof(received_finished_c));
+		secure_clear(expected_finished_c, sizeof(expected_finished_c));
+		secure_clear(peripheral_finished, sizeof(peripheral_finished));
+		secure_clear(application_key, sizeof(application_key));
+		secure_clear(application_session_id,
+			     sizeof(application_session_id));
 	}
+}
+
+/* Caller holds session_lock. */
+static void clear_phase5_material_locked(void)
+{
+	secure_clear(&phase5_keys, sizeof(phase5_keys));
+	secure_clear(phase5_transcript_hash, sizeof(phase5_transcript_hash));
+	secure_clear(phase5_session_id, sizeof(phase5_session_id));
+	phase5_wait_finished = false;
+	phase5_application_ready = false;
 }
 
 int pq_mlkem_session_init(pq_mlkem_result_callback_t callback)
@@ -250,7 +462,7 @@ int pq_mlkem_session_init(pq_mlkem_result_callback_t callback)
 	int crypto_ret = pq_secure_channel_init();
 
 	if (crypto_ret != 0) {
-		LOG_ERR("Phase 3 PSA Crypto initialization failed: %d", crypto_ret);
+		LOG_ERR("PSA Crypto initialization failed: %d", crypto_ret);
 		return crypto_ret;
 	}
 
@@ -318,7 +530,8 @@ static int submit_job(
 		return -EINVAL;
 	}
 
-	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE &&
+	if ((mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
+	     mode == PQ_MLKEM_JOB_PHASE5_START) &&
 	    session_id == NULL) {
 		return -EINVAL;
 	}
@@ -338,13 +551,20 @@ static int submit_job(
 	memcpy(ciphertext_job, ciphertext, sizeof(ciphertext_job));
 
 	pending_job_mode = mode;
+	pending_phase5_epoch = 0U;
 
-	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
+	    mode == PQ_MLKEM_JOB_PHASE5_START) {
 		memcpy(session_id_job,
 		       session_id,
 		       sizeof(session_id_job));
 	} else {
 		memset(session_id_job, 0, sizeof(session_id_job));
+	}
+	if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+		clear_phase5_material_locked();
+		phase5_epoch++;
+		pending_phase5_epoch = phase5_epoch;
 	}
 
 	job_pending = true;
@@ -377,4 +597,70 @@ int pq_mlkem_session_submit_secure(
 		ciphertext_len,
 		PQ_MLKEM_JOB_PHASE3_SECURE,
 		session_id);
+}
+
+int pq_mlkem_session_submit_phase5(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	const uint8_t session_id[PQ_PHASE5_SESSION_ID_SIZE])
+{
+	return submit_job(
+		ciphertext,
+		ciphertext_len,
+		PQ_MLKEM_JOB_PHASE5_START,
+		session_id);
+}
+
+int pq_mlkem_session_submit_phase5_finished_c(
+	const uint8_t finished_c[PQ_PHASE5_FINISHED_SIZE])
+{
+	if (finished_c == NULL) {
+		return -EINVAL;
+	}
+
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (!keypair_ready || !phase5_wait_finished) {
+		k_mutex_unlock(&session_lock);
+		return -EACCES;
+	}
+	if (job_pending || job_active) {
+		k_mutex_unlock(&session_lock);
+		return -EBUSY;
+	}
+
+	memcpy(finished_c_job, finished_c, sizeof(finished_c_job));
+	pending_job_mode = PQ_MLKEM_JOB_PHASE5_FINISHED_C;
+	pending_phase5_epoch = phase5_epoch;
+	job_pending = true;
+	k_mutex_unlock(&session_lock);
+	k_sem_give(&job_available);
+	return 0;
+}
+
+int pq_mlkem_session_submit_phase5_data(void)
+{
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (!keypair_ready || !phase5_application_ready) {
+		k_mutex_unlock(&session_lock);
+		return -EACCES;
+	}
+	if (job_pending || job_active) {
+		k_mutex_unlock(&session_lock);
+		return -EBUSY;
+	}
+
+	pending_job_mode = PQ_MLKEM_JOB_PHASE5_DATA;
+	pending_phase5_epoch = phase5_epoch;
+	job_pending = true;
+	k_mutex_unlock(&session_lock);
+	k_sem_give(&job_available);
+	return 0;
+}
+
+void pq_mlkem_session_reset_phase5(void)
+{
+	k_mutex_lock(&session_lock, K_FOREVER);
+	phase5_epoch++;
+	clear_phase5_material_locked();
+	k_mutex_unlock(&session_lock);
 }

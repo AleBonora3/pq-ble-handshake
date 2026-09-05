@@ -14,13 +14,15 @@ The protocol combines:
 - **session resumption** — time- and usage-bounded cached sessions.
 
 > [!IMPORTANT]
-> The Python implementation validates the complete cryptographic protocol.
-> Phase 2 integrates deterministic on-device ML-KEM-768 KeyGen and
-> decapsulation with the existing BLE/GATT transport, using mlkem-native on the
-> DK and liboqs on the PC. The code and build can be validated without hardware,
-> but the real-DK end-to-end shared-secret comparison is still pending.
-> HKDF, AES-GCM, ECDH and the hybrid handshake are deliberately not part of
-> Phase 2.
+> The validated `v0.4-pq-secure-channel` baseline provides the Phase 3 pure-PQ
+> AES-256-GCM channel. Milestone v0.5 adds production-random on-device KeyGen,
+> a versioned transcript, transcript-bound keys and six-digit SAS, bidirectional
+> FINISHED, and authenticated activation of that existing channel. Its software
+> tests, firmware build, and positive physical-DK handshake are complete.
+> SAS rejection is also validated; three isolated FINISHED/transcript negative
+> hardware tests remain. See
+> [`docs/research/milestones/v0.5-authenticated-pq-handshake.md`](docs/research/milestones/v0.5-authenticated-pq-handshake.md).
+> Hybrid P-256 + ML-KEM and bidirectional application traffic are not included.
 
 ---
 
@@ -41,9 +43,12 @@ The protocol combines:
 | Protocol-overhead validation | ✅ Implemented and tested |
 | LaTeX report and compiled PDF | ✅ Included |
 | On-device ML-KEM-768 self-test (Phase 1) | ✅ Validated on real hardware and frozen as `v0.2-mlkem-ondevice` |
-| Phase 2 liboqs ↔ mlkem-native BLE integration | Implemented; real-DK E2E run pending |
-| Phase 2 shared-secret equality over real BLE | ⏳ Hardware validation pending |
-| HKDF and AES-256-GCM on nRF54L15 DK | ⏳ Future work |
+| Phase 2 liboqs ↔ mlkem-native BLE diagnostic | ✅ Implemented and preserved |
+| Phase 3 pure-PQ AES-256-GCM channel | ✅ Validated 10/10 on real hardware (`v0.4`) |
+| Phase 5 authenticated pure-PQ handshake | ✅ Positive physical-DK E2E validated twice |
+| Phase 5 SAS rejection | ✅ Physical-DK validation complete |
+| Phase 5 FINISHED/transcript negative modes | Implemented; physical runs pending |
+| Production-random on-device ML-KEM KeyGen | ✅ Implemented with PSA Crypto |
 | Persistent session storage on the DK | ⏳ Future work |
 
 The current automated result is recorded in
@@ -87,8 +92,9 @@ connect -> subscribe -> read dynamic DK public key
 ```
 
 It bypasses `SessionStore`/resumption, SAS, HKDF, AES SecureChannel semantics
-and session persistence. The DK performs deterministic KeyGen at startup and
-decapsulation in a dedicated preemptible Zephyr worker with a 28672-byte stack;
+and session persistence. The DK performs production-random KeyGen at startup
+using PSA Crypto and decapsulation in a dedicated preemptible Zephyr worker
+with a 28672-byte stack;
 ML-KEM never runs in a GATT callback. The firmware reports that worker's
 cumulative configured, unused and estimated peak stack after KeyGen and each
 decapsulation.
@@ -96,8 +102,8 @@ decapsulation.
 The final result is a nine-byte **TEST-ONLY shared-secret diagnostic checksum**
 message, not the shared secret itself. It is not authentication, a KDF,
 cryptographic key confirmation or part of the final protocol. Software tests
-cover the exact message format and Central behavior. A real-DK Phase 2 E2E run
-is still required before reporting `MATCH: YES` as hardware evidence.
+cover the exact message format and Central behavior. This diagnostic path
+remains available for regression testing alongside Phase 3 and Phase 5.
 
 ### 3. Historical real BLE/GATT transport validation
 
@@ -192,15 +198,16 @@ hardware demo.
 
 ## Firmware keypair strategy
 
-For Phase 2, the nRF54L15 firmware generates an ML-KEM-768 keypair on-device
-at startup through the deterministic mlkem-native API. The fixed coins are
-prominently marked **TEST ONLY - NOT FOR PRODUCTION**. The secret key exists
-only in DK RAM and is never logged or exposed over GATT. The generated public
-key is returned by the unchanged Public Key characteristic.
+The nRF54L15 firmware generates its ML-KEM-768 keypair on-device at startup.
+After `psa_crypto_init()`, `psa_generate_random()` supplies the 64-byte `d || z`
+input to mlkem-native's deterministic KeyGen primitive; those temporary coins
+are wiped immediately. The secret key exists only in DK RAM and is never logged
+or exposed over GATT. The generated public key is returned by the unchanged
+Public Key characteristic.
 
-The historical `demo_public_key.h` may remain as reference material, but it is
-not the active Phase 2 public key. A production RNG/PSA integration is outside
-this milestone.
+The historical `demo_public_key.h` remains reference material and is not the
+active public key. The separate opt-in deterministic self-test remains
+TEST-ONLY and does not supply runtime keys.
 
 ---
 
@@ -216,7 +223,7 @@ Service UUID:
 |---|---|---|---:|---|
 | Public Key | `9abd` | READ | `0x0012` | Exposes the 1184-byte ML-KEM public key |
 | Ciphertext | `9abe` | WRITE | `0x0014` | Receives the 1088-byte ciphertext |
-| Secure Data | `9abf` | NOTIFY | `0x0016` | Sends the 9-byte Phase 2 `PQM2` result |
+| Secure Data | `9abf` | NOTIFY | `0x0016` | Sends Phase 2 diagnostics, Phase 3 data, or Phase 5 frames/data |
 | Secure Data CCCD | — | READ/WRITE | `0x0017` | Enables notifications |
 | Control | `9ac0` | WRITE | `0x0019` | Receives `START` and resume messages |
 
@@ -527,7 +534,9 @@ python -m pytest tests/ -v
 | `test_protocol_overhead.py` | 8 | Fixed 37-byte overhead, 2292-byte full handshake and 30-byte resume exchange |
 | `test_phase2_diagnostic.py` | 7 | Exact `PQM2` codec, big-endian CRC and zero-secret vector |
 | `test_phase2_e2e.py` | 16 | Isolated Central flow, strict response validation and nonzero failure paths |
-| **Total** | **139** | Complete active Python suite |
+| `test_phase5_primitives.py` | 19 | Canonical transcript, KATs, framing and state rejection |
+| `test_phase5_auth_mock.py` | 12 | Positive/rejection flows and isolated FINISHED/transcript negative modes |
+| **Total** | **170** | Complete active Python suite |
 
 The exact current pass count and commands used are recorded in
 [`docs/test-results.md`](docs/test-results.md).
@@ -768,9 +777,8 @@ pq-ble-handshake/
 - The protocol is a research proof of concept, not a Bluetooth SIG standard.
 - BLE SMP is intentionally disabled in the DK firmware:
   `CONFIG_BT_SMP=n`.
-- Phase 2 adds on-device ML-KEM KeyGen and decapsulation, but its deterministic
-  coins are **TEST ONLY - NOT FOR PRODUCTION** and real-DK E2E validation is
-  still pending.
+- Runtime ML-KEM KeyGen uses PSA production randomness; the frozen deterministic
+  self-test remains TEST-ONLY and isolated from runtime keys.
 - Phase 2 does not derive a session key or produce AES-GCM ciphertext on the
   DK. Its nine-byte `PQM2` notification is only a TEST-ONLY shared-secret
   diagnostic checksum.
@@ -780,8 +788,13 @@ pq-ble-handshake/
   deployments.
 - Session resumption preserves resistance to passive store-now-decrypt-later
   attacks, but reusing a cached key does not provide full forward secrecy.
-- Side-channel resistance, energy measurements and embedded RNG evaluation are
-  outside the current implementation scope.
+- v0.5 positive and SAS-rejection hardware validation are complete; the three
+  isolated FINISHED/transcript negative hardware runs remain pending.
+- The first application-data direction is Peripheral to Central only.
+- Hybrid P-256 + ML-KEM, side-channel evaluation, energy measurements, and
+  formal verification remain outside v0.5.
+- The research UI displays the Peripheral SAS on the serial console.
+- liboqs 0.15.0 with liboqs-python 0.16.0 emits the known version warning.
 
 ---
 
@@ -814,15 +827,21 @@ pq-ble-handshake/
   real DK (`v0.2-mlkem-ondevice`)
 - [x] Phase 2 dedicated ML-KEM worker and hardened ciphertext state machine
 - [x] explicit Central `--phase2-e2e` implementation and strict `PQM2` parser
+- [x] Phase 3 pure-PQ AES-256-GCM channel validated 10/10 on real hardware
+- [x] PSA production-random runtime ML-KEM-768 KeyGen
+- [x] v0.5 canonical transcript, key schedule, SAS, and bidirectional FINISHED
+- [x] explicit `--phase5-auth-pq` Central and DK state machines
+- [x] positive Phase 5 physical-DK E2E validation, repeated after power cycle
+- [x] production-random public-key change verified across power cycles
+- [x] Phase 5 SAS-rejection physical-DK validation
+- [x] isolated Central negative modes for FINISHED_C, FINISHED_P and transcript
 
 ### Future work
 
-- [ ] run and capture Phase 2 liboqs ↔ mlkem-native shared-secret equality on
-  the real nRF54L15 DK
-- [ ] replace deterministic test coins with an approved production RNG/PSA
-- [ ] HKDF and AES-256-GCM on-chip
+- [ ] run the remaining v0.5 FINISHED_C, FINISHED_P and transcript negative
+  hardware tests
 - [ ] persistent session store in DK flash
-- [ ] end-to-end encrypted DK notification
+- [ ] bidirectional encrypted application traffic
 - [ ] ML-DSA-based non-interactive authentication
 - [ ] hybrid ECDH + ML-KEM handshake
 - [ ] embedded latency, RAM, flash and energy benchmarks

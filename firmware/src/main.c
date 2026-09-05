@@ -1,22 +1,21 @@
 /*
- * PQ-BLE Handshake - nRF54L15 DK Phase 3 firmware
+ * PQ-BLE Handshake - nRF54L15 DK experimental firmware
  *
- * Phase 3 implements an application-layer post-quantum secure channel:
+ * The firmware preserves the Phase 2 diagnostic and Phase 3 secure-channel
+ * profiles and adds the authenticated pure-PQ Phase 5 profile:
  *
  * - ML-KEM-768 key establishment over BLE/GATT
- * - HKDF-SHA256 session-key derivation
+ * - transcript-bound HKDF-SHA256 key derivation
+ * - six-digit SAS Numeric Comparison
+ * - bidirectional FINISHED key confirmation
  * - AES-256-GCM authenticated encryption
  * - session binding through AAD
  * - monotonic sequence numbers / replay protection on the Central
  *
- * The current ML-KEM keypair generation still uses deterministic
- * TEST-ONLY coins and is not production-ready.
- *
  * The firmware intentionally does not yet implement:
- * - production ML-KEM RNG
  * - ECDH / hybrid key establishment
  * - bidirectional encrypted application traffic
- * - transcript-bound FINISHED authentication
+ * - persistent authenticated sessions
  */
 
 #include <errno.h>
@@ -35,6 +34,7 @@
 
 #include "mlkem_selftest.h"
 #include "mlkem_session.h"
+#include "pq_phase5.h"
 #include "pq_secure_channel.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
@@ -70,8 +70,10 @@ LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 #define CTRL_START3_LEN 6U
 #define CTRL_START3_MESSAGE_LEN \
 	(CTRL_START3_LEN + PQ_SECURE_SESSION_ID_SIZE)
-#define CTRL_SAS_OK "OK"
-#define CTRL_SAS_OK_LEN 2U
+#define CTRL_START5 "START5"
+#define CTRL_START5_LEN 6U
+#define CTRL_START5_MESSAGE_LEN \
+	(CTRL_START5_LEN + PQ_PHASE5_SESSION_ID_SIZE)
 #define RESUME_MAGIC "PQBL"
 #define RESUME_MAGIC_LEN 4U
 #define RESUME_REQ_BYTE 0x01U
@@ -90,12 +92,22 @@ enum ciphertext_state {
 	CIPHERTEXT_CRYPTO_BUSY,
 };
 
+enum phase5_state {
+	PHASE5_STATE_IDLE,
+	PHASE5_STATE_CRYPTO_BUSY,
+	PHASE5_STATE_WAIT_FINISHED_C,
+	PHASE5_STATE_FINISHED_BUSY,
+	PHASE5_STATE_AUTHENTICATED,
+	PHASE5_STATE_DATA_BUSY,
+};
+
 static uint8_t ciphertext[PQ_MLKEM_CIPHERTEXT_SIZE];
 static uint8_t fragments[MAX_FRAGMENTS][MAX_FRAG_PAYLOAD];
 static bool fragment_received[MAX_FRAGMENTS];
 static uint16_t fragment_lengths[MAX_FRAGMENTS];
 static uint8_t fragment_total;
 static enum ciphertext_state ciphertext_state = CIPHERTEXT_EMPTY;
+static enum phase5_state phase5_state = PHASE5_STATE_IDLE;
 
 /*
  * current_conn owns one reference while connected. crypto_job_conn owns a
@@ -173,6 +185,26 @@ static const char *ciphertext_state_name(enum ciphertext_state state)
 		return "CT_READY";
 	case CIPHERTEXT_CRYPTO_BUSY:
 		return "CRYPTO_BUSY";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static const char *phase5_state_name(enum phase5_state state)
+{
+	switch (state) {
+	case PHASE5_STATE_IDLE:
+		return "IDLE";
+	case PHASE5_STATE_CRYPTO_BUSY:
+		return "CRYPTO_BUSY";
+	case PHASE5_STATE_WAIT_FINISHED_C:
+		return "WAIT_FINISHED_C";
+	case PHASE5_STATE_FINISHED_BUSY:
+		return "FINISHED_BUSY";
+	case PHASE5_STATE_AUTHENTICATED:
+		return "AUTHENTICATED";
+	case PHASE5_STATE_DATA_BUSY:
+		return "DATA_BUSY";
 	default:
 		return "UNKNOWN";
 	}
@@ -264,6 +296,12 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 		LOG_ERR("Ciphertext fragment rejected: stale connection");
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	if (phase5_state != PHASE5_STATE_IDLE) {
+		LOG_WRN("Ciphertext fragment rejected: Phase 5 state %s",
+			phase5_state_name(phase5_state));
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 	}
 	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
 		LOG_WRN("Ciphertext fragment rejected: state CRYPTO_BUSY");
@@ -372,7 +410,7 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 static ssize_t handle_start(
 	struct bt_conn *conn,
 	uint16_t len,
-	bool secure_mode,
+	enum pq_mlkem_job_mode mode,
 	const uint8_t *session_id)
 {
 	struct bt_conn *failed_job_ref = NULL;
@@ -399,6 +437,12 @@ static ssize_t handle_start(
 		LOG_ERR("START rejected: Secure Data CCCD is not enabled");
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
+	}
+	if (phase5_state != PHASE5_STATE_IDLE) {
+		LOG_WRN("START rejected: Phase 5 state %s",
+			phase5_state_name(phase5_state));
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 	}
 	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
 		LOG_WRN("START rejected: state CRYPTO_BUSY "
@@ -440,8 +484,13 @@ static ssize_t handle_start(
 	crypto_job_generation = connection_generation;
 	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
 
-	if (secure_mode) {
+	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
 		ret = pq_mlkem_session_submit_secure(
+			ciphertext,
+			sizeof(ciphertext),
+			session_id);
+	} else if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+		ret = pq_mlkem_session_submit_phase5(
 			ciphertext,
 			sizeof(ciphertext),
 			session_id);
@@ -464,14 +513,84 @@ static ssize_t handle_start(
 				   BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
 				   BT_ATT_ERR_UNLIKELY);
 	}
+	if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+		phase5_state = PHASE5_STATE_CRYPTO_BUSY;
+	}
 
 	/* The worker has its own copy. This consumed ciphertext cannot be reused. */
 	clear_transfer_storage_locked();
 	LOG_INF(
 		"Ciphertext state: CRYPTO_BUSY; %s consumed CT_READY job",
-		secure_mode ? "START3" : "START");
+		mode == PQ_MLKEM_JOB_PHASE5_START ? "START5" :
+		mode == PQ_MLKEM_JOB_PHASE3_SECURE ? "START3" : "START");
 	k_mutex_unlock(&protocol_lock);
 
+	return len;
+}
+
+static ssize_t handle_phase5_worker_command(
+	struct bt_conn *conn,
+	uint16_t len,
+	enum pq_mlkem_job_mode mode,
+	const uint8_t *payload)
+{
+	struct bt_conn *failed_job_ref = NULL;
+	struct bt_conn *job_ref;
+	enum phase5_state expected_state;
+	enum phase5_state busy_state;
+	int ret;
+
+	if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+		expected_state = PHASE5_STATE_WAIT_FINISHED_C;
+		busy_state = PHASE5_STATE_FINISHED_BUSY;
+	} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA) {
+		expected_state = PHASE5_STATE_AUTHENTICATED;
+		busy_state = PHASE5_STATE_DATA_BUSY;
+	} else {
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (conn != current_conn || !notify_enabled) {
+		LOG_ERR("Phase 5 control rejected: connection is not ready");
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	if (phase5_state != expected_state || crypto_job_conn != NULL) {
+		LOG_WRN("Phase 5 control rejected in state %s",
+			phase5_state_name(phase5_state));
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
+	job_ref = bt_conn_ref(conn);
+	if (job_ref == NULL) {
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+	crypto_job_conn = job_ref;
+	crypto_job_generation = connection_generation;
+	phase5_state = busy_state;
+	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
+
+	if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+		ret = pq_mlkem_session_submit_phase5_finished_c(payload);
+	} else {
+		ret = pq_mlkem_session_submit_phase5_data();
+	}
+	if (ret != 0) {
+		failed_job_ref = crypto_job_conn;
+		crypto_job_conn = NULL;
+		phase5_state = expected_state;
+		ciphertext_state = CIPHERTEXT_EMPTY;
+		k_mutex_unlock(&protocol_lock);
+		bt_conn_unref(failed_job_ref);
+		return BT_GATT_ERR(ret == -EBUSY ?
+				   BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
+				   BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
+	k_mutex_unlock(&protocol_lock);
 	return len;
 }
 
@@ -481,6 +600,9 @@ static ssize_t write_control(struct bt_conn *conn,
 			     uint16_t offset, uint8_t flags)
 {
 	const uint8_t *data = buf;
+	const uint8_t *payload;
+	size_t payload_len;
+	uint8_t subtype;
 
 	ARG_UNUSED(attr);
 	ARG_UNUSED(flags);
@@ -490,7 +612,38 @@ static ssize_t write_control(struct bt_conn *conn,
 	}
 
 	LOG_INF("Control write: len=%u", len);
-	LOG_HEXDUMP_INF(data, len, "Control data");
+
+	if (len == CTRL_START5_MESSAGE_LEN &&
+	    memcmp(data, CTRL_START5, CTRL_START5_LEN) == 0) {
+		LOG_INF("START5 received");
+		return handle_start(
+			conn, len, PQ_MLKEM_JOB_PHASE5_START,
+			data + CTRL_START5_LEN);
+	}
+
+	if (len >= PQ_PHASE5_FRAME_HEADER_SIZE &&
+	    memcmp(data, PQ_PHASE5_FRAME_MAGIC,
+		   PQ_PHASE5_FRAME_MAGIC_SIZE) == 0) {
+		if (pq_phase5_parse_frame(
+				data, len, &subtype, &payload, &payload_len) != 0) {
+			LOG_ERR("Malformed Phase 5 control frame");
+			return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		}
+		if (subtype == PQ_PHASE5_FINISHED_C &&
+		    payload_len == PQ_PHASE5_FINISHED_SIZE) {
+			return handle_phase5_worker_command(
+				conn, len, PQ_MLKEM_JOB_PHASE5_FINISHED_C,
+				payload);
+		}
+		if (subtype == PQ_PHASE5_DATA_REQUEST && payload_len == 0U) {
+			return handle_phase5_worker_command(
+				conn, len, PQ_MLKEM_JOB_PHASE5_DATA, NULL);
+		}
+
+		LOG_WRN("Unsupported Phase 5 control subtype/length: 0x%02x/%zu",
+			subtype, payload_len);
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
 
 	if (len == CTRL_START3_MESSAGE_LEN &&
 	    memcmp(data, CTRL_START3, CTRL_START3_LEN) == 0) {
@@ -500,7 +653,7 @@ static ssize_t write_control(struct bt_conn *conn,
 		return handle_start(
 			conn,
 			len,
-			true,
+			PQ_MLKEM_JOB_PHASE3_SECURE,
 			data + CTRL_START3_LEN);
 	}
 
@@ -512,7 +665,7 @@ static ssize_t write_control(struct bt_conn *conn,
 		return handle_start(
 			conn,
 			len,
-			false,
+			PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC,
 			NULL);
 	}
 
@@ -531,13 +684,21 @@ static ssize_t write_control(struct bt_conn *conn,
 static void ccc_config_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
 	bool enabled;
+	bool reset_phase5 = false;
 
 	ARG_UNUSED(attr);
 
 	k_mutex_lock(&protocol_lock, K_FOREVER);
 	notify_enabled = (value == BT_GATT_CCC_NOTIFY);
 	enabled = notify_enabled;
+	if (!enabled && phase5_state != PHASE5_STATE_IDLE) {
+		phase5_state = PHASE5_STATE_IDLE;
+		reset_phase5 = true;
+	}
 	k_mutex_unlock(&protocol_lock);
+	if (reset_phase5) {
+		pq_mlkem_session_reset_phase5();
+	}
 
 	LOG_INF("Notifications %s", enabled ? "ENABLED" : "DISABLED");
 }
@@ -553,8 +714,18 @@ static void mlkem_result_ready(
 		PQM2_MAGIC[0], PQM2_MAGIC[1], PQM2_MAGIC[2], PQM2_MAGIC[3],
 		(uint8_t)status, 0U, 0U, 0U, 0U,
 	};
+	uint8_t phase5_error[PQ_PHASE5_ERROR_FRAME_SIZE];
+	uint8_t phase5_status_byte = (uint8_t)status;
+	const uint8_t *phase5_payload;
+	size_t phase5_payload_len;
+	size_t phase5_error_len = 0U;
+	uint8_t phase5_subtype;
 	struct bt_conn *job_conn;
 	bool connection_is_current;
+	bool is_phase5 = mode == PQ_MLKEM_JOB_PHASE5_START ||
+		mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C ||
+		mode == PQ_MLKEM_JOB_PHASE5_DATA;
+	bool phase5_result_valid = false;
 	int err;
 
 	/*
@@ -565,6 +736,27 @@ static void mlkem_result_ready(
 	result[6] = (uint8_t)(shared_secret_crc32 >> 16);
 	result[7] = (uint8_t)(shared_secret_crc32 >> 8);
 	result[8] = (uint8_t)shared_secret_crc32;
+
+	if (status == PQ_MLKEM_STATUS_SUCCESS && secure_wire != NULL) {
+		if (mode == PQ_MLKEM_JOB_PHASE5_START &&
+		    pq_phase5_parse_frame(
+			    secure_wire, secure_wire_len, &phase5_subtype,
+			    &phase5_payload, &phase5_payload_len) == 0 &&
+		    phase5_subtype == PQ_PHASE5_READY_FOR_SAS &&
+		    phase5_payload_len == 0U) {
+			phase5_result_valid = true;
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C &&
+			   pq_phase5_parse_frame(
+				   secure_wire, secure_wire_len, &phase5_subtype,
+				   &phase5_payload, &phase5_payload_len) == 0 &&
+			   phase5_subtype == PQ_PHASE5_FINISHED_P &&
+			   phase5_payload_len == PQ_PHASE5_FINISHED_SIZE) {
+			phase5_result_valid = true;
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA &&
+			   secure_wire_len == PQ_SECURE_TEST_WIRE_SIZE) {
+			phase5_result_valid = true;
+		}
+	}
 
 	k_mutex_lock(&protocol_lock, K_FOREVER);
 	job_conn = crypto_job_conn;
@@ -578,6 +770,17 @@ static void mlkem_result_ready(
 	clear_transfer_storage_locked();
 	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
 		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
+	if (is_phase5) {
+		if (!connection_is_current || !phase5_result_valid) {
+			phase5_state = PHASE5_STATE_IDLE;
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+			phase5_state = PHASE5_STATE_WAIT_FINISHED_C;
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+			phase5_state = PHASE5_STATE_AUTHENTICATED;
+		} else {
+			phase5_state = PHASE5_STATE_IDLE;
+		}
 	}
 	k_mutex_unlock(&protocol_lock);
 
@@ -593,7 +796,48 @@ static void mlkem_result_ready(
 		return;
 	}
 
-		if (mode == PQ_MLKEM_JOB_PHASE3_SECURE &&
+	if (is_phase5) {
+		if (phase5_result_valid) {
+			err = bt_gatt_notify(
+				job_conn, &pq_service.attrs[6],
+				secure_wire, secure_wire_len);
+		} else {
+			(void)pq_phase5_encode_frame(
+				PQ_PHASE5_ERROR, &phase5_status_byte, 1U,
+				phase5_error, sizeof(phase5_error),
+				&phase5_error_len);
+			err = bt_gatt_notify(
+				job_conn, &pq_service.attrs[6],
+				phase5_error, phase5_error_len);
+		}
+
+		if (err != 0) {
+			LOG_ERR("Phase 5 notification failure: %d", err);
+			k_mutex_lock(&protocol_lock, K_FOREVER);
+			if (job_conn == current_conn) {
+				phase5_state = PHASE5_STATE_IDLE;
+			}
+			k_mutex_unlock(&protocol_lock);
+			pq_mlkem_session_reset_phase5();
+		} else if (phase5_result_valid &&
+			   mode == PQ_MLKEM_JOB_PHASE5_START) {
+			LOG_INF("Phase 5 READY_FOR_SAS notification sent");
+		} else if (phase5_result_valid &&
+			   mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+			LOG_INF("Phase 5 authenticated state reached");
+		} else if (phase5_result_valid) {
+			LOG_INF("Phase 5 AES-256-GCM notification sent: %zu B",
+				secure_wire_len);
+		} else {
+			LOG_INF("Phase 5 error sent: status 0x%02x", status);
+			pq_mlkem_session_reset_phase5();
+		}
+
+		bt_conn_unref(job_conn);
+		return;
+	}
+
+	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE &&
 		status == PQ_MLKEM_STATUS_SUCCESS &&
 		secure_wire != NULL &&
 		secure_wire_len > 0U) {
@@ -659,11 +903,13 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	connection_generation++;
 	generation = connection_generation;
 	notify_enabled = false;
+	phase5_state = PHASE5_STATE_IDLE;
 	if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
 		clear_transfer_storage_locked();
 		ciphertext_state = CIPHERTEXT_EMPTY;
 	}
 	k_mutex_unlock(&protocol_lock);
+	pq_mlkem_session_reset_phase5();
 
 	if (old_current != NULL) {
 		bt_conn_unref(old_current);
@@ -675,6 +921,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	struct bt_conn *current_ref = NULL;
 	struct bt_conn *job_ref = NULL;
+	bool reset_phase5 = false;
 
 	LOG_INF("Disconnected (reason %u)", reason);
 
@@ -684,6 +931,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		current_conn = NULL;
 		connection_generation++;
 		notify_enabled = false;
+		phase5_state = PHASE5_STATE_IDLE;
+		reset_phase5 = true;
 		clear_transfer_storage_locked();
 		if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
 			ciphertext_state = CIPHERTEXT_EMPTY;
@@ -692,8 +941,12 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	if (crypto_job_conn == conn) {
 		job_ref = crypto_job_conn;
 		crypto_job_conn = NULL;
+		reset_phase5 = true;
 	}
 	k_mutex_unlock(&protocol_lock);
+	if (reset_phase5) {
+		pq_mlkem_session_reset_phase5();
+	}
 
 	if (job_ref != NULL) {
 		/* Worker may finish, but it can no longer notify this connection. */
@@ -735,7 +988,7 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
-	LOG_INF("Mode: PHASE3_PQ_SECURE_CHANNEL");
+	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ");
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 

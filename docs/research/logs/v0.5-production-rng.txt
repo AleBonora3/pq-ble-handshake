@@ -1,0 +1,26 @@
+PQ-BLE-HANDSHAKE
+Milestone: v0.5-authenticated-pq-handshake
+Test: Production-random ML-KEM KeyGen across power cycles
+
+Purpose:
+Verify that ML-KEM-768 KeyGen does not reproduce the deterministic
+TEST-ONLY keypair after reboot.
+
+Method:
+The Central computes SHA-256 over the public 1184-byte ML-KEM public key
+and records the first 16 hexadecimal characters.
+
+Boot #1:
+ML-KEM public-key fingerprint:
+168802e5a8a4edcd
+
+Full DK power cycle performed.
+
+Boot #2:
+ML-KEM public-key fingerprint:
+27becddf8df08ef0
+
+RESULT: PASS
+
+The ML-KEM public key changed after a DK power cycle, consistently with
+fresh PSA-generated KeyGen randomness.

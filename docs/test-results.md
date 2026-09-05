@@ -8,15 +8,16 @@ Comando riproducibile per eseguire la suite Python:
 python -m pytest tests/ -v
 ```
 
-Risultato verificato dopo l'implementazione Phase 2:
+Risultato verificato dopo l'implementazione v0.5:
 
 ```text
-139 passed, 1 warning in 1.61s
+170 passed, 2 warnings
 ```
 
-Il warning segnala che il wrapper temporaneo `liboqs-python` 0.16.0 ha trovato
-la libreria liboqs 0.15.0 installata. `ML-KEM-768` era disponibile e tutti i
-test crittografici liboqs sono passati.
+Il primo warning segnala che il wrapper temporaneo `liboqs-python` 0.16.0 ha
+trovato la libreria liboqs 0.15.0 installata. `ML-KEM-768` era disponibile e
+tutti i test crittografici liboqs sono passati. Il secondo riguarda i permessi
+della directory `.pytest_cache` esistente e non modifica l'esito dei test.
 
 La suite attiva valida la parte crittografica, la frammentazione GATT, la logica di sessione, la protezione replay, il mock del trasporto BLE central e alcuni controlli firmware di base.
 
@@ -37,7 +38,9 @@ La suite attiva valida la parte crittografica, la frammentazione GATT, la logica
 | `test_central_transport_mock.py` | 18 | Fragmented public-key read and ciphertext write with mock GATT client, reassembly, MTU handling and 512-byte frame cap |
 | `test_phase2_diagnostic.py` | 7 | Exact 9-byte `PQM2` codec, big-endian checksum and known CRC vector |
 | `test_phase2_e2e.py` | 16 | Isolated Phase 2 Central flow, cross-thread notification delivery, exact-result validation and failure exits |
-| **Total** | **139** | Complete active Python suite |
+| `test_phase5_primitives.py` | 19 | Canonical transcript, deterministic KATs, SAS/FINISHED, framing and state rejection |
+| `test_phase5_auth_mock.py` | 12 | Positive/SAS-rejection paths, one-bit FINISHED hooks, transcript mismatch, no-DATA assertions and CLI exit status |
+| **Total** | **170** | Complete active Python suite |
 
 ---
 
@@ -45,8 +48,8 @@ La suite attiva valida la parte crittografica, la frammentazione GATT, la logica
 
 Implemented in source:
 
-- deterministic on-device ML-KEM-768 KeyGen with coins labelled
-  **TEST ONLY - NOT FOR PRODUCTION**;
+- production-random on-device ML-KEM-768 KeyGen using PSA Crypto, with
+  immediate erasure of the 64-byte `d || z` input;
 - dynamic GATT Public Key value and RAM-only DK secret key;
 - dedicated 28672-byte preemptible ML-KEM worker for KeyGen and Decaps;
 - cumulative worker stack watermark reporting after KeyGen and every Decaps;
@@ -68,13 +71,40 @@ Validation matrix:
 | Item | Status |
 |---|---|
 | Focused Phase 2/transport/firmware Python tests | **50 passed** |
-| Complete Python suite | **139 passed**, 1 version warning |
+| Complete Python suite | **170 passed**, 1 version warning plus 1 pytest cache-permission warning |
 | NCS 3.0.0 pristine build for `nrf54l15dk/nrf54l15/cpuapp` | **PASS**; 183716 B flash, 104944 B RAM |
 | NCS 3.0.0 build with `phase1_selftest.conf` | **PASS**; opt-in symbol enabled |
 | Real-DK `--phase2-e2e` shared-secret equality | **Pending hardware validation** |
 
 No `MATCH: YES` claim is made for Phase 2 hardware until the final row is
 executed on the physical DK.
+
+---
+
+## v0.5 authenticated pure-PQ validation status
+
+Implemented in source:
+
+- one versioned, length-prefixed transcript on Python and PSA SHA-256 paths;
+- one transcript-salted 128-byte HKDF-SHA256 schedule split into four keys;
+- independent six-digit transcript-bound SAS computation on PC and DK;
+- full direction-specific Central and Peripheral HMAC-SHA256 FINISHED values;
+- strict `PQS5` framing and out-of-order/duplicate rejection;
+- explicit user confirmation defaulting to no;
+- activation of the existing 58-byte AES-256-GCM application message only
+  after Peripheral FINISHED has been verified by the Central;
+- disconnect epoch and connection-generation checks for stale worker results.
+
+The exact public KAT, formulas, wire formats, and first hardware procedure are
+in
+[`research/milestones/v0.5-authenticated-pq-handshake.md`](research/milestones/v0.5-authenticated-pq-handshake.md).
+The pristine v0.5 NCS 3.0.0 build passed at 200384 B FLASH and 105744 B RAM;
+the detailed baseline comparison is recorded there.
+The positive authenticated handshake passed twice on the physical DK, including
+after a power cycle. SAS rejection also passed. Public-key fingerprint prefixes
+changed from `168802e5a8a4edcd` to `27becddf8df08ef0` across boots, confirming a
+fresh runtime keypair. The remaining FINISHED_C, FINISHED_P and transcript
+negative modes await their physical runs, so v0.5 must not yet be tagged.
 
 ---
 
