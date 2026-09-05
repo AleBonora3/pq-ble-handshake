@@ -59,6 +59,9 @@ class BLECentralClient:
         self._client = BleakClient(
             self._device,
             disconnected_callback=self._on_disconnect,
+            winrt={
+                "use_cached_services": False,
+            },
         )
         await self._client.connect()
 
@@ -159,6 +162,26 @@ class BLECentralClient:
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
         await self._client.write_gatt_char(CHAR_CONTROL_UUID, data)
+
+    async def write_secure_data(self, data: bytes) -> None:
+        """Write one encrypted application frame to Secure Data."""
+
+        if not self._client or not self._client.is_connected:
+            raise RuntimeError("Not connected")
+
+        if not data:
+            raise ValueError("Secure Data write cannot be empty")
+
+        await self._client.write_gatt_char(
+            CHAR_DATA_UUID,
+            data,
+            response=True,
+        )
+
+        logger.info(
+            "Secure Data write completed: %d bytes",
+            len(data),
+        )
 
     async def start_notify(self, callback) -> None:
         """
