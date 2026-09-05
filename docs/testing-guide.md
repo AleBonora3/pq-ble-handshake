@@ -41,6 +41,8 @@ python -m pytest tests/test_firmware_uuids.py -v
 python -m pytest tests/test_central_transport_mock.py -v
 python -m pytest tests/test_phase2_diagnostic.py -v
 python -m pytest tests/test_phase2_e2e.py -v
+python -m pytest tests/test_phase5_primitives.py -v
+python -m pytest tests/test_phase5_auth_mock.py -v
 ```
 
 ---
@@ -60,6 +62,8 @@ python -m pytest tests/test_phase2_e2e.py -v
 | Central transport mock | `test_central_transport_mock.py` | 18 | Fragmented read/write con mock GATT, reassembly, MTU handling e cap frame a 512 byte |
 | Phase 2 diagnostic | `test_phase2_diagnostic.py` | 7 | Formato esatto `PQM2`, CRC big-endian e vettore noto `0x190A55AD` |
 | Phase 2 E2E mock | `test_phase2_e2e.py` | 16 | Sequenza isolata, callback cross-thread, bypass completo, timeout/mismatch/status/malformed response |
+| Phase 5 primitives | `test_phase5_primitives.py` | 19 | Transcript e hash KAT, key schedule, SAS, FINISHED, framing e stato fuori ordine |
+| Phase 5 E2E/negative mock | `test_phase5_auth_mock.py` | 12 | Flusso positivo, rifiuto SAS, hook FINISHED/transcript, blocco DATA_REQUEST ed exit status CLI |
 
 ---
 
@@ -122,9 +126,9 @@ ML-KEM E2E SHARED SECRET MATCH: YES
 ```
 
 Il percorso è coperto da 50 test focalizzati e da un build pristine NCS 3.0.0;
-la suite Python completa conta 139 test passati. Il
-risultato E2E sul DK fisico è ancora **pending** e non deve essere riportato
-come PASS prima dell'esecuzione reale.
+la suite Python completa v0.5 conta 170 test passati. Il risultato positivo
+Phase 5 e il rifiuto SAS sono stati validati sul DK fisico; le tre modalità
+negative FINISHED/transcript restano da eseguire.
 
 La notifica Phase 2 è esattamente:
 
@@ -286,6 +290,9 @@ diagnostico `PQM2`; non implementa comunque una cifratura end-to-end AES-GCM.
 - Central transport mock con fragmented read/write.
 - Codec diagnostico Phase 2, inclusi formato esatto, big-endian e vettore noto.
 - Orchestrazione Central `--phase2-e2e`, ordine delle operazioni e failure path.
+- Transcript, key schedule, SAS e FINISHED Phase 5 con vettori noti condivisi.
+- Orchestrazione `--phase5-auth-pq`, inclusi rifiuto SAS, FINISHED alterato e
+  messaggi duplicati/fuori ordine.
 - Coerenza degli UUID tra firmware e Python, device name, SMP disabilitato e
   presenza del path `bt_gatt_notify()`.
 
@@ -314,15 +321,18 @@ opt-in e non fa parte del normale boot Phase 2.
 
 ## Cosa richiede ancora validazione sul DK reale / future work
 
-- Flusso Phase 2 completo liboqs PC → BLE → mlkem-native DK con checksum uguali.
-- State machine hardened sotto casi negativi e disconnessione durante il
-  worker sul dispositivo reale.
-- Watermark cumulativo del crypto thread da 28672 byte dopo KeyGen e Decaps sul
-  dispositivo reale.
-- On-chip HKDF/session key derivation.
-- On-chip AES-256-GCM encryption.
+- FINISHED_C alterato, FINISHED_P alterato localmente e transcript/session ID
+  differente sul dispositivo reale. Il flusso positivo e il rifiuto SAS sono
+  già validati.
+- State machine sotto disconnessione durante il worker sul dispositivo reale.
+- Watermark cumulativo del crypto thread da 28672 byte dopo KeyGen, Decaps,
+  transcript/key schedule, SAS/FINISHED e AES-GCM.
 - Persistent session store sul DK.
-- Full secure-channel payload decryptato dal central a partire da ciphertext prodotto dal DK.
+- Traffico applicativo Central → Peripheral, ibrido P-256 + ML-KEM, energy
+  benchmark e formal verification.
+
+La procedura byte-per-byte e i comandi di accettazione v0.5 sono in
+[`research/milestones/v0.5-authenticated-pq-handshake.md`](research/milestones/v0.5-authenticated-pq-handshake.md).
 
 ---
 

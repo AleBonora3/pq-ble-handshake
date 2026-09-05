@@ -9,6 +9,8 @@ Options:
     --demo               Legacy demo: send START, wait for raw notify
     --phase2-e2e         Run ML-KEM-768 liboqs/mlkem-native BLE interop test
     --phase3-secure      Run ML-KEM + HKDF + AES-256-GCM real-DK test
+    --phase5-auth-pq     Run authenticated pure-PQ v0.5 hardware handshake
+    --phase5-negative    Run an isolated Phase 5 negative hardware test
     --mtu SIZE           Request specific MTU (default: negotiated by stack)
     --log-level LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)
 """
@@ -25,6 +27,13 @@ from ..common.constants import (
 from .ble_client import BLECentralClient
 from .mlkem_e2e import Phase2E2EError, run_phase2_e2e
 from .phase3_secure import Phase3SecureError, run_phase3_secure
+from .phase5_auth import (
+    PHASE5_NEGATIVE_MODES,
+    Phase5AuthError,
+    Phase5NegativeTestFailed,
+    Phase5NegativeTestPassed,
+    run_phase5_auth_pq,
+)
 
 logger = logging.getLogger("pq-ble.central.main")
 
@@ -50,7 +59,10 @@ def parse_args(argv=None):
     parser.add_argument(
         "--no-sas-confirm",
         action="store_true",
-        help="Skip interactive SAS confirmation (auto-accept)",
+        help=(
+            "Skip interactive SAS confirmation in the legacy flow only; "
+            "not permitted with --phase5-auth-pq"
+        ),
     )
     execution_mode = parser.add_mutually_exclusive_group()
     execution_mode.add_argument(
@@ -77,6 +89,14 @@ def parse_args(argv=None):
             "(ML-KEM + HKDF-SHA256 + AES-256-GCM)"
         ),
     )
+    execution_mode.add_argument(
+        "--phase5-auth-pq",
+        action="store_true",
+        help=(
+            "Authenticated pure-PQ v0.5 hardware handshake "
+            "(transcript + SAS + bidirectional FINISHED + AES-GCM)"
+        ),
+    )
 
     parser.add_argument(
         "--phase3-negative",
@@ -87,6 +107,16 @@ def parse_args(argv=None):
             "'tamper' flips one AES-GCM tag bit; "
             "'aad' uses a wrong session_id; "
             "'replay' submits the authenticated frame twice"
+        ),
+    )
+
+    parser.add_argument(
+        "--phase5-negative",
+        choices=PHASE5_NEGATIVE_MODES,
+        default=None,
+        help=(
+            "Run an isolated Phase 5 negative test: "
+            "'finished-c', 'finished-p', or 'transcript'"
         ),
     )
 
@@ -250,6 +280,90 @@ async def _run_phase3_secure_cli(args) -> int:
         except Exception as exc:
             logger.warning("Phase 3 disconnect failed: %s", exc)
 
+
+async def _run_phase5_auth_pq_cli(args) -> int:
+    """Run the isolated authenticated pure-PQ v0.5 path."""
+
+    client = BLECentralClient(device_name=args.device)
+    logger.info("Scanning for peripheral '%s'...", args.device)
+    try:
+        connected = await client.scan_and_connect(timeout=15.0)
+    except Exception as exc:
+        logger.error("Phase 5 BLE scan/connect failed: %s", exc)
+        try:
+            await client.disconnect()
+        except Exception as disconnect_exc:
+            logger.warning(
+                "Phase 5 disconnect after connect failure failed: %s",
+                disconnect_exc,
+            )
+        return 1
+
+    if not connected:
+        logger.error(
+            "Could not find '%s'. Make sure the v0.5 firmware is running.",
+            args.device,
+        )
+        return 1
+
+    try:
+        logger.info("=== v0.5 AUTHENTICATED PURE-PQ HANDSHAKE ===")
+        result = await run_phase5_auth_pq(
+            client,
+            negative_test=args.phase5_negative,
+        )
+
+        if args.phase5_negative is not None:
+            raise Phase5NegativeTestFailed(
+                "NEGATIVE TEST FAIL: corrupted authentication unexpectedly "
+                "completed"
+            )
+
+        print()
+        print("Central FINISHED sent")
+        print("Peripheral FINISHED verified: PASS")
+        print("Authenticated PQ handshake: PASS")
+        print("AES-256-GCM authentication: PASS")
+        print(f"Decrypted payload: {result.plaintext.decode('ascii')}")
+        print()
+        print("PQ-BLE AUTHENTICATED HANDSHAKE E2E: PASS")
+        print()
+        return 0
+    except Phase5NegativeTestPassed as exc:
+        print()
+        print(str(exc))
+        print("PQ-BLE PHASE5 NEGATIVE TEST: PASS")
+        print()
+        return 0
+    except Phase5AuthError as exc:
+        logger.error("Phase 5 authenticated handshake failed: %s", exc)
+        print()
+        if args.phase5_negative is not None:
+            if not isinstance(exc, Phase5NegativeTestFailed):
+                print(f"NEGATIVE TEST FAIL: {exc}")
+            else:
+                print(str(exc))
+            print("PQ-BLE PHASE5 NEGATIVE TEST: FAIL")
+        else:
+            print("PQ-BLE AUTHENTICATED HANDSHAKE E2E: FAIL")
+        print()
+        return 1
+    except Exception as exc:
+        logger.exception("Unexpected Phase 5 failure: %s", exc)
+        print()
+        if args.phase5_negative is not None:
+            print(f"NEGATIVE TEST FAIL: unexpected error: {exc}")
+            print("PQ-BLE PHASE5 NEGATIVE TEST: FAIL")
+        else:
+            print("PQ-BLE AUTHENTICATED HANDSHAKE E2E: FAIL")
+        print()
+        return 1
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning("Phase 5 disconnect failed: %s", exc)
+
 async def main():
     args = parse_args()
     level = getattr(logging, args.log_level)
@@ -260,11 +374,12 @@ async def main():
     logger.info("=" * 50)
     logger.info(
         "Device: %s | Demo: %s | Phase 2 E2E: %s | "
-        "Phase 3 Secure: %s | MTU: %s",
+        "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | MTU: %s",
         args.device,
         args.demo,
         args.phase2_e2e,
         args.phase3_secure,
+        getattr(args, "phase5_auth_pq", False),
         args.mtu or "auto",
     )
 
@@ -273,6 +388,24 @@ async def main():
             "--phase3-negative can only be used with --phase3-secure"
         )
         return 2
+
+    if (getattr(args, "phase5_negative", None) is not None
+            and not getattr(args, "phase5_auth_pq", False)):
+        logger.error(
+            "--phase5-negative can only be used with --phase5-auth-pq"
+        )
+        return 2
+
+    if (getattr(args, "phase5_auth_pq", False)
+            and args.no_sas_confirm):
+        logger.error(
+            "--no-sas-confirm is not allowed with --phase5-auth-pq; "
+            "v0.5 requires explicit human confirmation"
+        )
+        return 2
+
+    if getattr(args, "phase5_auth_pq", False):
+        return await _run_phase5_auth_pq_cli(args)
 
     if args.phase3_secure:
         return await _run_phase3_secure_cli(args)

@@ -119,8 +119,8 @@ out:
 	return ret;
 }
 
-int pq_secure_encrypt_test_message(
-	const uint8_t shared_secret[PQ_SECURE_SHARED_SECRET_SIZE],
+int pq_secure_encrypt_test_message_with_key(
+	const uint8_t application_key[PQ_SECURE_SESSION_KEY_SIZE],
 	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE],
 	uint8_t *wire,
 	size_t wire_capacity,
@@ -128,7 +128,6 @@ int pq_secure_encrypt_test_message(
 {
 	static const uint8_t plaintext[] = PQ_SECURE_TEST_MESSAGE;
 
-	uint8_t session_key[PQ_SECURE_SESSION_KEY_SIZE];
 	uint8_t aad[PQ_SECURE_AAD_SIZE];
 	uint8_t iv[PQ_SECURE_IV_SIZE];
 	uint8_t ciphertext_and_tag[
@@ -144,7 +143,7 @@ int pq_secure_encrypt_test_message(
 	size_t wire_offset = 0U;
 	int ret;
 
-	if (shared_secret == NULL ||
+	if (application_key == NULL ||
 	    session_id == NULL ||
 	    wire == NULL ||
 	    wire_len == NULL) {
@@ -153,11 +152,6 @@ int pq_secure_encrypt_test_message(
 
 	if (wire_capacity < PQ_SECURE_TEST_WIRE_SIZE) {
 		return -ENOBUFS;
-	}
-
-	ret = pq_secure_derive_session_key(shared_secret, session_key);
-	if (ret != 0) {
-		return ret;
 	}
 
 	/*
@@ -209,8 +203,8 @@ int pq_secure_encrypt_test_message(
 
 	status = psa_import_key(
 		&attributes,
-		session_key,
-		sizeof(session_key),
+		application_key,
+		PQ_SECURE_SESSION_KEY_SIZE,
 		&key_id);
 
 	psa_reset_key_attributes(&attributes);
@@ -274,7 +268,6 @@ int pq_secure_encrypt_test_message(
 		goto out;
 	}
 
-	LOG_INF("HKDF-SHA256 session-key derivation: PASS");
 	LOG_INF("AES-256-GCM encryption: PASS");
 	LOG_INF("Secure notification wire size: %zu B", *wire_len);
 
@@ -290,11 +283,34 @@ out:
 		}
 	}
 
-	secure_clear(session_key, sizeof(session_key));
 	secure_clear(aad, sizeof(aad));
 	secure_clear(iv, sizeof(iv));
 	secure_clear(ciphertext_and_tag,
 		     sizeof(ciphertext_and_tag));
 
+	return ret;
+}
+
+int pq_secure_encrypt_test_message(
+	const uint8_t shared_secret[PQ_SECURE_SHARED_SECRET_SIZE],
+	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE],
+	uint8_t *wire,
+	size_t wire_capacity,
+	size_t *wire_len)
+{
+	uint8_t session_key[PQ_SECURE_SESSION_KEY_SIZE];
+	int ret;
+
+	if (shared_secret == NULL) {
+		return -EINVAL;
+	}
+
+	ret = pq_secure_derive_session_key(shared_secret, session_key);
+	if (ret == 0) {
+		LOG_INF("HKDF-SHA256 session-key derivation: PASS");
+		ret = pq_secure_encrypt_test_message_with_key(
+			session_key, session_id, wire, wire_capacity, wire_len);
+	}
+	secure_clear(session_key, sizeof(session_key));
 	return ret;
 }

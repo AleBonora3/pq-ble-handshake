@@ -8,15 +8,23 @@ L'obiettivo è stabilire un canale applicativo cifrato e autenticato, resistente
 
 Il progetto usa BLE/GATT come trasporto. La sicurezza del payload applicativo è fornita dal protocollo PQ-BLE, non dal BLE Security Manager.
 
-Questa specifica distingue due profili implementativi:
+Questa specifica distingue quattro profili implementativi:
 
 - il **protocollo Python completo**, che comprende SAS, HKDF, AES-256-GCM e
   session resumption ed è coperto dai test software esistenti;
 - il **profilo sperimentale Phase 2 E2E**, limitato alla verifica di
-  interoperabilità ML-KEM-768 tra liboqs sul PC e mlkem-native sul DK reale.
+  interoperabilità ML-KEM-768 tra liboqs sul PC e mlkem-native sul DK reale;
+- il **profilo Phase 3**, canale AES-256-GCM puro post-quantum validato nella
+  baseline `v0.4-pq-secure-channel`;
+- il **profilo Phase 5 v0.5**, che autentica il percorso puro post-quantum con
+  transcript canonico, Numeric Comparison a sei cifre e FINISHED
+  bidirezionale prima di attivare il canale Phase 3.
 
 Il profilo Phase 2 E2E non implementa né rivendica SAS, HKDF, AES-GCM, ECDH,
 handshake ibrido o persistenza della sessione sul DK.
+
+La specifica byte-per-byte di Phase 5 è in
+[`research/milestones/v0.5-authenticated-pq-handshake.md`](research/milestones/v0.5-authenticated-pq-handshake.md).
 
 ---
 
@@ -120,12 +128,13 @@ Peripheral:
     decapsulate(sk_A, ct) -> ss
 ```
 
-Nel firmware Phase 2 il DK genera la coppia ML-KEM-768 all'avvio tramite
-l'API deterministica già validata di mlkem-native. I coins fissi sono marcati
-**TEST ONLY - NOT FOR PRODUCTION**. La chiave segreta resta esclusivamente in
-RAM sul DK e non viene letta, notificata o registrata nei log. La Public Key
-characteristic restituisce la chiave pubblica generata dinamicamente; il
-vecchio `demo_pk` non è attivo in questo profilo.
+Nel firmware corrente il DK inizializza PSA Crypto e genera 64 byte casuali con
+`psa_generate_random()` per l'input `d || z` dell'API deterministica KeyGen di
+mlkem-native. I coins temporanei vengono cancellati subito dopo KeyGen. La
+chiave segreta resta esclusivamente in RAM sul DK e non viene letta, notificata
+o registrata nei log. La Public Key characteristic restituisce la chiave
+pubblica generata dinamicamente; il vecchio `demo_pk` non è attivo. Il self-test
+deterministico Phase 1 resta separato, opt-in e TEST-ONLY.
 
 KeyGen e decapsulazione sono eseguiti da un thread Zephyr dedicato, non dalle
 callback Bluetooth/GATT. Lo stack iniziale del worker è 28672 byte. Il worker
@@ -353,8 +362,9 @@ E2E hardware.
 
 | Property | Status |
 |---|---|
-| Post-quantum key establishment | Implementato nel protocollo Python; interop liboqs/mlkem-native implementata in Phase 2 ma hardware E2E ancora da validare |
-| MITM detection | SAS Numeric Comparison |
+| Post-quantum key establishment | ML-KEM-768 interoperabile tra liboqs e mlkem-native; Phase 3 validata su hardware |
+| MITM detection | Phase 5 SAS Numeric Comparison legata al transcript e confermata dall'utente |
+| Cryptographic key confirmation | Phase 5 FINISHED Central e Peripheral con HMAC-SHA256 |
 | Payload confidentiality | AES-256-GCM |
 | Payload integrity | AES-256-GCM tag |
 | Replay protection | Sequence number in AAD and wire format |
@@ -369,11 +379,15 @@ E2E hardware.
 - The protocol is not a Bluetooth SIG standard.
 - BLE SMP is intentionally disabled in the DK firmware.
 - BLE link-layer encryption is not used in the current demo.
-- Il firmware Phase 2 esegue KeyGen e decapsulazione ML-KEM-768 on-chip, ma la
-  verifica E2E sul DK reale è ancora pendente.
+- Il firmware esegue KeyGen con casualità PSA, decapsulazione ML-KEM-768,
+  HKDF/HMAC e AES-GCM on-chip; la validazione fisica Phase 5 è ancora pendente.
 - La notifica Phase 2 contiene solo il risultato diagnostico `PQM2` di 9 byte;
   non è un payload protetto AES-GCM.
-- HKDF, AES-GCM, ECDH, handshake ibrido, RNG/PSA di produzione e persistent
-  session store sul DK non sono inclusi nella Phase 2.
-- I coins deterministici Phase 2 e il checksum CRC32 sono esclusivamente
-  strumenti TEST-ONLY e non sono adatti alla produzione.
+- HKDF e AES-GCM non fanno parte del profilo diagnostico Phase 2, ma sono
+  disponibili nei profili Phase 3/5. ECDH, handshake ibrido e persistent
+  session store sul DK non sono inclusi in v0.5.
+- Il self-test deterministico Phase 1 e il checksum CRC32 Phase 2 sono
+  esclusivamente strumenti TEST-ONLY e non sono adatti alla produzione.
+- La prima direzione dati applicativa Phase 5 è solo Peripheral → Central.
+- Il SAS Peripheral è mostrato sulla console seriale del prototipo.
+- Energy benchmark e formal verification non sono ancora disponibili.

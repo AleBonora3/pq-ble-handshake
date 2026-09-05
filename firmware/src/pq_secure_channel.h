@@ -80,4 +80,12 @@ int pq_secure_encrypt_test_message(
 	size_t wire_capacity,
 	size_t *wire_len);
 
+/* Phase 5 entry point using its already-derived K_app directly. */
+int pq_secure_encrypt_test_message_with_key(
+	const uint8_t application_key[PQ_SECURE_SESSION_KEY_SIZE],
+	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE],
+	uint8_t *wire,
+	size_t wire_capacity,
+	size_t *wire_len);
+
 #endif /* PQ_SECURE_CHANNEL_H */

@@ -54,6 +54,29 @@ HKDF_SALT           = b"PQ-BLE-HANDSHAKE-v1"
 HKDF_INFO            = b"BLE-PQ-SESSION-KEY"
 HKDF_HASH            = "SHA-256"
 
+# -- Authenticated pure-PQ handshake (v0.5) -------------------
+PHASE5_DOMAIN        = b"PQ-BLE-HANDSHAKE-v0.5"
+PHASE5_KDF_INFO      = PHASE5_DOMAIN + b"/key-schedule"
+PHASE5_SAS_LABEL     = PHASE5_DOMAIN + b"/SAS"
+PHASE5_FINISHED_C_LABEL = PHASE5_DOMAIN + b"/FINISHED/C"
+PHASE5_FINISHED_P_LABEL = PHASE5_DOMAIN + b"/FINISHED/P"
+
+TRANSCRIPT_HASH_SIZE = 32
+PHASE5_KEY_SIZE      = 32
+PHASE5_KEY_BLOCK_SIZE = 4 * PHASE5_KEY_SIZE
+FINISHED_SIZE        = 32
+
+PHASE5_START_MAGIC   = b"START5"
+PHASE5_FRAME_MAGIC   = b"PQS5"
+PHASE5_FRAME_VERSION = 0x05
+PHASE5_FRAME_HEADER_SIZE = 8
+
+PHASE5_READY_FOR_SAS = 0x01
+PHASE5_FINISHED_P    = 0x02
+PHASE5_ERROR         = 0x7F
+PHASE5_FINISHED_C    = 0x10
+PHASE5_DATA_REQUEST  = 0x11
+
 # ── Session Resumption ───────────────────────────────────────
 SESSION_ID_SIZE     = 16     # byte — random session identifier
 SESSION_STORE_PATH  = "data/keys/session_store.json"

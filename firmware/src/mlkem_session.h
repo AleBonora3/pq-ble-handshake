@@ -1,8 +1,4 @@
-/*
- * Phase 2 ML-KEM-768 session worker.
- *
- * TEST ONLY - NOT FOR PRODUCTION
- */
+/* ML-KEM-768 session worker shared by the isolated protocol modes. */
 
 #ifndef PQ_BLE_MLKEM_SESSION_H_
 #define PQ_BLE_MLKEM_SESSION_H_
@@ -12,6 +8,7 @@
 #include <stdint.h>
 
 #include <mlkem_native.h>
+#include "pq_phase5.h"
 #include "pq_secure_channel.h"
 
 #define PQ_MLKEM_PUBLIC_KEY_SIZE \
@@ -31,11 +28,15 @@ enum pq_mlkem_diagnostic_status {
 	PQ_MLKEM_STATUS_DECAPSULATION_FAILURE = 0x03,
 	PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE = 0x04,
 	PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE = 0x05,
+	PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE = 0x06,
 };
 
 enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC = 0,
 	PQ_MLKEM_JOB_PHASE3_SECURE = 1,
+	PQ_MLKEM_JOB_PHASE5_START = 2,
+	PQ_MLKEM_JOB_PHASE5_FINISHED_C = 3,
+	PQ_MLKEM_JOB_PHASE5_DATA = 4,
 };
 
 typedef void (*pq_mlkem_result_callback_t)(
@@ -46,7 +47,7 @@ typedef void (*pq_mlkem_result_callback_t)(
 	size_t secure_wire_len);
 
 /*
- * Start the dedicated worker and wait for deterministic on-device KeyGen.
+ * Start the dedicated worker and wait for production-random on-device KeyGen.
  * KeyGen executes in the worker, never in the caller's thread.
  */
 int pq_mlkem_session_init(pq_mlkem_result_callback_t result_callback);
@@ -66,5 +67,18 @@ int pq_mlkem_session_submit_secure(
 	const uint8_t *ciphertext,
 	size_t ciphertext_len,
 	const uint8_t session_id[PQ_SECURE_SESSION_ID_SIZE]);
+
+int pq_mlkem_session_submit_phase5(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	const uint8_t session_id[PQ_PHASE5_SESSION_ID_SIZE]);
+
+int pq_mlkem_session_submit_phase5_finished_c(
+	const uint8_t finished_c[PQ_PHASE5_FINISHED_SIZE]);
+
+int pq_mlkem_session_submit_phase5_data(void);
+
+/* Cancel any in-flight Phase 5 epoch and wipe retained authentication state. */
+void pq_mlkem_session_reset_phase5(void);
 	
 #endif /* PQ_BLE_MLKEM_SESSION_H_ */
