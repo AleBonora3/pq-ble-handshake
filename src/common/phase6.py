@@ -16,11 +16,9 @@ expanded into two independent directional AES-256 traffic keys:
     )
 
 K_app itself is not used directly for application encryption in Phase 6.
-
-Checkpoint 2 also defines a small Phase 6 control/status frame. The ACK is
-not application data; it exists only to confirm that the asynchronous DK
-crypto worker has authenticated the Central-to-Peripheral secure write.
-"""
+Phase 6 also defines a small PQS6 control/status frame used for explicit
+diagnostic/error responses. Successful v0.6 application traffic uses the
+authenticated SecureChannel wire format in both directions."""
 
 from dataclasses import dataclass
 import hmac

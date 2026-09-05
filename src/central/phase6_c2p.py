@@ -1,4 +1,4 @@
-"""v0.6 Checkpoint 2: authenticated Central -> Peripheral secure traffic."""
+"""v0.6 authenticated bidirectional application traffic and negative tests."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
