@@ -43,6 +43,7 @@
 #include "mlkem_session.h"
 #include "pq_phase5.h"
 #include "pq_phase6.h"
+#include "pq_phase7.h"
 #include "pq_secure_channel.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
@@ -1321,6 +1322,14 @@ void main(void)
 	err = pq_mlkem_session_init(mlkem_result_ready);
 	if (err != 0) {
 		LOG_ERR("ML-KEM keypair initialization failed: %d; "
+			"Bluetooth will not start", err);
+		return;
+	}
+
+	/* pq_mlkem_session_init() has already initialized PSA Crypto. */
+	err = pq_phase7_self_test();
+	if (err != 0) {
+		LOG_ERR("Phase 7 cryptographic startup self-test failed: %d; "
 			"Bluetooth will not start", err);
 		return;
 	}
