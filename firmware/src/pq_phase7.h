@@ -21,6 +21,36 @@
 #define PQ_PHASE7_KEY_BLOCK_SIZE (4U * PQ_PHASE7_KEY_SIZE)
 #define PQ_PHASE7_FINISHED_SIZE 32U
 
+/* CP2 TEST-ONLY frames; no authenticated Phase 7 runtime state. */
+#define PQ_PHASE7_FRAME_MAGIC "PQS7"
+#define PQ_PHASE7_FRAME_MAGIC_SIZE 4U
+#define PQ_PHASE7_FRAME_VERSION 0x07U
+#define PQ_PHASE7_FRAME_HEADER_SIZE 8U
+#define PQ_PHASE7_START7 0x01U
+#define PQ_PHASE7_READY7_CP2 0x02U
+#define PQ_PHASE7_ERROR 0x7fU
+#define PQ_PHASE7_CP2_DIAGNOSTIC_LABEL "PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+#define PQ_PHASE7_CP2_DIAGNOSTIC_SIZE 32U
+#define PQ_PHASE7_START7_PAYLOAD_SIZE 81U
+#define PQ_PHASE7_START7_FRAME_SIZE 89U
+#define PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE 97U
+#define PQ_PHASE7_READY7_CP2_FRAME_SIZE 105U
+#define PQ_PHASE7_ERROR_FRAME_SIZE 9U
+
+/* Structural checks only; the worker must validate peer points with PSA. */
+int pq_phase7_parse_frame(
+	const uint8_t *frame, size_t frame_len, uint8_t *subtype,
+	const uint8_t **payload, size_t *payload_len);
+int pq_phase7_encode_frame(
+	uint8_t subtype, const uint8_t *payload, size_t payload_len,
+	uint8_t *output, size_t output_capacity, size_t *output_len);
+
+/* Full TEST-ONLY HMAC(K_app, frozen CP2 label || transcript_hash). */
+int pq_phase7_compute_cp2_diagnostic(
+	const uint8_t *application_key, size_t application_key_len,
+	const uint8_t *transcript_hash, size_t transcript_hash_len,
+	uint8_t diagnostic[PQ_PHASE7_CP2_DIAGNOSTIC_SIZE]);
+
 struct pq_phase7_keys {
 	uint8_t application[PQ_PHASE7_KEY_SIZE];
 	uint8_t sas[PQ_PHASE7_KEY_SIZE];

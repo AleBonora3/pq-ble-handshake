@@ -10,6 +10,7 @@
 #include <mlkem_native.h>
 
 #include "pq_phase5.h"
+#include "pq_phase7.h"
 #include "pq_secure_channel.h"
 
 
@@ -55,6 +56,7 @@ enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_PHASE5_FINISHED_C = 3,
 	PQ_MLKEM_JOB_PHASE5_DATA = 4,
 	PQ_MLKEM_JOB_PHASE6_C2P = 5,
+	PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 = 6,
 };
 
 
@@ -102,6 +104,12 @@ int pq_mlkem_session_submit_phase5(
 	size_t ciphertext_len,
 	const uint8_t session_id[PQ_PHASE5_SESSION_ID_SIZE]);
 
+/* CT/session/peer public key are copied; heavy crypto executes in the worker. */
+int pq_mlkem_session_submit_phase7_cp2(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t session_id[PQ_PHASE7_SESSION_ID_SIZE],
+	const uint8_t central_public_key[PQ_PHASE7_P256_PUBLIC_KEY_SIZE]);
+
 
 int pq_mlkem_session_submit_phase5_finished_c(
 	const uint8_t finished_c[PQ_PHASE5_FINISHED_SIZE]);
@@ -123,7 +131,8 @@ int pq_mlkem_session_submit_phase6_c2p(
 
 /*
  * Cancel the current authenticated epoch and wipe all retained Phase 5/6
- * session material.
+ * session material. Also invalidates pending/running CP2 jobs; the worker
+ * wipes their temporary buffers before delivery, without retaining keys.
  */
 void pq_mlkem_session_reset_phase5(void);
 

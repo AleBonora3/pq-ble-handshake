@@ -43,6 +43,7 @@ from .phase6_c2p import (
     run_phase6_bidirectional,
     run_phase6_c2p,
 )
+from .phase7_hybrid import run_phase7_hybrid_e2e
 
 logger = logging.getLogger("pq-ble.central.main")
 
@@ -107,6 +108,11 @@ def parse_args(argv=None):
         ),
     )
 
+    execution_mode.add_argument(
+        "--phase7-hybrid-e2e",
+        action="store_true",
+        help="v0.7 CP2 hybrid key-agreement interoperability (TEST-ONLY, no SAS/FINISHED)",
+    )
     execution_mode.add_argument(
         "--phase6-c2p",
         action="store_true",
@@ -725,6 +731,27 @@ async def _run_phase6_bidirectional_cli(
                 exc,
             )
             
+async def _run_phase7_hybrid_e2e_cli(args) -> int:
+    """Own the isolated CP2 connection, including cleanup after any failure."""
+    client = BLECentralClient(device_name=args.device)
+    try:
+        logger.info("Scanning for peripheral '%s'...", args.device)
+        if not await client.scan_and_connect(timeout=15.0):
+            raise RuntimeError(f"Could not find '{args.device}'")
+        await run_phase7_hybrid_e2e(client)
+        print("PQ-BLE PHASE7 HYBRID KEY AGREEMENT E2E: PASS")
+        return 0
+    except Exception as exc:
+        logger.error("Phase 7 CP2 failed: %s", exc)
+        print("PQ-BLE PHASE7 HYBRID KEY AGREEMENT E2E: FAIL")
+        return 1
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning("Phase 7 disconnect failed: %s", exc)
+
+
 async def main():
     args = parse_args()
     level = getattr(logging, args.log_level)
@@ -736,7 +763,7 @@ async def main():
     logger.info(
         "Device: %s | Demo: %s | Phase 2 E2E: %s | "
         "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | "
-        "Phase 6 C2P: %s | Phase 6 Bidi: %s | MTU: %s",
+        "Phase 6 C2P: %s | Phase 6 Bidi: %s | Phase 7 Hybrid E2E: %s | MTU: %s",
         args.device,
         args.demo,
         args.phase2_e2e,
@@ -756,6 +783,7 @@ async def main():
             "phase6_bidirectional",
             False,
         ),
+        getattr(args, "phase7_hybrid_e2e", False),
         args.mtu or "auto",
     )
 
@@ -831,6 +859,12 @@ async def main():
             )
         )
     
+    if getattr(args, "phase7_hybrid_e2e", False):
+        if args.no_sas_confirm:
+            logger.error("--no-sas-confirm does not apply to CP2; omit it")
+            return 2
+        return await _run_phase7_hybrid_e2e_cli(args)
+
     if getattr(args, "phase6_c2p", False):
         return await _run_phase6_c2p_cli(args)
     

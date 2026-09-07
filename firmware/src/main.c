@@ -12,17 +12,9 @@
  * - session binding through AAD
  * - monotonic sequence numbers / replay protection on the Central
  *
- * The firmware intentionally does not yet implement:
- * - ECDH / hybrid key establishment
- * - bidirectional encrypted application traffic
- * - persistent authenticated sessions
- *  * Phase 6 work in progress:
- * - authenticated Central -> Peripheral AES-256-GCM traffic
- * - direction-separated traffic keys
- *
- * Not yet implemented:
- * - full bidirectional application traffic
- * - ECDH / hybrid key establishment
+ * Phase 6 provides authenticated bidirectional application traffic.
+ * Phase 7 CP2 adds TEST-ONLY hybrid key-agreement interoperability.
+ * Phase 7 authentication and application traffic remain deferred.
  */
 
 #include <errno.h>
@@ -614,7 +606,8 @@ static ssize_t handle_start(
 	struct bt_conn *conn,
 	uint16_t len,
 	enum pq_mlkem_job_mode mode,
-	const uint8_t *session_id)
+	const uint8_t *session_id,
+	const uint8_t *central_public_key)
 {
 	struct bt_conn *failed_job_ref = NULL;
 	struct bt_conn *job_ref;
@@ -640,6 +633,13 @@ static ssize_t handle_start(
 		LOG_ERR("START rejected: Secure Data CCCD is not enabled");
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
+	}
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 &&
+	    bt_gatt_get_mtu(conn) < PQ_PHASE7_READY7_CP2_FRAME_SIZE + 3U) {
+		LOG_ERR("START7 rejected: CP2 requires ATT MTU >= 108 (got %u)",
+			bt_gatt_get_mtu(conn));
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 	if (phase5_state != PHASE5_STATE_IDLE) {
 		LOG_WRN("START rejected: Phase 5 state %s",
@@ -687,7 +687,10 @@ static ssize_t handle_start(
 	crypto_job_generation = connection_generation;
 	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
 
-	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+		ret = pq_mlkem_session_submit_phase7_cp2(
+			ciphertext, sizeof(ciphertext), session_id, central_public_key);
+	} else if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
 		ret = pq_mlkem_session_submit_secure(
 			ciphertext,
 			sizeof(ciphertext),
@@ -724,6 +727,7 @@ static ssize_t handle_start(
 	clear_transfer_storage_locked();
 	LOG_INF(
 		"Ciphertext state: CRYPTO_BUSY; %s consumed CT_READY job",
+		mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 ? "START7" :
 		mode == PQ_MLKEM_JOB_PHASE5_START ? "START5" :
 		mode == PQ_MLKEM_JOB_PHASE3_SECURE ? "START3" : "START");
 	k_mutex_unlock(&protocol_lock);
@@ -824,12 +828,26 @@ static ssize_t write_control(struct bt_conn *conn,
 
 	LOG_INF("Control write: len=%u", len);
 
+	if (len >= PQ_PHASE7_FRAME_MAGIC_SIZE &&
+	    memcmp(data, PQ_PHASE7_FRAME_MAGIC, PQ_PHASE7_FRAME_MAGIC_SIZE) == 0) {
+		if (pq_phase7_parse_frame(data, len, &subtype, &payload, &payload_len) != 0) {
+			LOG_ERR("Malformed Phase 7 control frame");
+			return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		}
+		if (subtype != PQ_PHASE7_START7) {
+			return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+		}
+		LOG_INF("START7 received");
+		return handle_start(conn, len, PQ_MLKEM_JOB_PHASE7_HYBRID_CP2,
+			payload, payload + PQ_PHASE7_SESSION_ID_SIZE);
+	}
+
 	if (len == CTRL_START5_MESSAGE_LEN &&
 	    memcmp(data, CTRL_START5, CTRL_START5_LEN) == 0) {
 		LOG_INF("START5 received");
 		return handle_start(
 			conn, len, PQ_MLKEM_JOB_PHASE5_START,
-			data + CTRL_START5_LEN);
+			data + CTRL_START5_LEN, NULL);
 	}
 
 	if (len >= PQ_PHASE5_FRAME_HEADER_SIZE &&
@@ -865,7 +883,7 @@ static ssize_t write_control(struct bt_conn *conn,
 			conn,
 			len,
 			PQ_MLKEM_JOB_PHASE3_SECURE,
-			data + CTRL_START3_LEN);
+			data + CTRL_START3_LEN, NULL);
 	}
 
 	if (len == CTRL_START_LEN &&
@@ -877,7 +895,7 @@ static ssize_t write_control(struct bt_conn *conn,
 			conn,
 			len,
 			PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC,
-			NULL);
+			NULL, NULL);
 	}
 
 	if (len == (RESUME_MAGIC_LEN + 1U + 16U) &&
@@ -912,6 +930,47 @@ static void ccc_config_changed(const struct bt_gatt_attr *attr, uint16_t value)
 	}
 
 	LOG_INF("Notifications %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+/* Called only with the originating, generation-checked connection reference. */
+static void notify_phase7_cp2_result(
+	struct bt_conn *conn, enum pq_mlkem_diagnostic_status status,
+	const uint8_t *wire, size_t wire_len)
+{
+	uint8_t error[PQ_PHASE7_ERROR_FRAME_SIZE];
+	uint8_t status_byte = (uint8_t)status;
+	uint8_t subtype;
+	const uint8_t *payload;
+	size_t payload_len;
+	size_t error_len = 0U;
+	int ret;
+
+	if (status == PQ_MLKEM_STATUS_SUCCESS) {
+		if (pq_phase7_parse_frame(wire, wire_len, &subtype,
+					 &payload, &payload_len) != 0 ||
+		    subtype != PQ_PHASE7_READY7_CP2 ||
+		    bt_gatt_get_mtu(conn) < PQ_PHASE7_READY7_CP2_FRAME_SIZE + 3U) {
+			status_byte = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+		} else {
+			ret = bt_gatt_notify(conn, &pq_service.attrs[6], wire, wire_len);
+			if (ret == 0) {
+				LOG_INF("Phase 7 READY7_CP2 notification sent: %zu B", wire_len);
+				return;
+			}
+			LOG_ERR("Phase 7 READY7_CP2 notification failure: %d", ret);
+			status_byte = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+		}
+	}
+	ret = pq_phase7_encode_frame(PQ_PHASE7_ERROR, &status_byte, 1U,
+		error, sizeof(error), &error_len);
+	if (ret == 0) {
+		ret = bt_gatt_notify(conn, &pq_service.attrs[6], error, error_len);
+	}
+	if (ret != 0) {
+		LOG_ERR("Phase 7 ERROR notification failure: %d", ret);
+	} else {
+		LOG_INF("Phase 7 ERROR sent: status 0x%02x", status_byte);
+	}
 }
 
 static void mlkem_result_ready(
@@ -1054,6 +1113,13 @@ static void mlkem_result_ready(
 
 	if (!connection_is_current) {
 		LOG_WRN("ML-KEM result discarded: originating connection is stale");
+		bt_conn_unref(job_conn);
+		return;
+	}
+
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+		/* CP2 leaves phase5_state IDLE and retains no Phase 7 app keys. */
+		notify_phase7_cp2_result(job_conn, status, secure_wire, secure_wire_len);
 		bt_conn_unref(job_conn);
 		return;
 	}
@@ -1306,7 +1372,7 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
-	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL");
+	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL + PHASE7_HYBRID_CP2");
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 

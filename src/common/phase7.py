@@ -1,8 +1,7 @@
 """Hybrid ML-KEM-768/P-256 primitives for protocol version 0.7.
 
-This module is deliberately independent from the v0.5 and v0.6 runtime
-protocols.  It defines only the cryptographic building blocks needed by the
-first Phase 7 checkpoint; it does not define BLE messages or handshake state.
+The frozen CP1 primitives are shared by the isolated CP2 BLE interoperability
+frames. CP2 provides a TEST-ONLY diagnostic, without peer authentication.
 """
 
 from dataclasses import dataclass
@@ -36,6 +35,20 @@ PHASE7_HASH_SIZE = 32
 PHASE7_KEY_SIZE = 32
 PHASE7_KEY_BLOCK_SIZE = 128
 PHASE7_SAS_MODULUS = 1_000_000
+
+PHASE7_FRAME_MAGIC = b"PQS7"
+PHASE7_FRAME_VERSION = 0x07
+PHASE7_FRAME_HEADER_SIZE = 8
+PHASE7_START7 = 0x01
+PHASE7_READY7_CP2 = 0x02
+PHASE7_ERROR = 0x7F
+PHASE7_CP2_DIAGNOSTIC_LABEL = b"PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+PHASE7_CP2_DIAGNOSTIC_SIZE = 32
+PHASE7_START7_PAYLOAD_SIZE = 81
+PHASE7_START7_FRAME_SIZE = 89
+PHASE7_READY7_CP2_PAYLOAD_SIZE = 97
+PHASE7_READY7_CP2_FRAME_SIZE = 105
+PHASE7_ERROR_FRAME_SIZE = 9
 
 # Order of NIST P-256. This is used only to reject invalid deterministic test
 # scalars before asking the cryptography backend to construct a private key.
@@ -352,4 +365,106 @@ def derive_phase7_traffic_keys(
         peripheral_to_central=hmac.digest(
             application_root_key, PHASE7_P2C_LABEL, "sha256"
         ),
+    )
+
+
+@dataclass(frozen=True)
+class Phase7Frame:
+    """One strictly sized CP2 frame; it carries no authentication state."""
+
+    subtype: int
+    payload: bytes
+
+
+def _validate_cp2_payload(subtype: int, payload: bytes) -> None:
+    sizes = {
+        PHASE7_START7: PHASE7_START7_PAYLOAD_SIZE,
+        PHASE7_READY7_CP2: PHASE7_READY7_CP2_PAYLOAD_SIZE,
+        PHASE7_ERROR: 1,
+    }
+    if subtype not in sizes:
+        raise ValueError(f"unsupported PQS7 subtype: {subtype:#x}")
+    _require_size("PQS7 payload", payload, sizes[subtype])
+    if subtype == PHASE7_START7:
+        load_p256_public_key(payload[PHASE7_SESSION_ID_SIZE:])
+    elif subtype == PHASE7_READY7_CP2:
+        load_p256_public_key(payload[:PHASE7_P256_PUBLIC_KEY_SIZE])
+
+
+def encode_phase7_frame(subtype: int, payload: bytes) -> bytes:
+    payload = bytes(payload)
+    _validate_cp2_payload(subtype, payload)
+    return (
+        PHASE7_FRAME_MAGIC
+        + bytes((PHASE7_FRAME_VERSION, subtype))
+        + len(payload).to_bytes(2, "big")
+        + payload
+    )
+
+
+def parse_phase7_frame(data: bytes) -> Phase7Frame:
+    data = bytes(data)
+    if len(data) < PHASE7_FRAME_HEADER_SIZE:
+        raise ValueError("truncated PQS7 frame")
+    if data[:4] != PHASE7_FRAME_MAGIC:
+        raise ValueError("incorrect PQS7 magic")
+    if data[4] != PHASE7_FRAME_VERSION:
+        raise ValueError("incorrect PQS7 version")
+    if len(data) != PHASE7_FRAME_HEADER_SIZE + int.from_bytes(data[6:8], "big"):
+        raise ValueError("incorrect PQS7 payload length")
+    frame = Phase7Frame(subtype=data[5], payload=data[8:])
+    _validate_cp2_payload(frame.subtype, frame.payload)
+    return frame
+
+
+def encode_start7(session_id: bytes, central_public_key: bytes) -> bytes:
+    session_id = _require_size("session_id", session_id, PHASE7_SESSION_ID_SIZE)
+    return encode_phase7_frame(PHASE7_START7, session_id + bytes(central_public_key))
+
+
+def parse_start7(data: bytes) -> tuple[bytes, bytes]:
+    frame = parse_phase7_frame(data)
+    if frame.subtype != PHASE7_START7:
+        raise ValueError("expected START7")
+    return (
+        frame.payload[:PHASE7_SESSION_ID_SIZE],
+        frame.payload[PHASE7_SESSION_ID_SIZE:],
+    )
+
+
+def encode_ready7_cp2(peripheral_public_key: bytes, diagnostic: bytes) -> bytes:
+    peripheral_public_key = _require_size(
+        "Peripheral P-256 public key",
+        peripheral_public_key,
+        PHASE7_P256_PUBLIC_KEY_SIZE,
+    )
+    diagnostic = _require_size(
+        "CP2 diagnostic", diagnostic, PHASE7_CP2_DIAGNOSTIC_SIZE
+    )
+    return encode_phase7_frame(PHASE7_READY7_CP2, peripheral_public_key + diagnostic)
+
+
+def parse_ready7_cp2(data: bytes) -> tuple[bytes, bytes]:
+    frame = parse_phase7_frame(data)
+    if frame.subtype != PHASE7_READY7_CP2:
+        raise ValueError("expected READY7_CP2")
+    return (
+        frame.payload[:PHASE7_P256_PUBLIC_KEY_SIZE],
+        frame.payload[PHASE7_P256_PUBLIC_KEY_SIZE:],
+    )
+
+
+def compute_phase7_cp2_diagnostic(
+    application_key: bytes, transcript_hash: bytes
+) -> bytes:
+    """Full TEST-ONLY interoperability HMAC; neither SAS nor FINISHED."""
+
+    application_key = _require_size(
+        "application key", application_key, PHASE7_KEY_SIZE
+    )
+    transcript_hash = _require_size(
+        "transcript_hash", transcript_hash, PHASE7_HASH_SIZE
+    )
+    return hmac.digest(
+        application_key, PHASE7_CP2_DIAGNOSTIC_LABEL + transcript_hash, "sha256"
     )

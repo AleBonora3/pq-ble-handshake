@@ -51,6 +51,7 @@ static enum pq_mlkem_job_mode pending_job_mode =
 	PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC;
 
 static uint8_t session_id_job[PQ_SECURE_SESSION_ID_SIZE];
+static uint8_t phase7_central_public_key_job[PQ_PHASE7_P256_PUBLIC_KEY_SIZE];
 static uint8_t finished_c_job[PQ_PHASE5_FINISHED_SIZE];
 
 static uint8_t phase6_rx_wire_job[
@@ -59,7 +60,8 @@ static uint8_t phase6_rx_wire_job[
 
 static size_t phase6_rx_wire_job_len;
 
-static uint8_t secure_wire[PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE];
+static uint8_t secure_wire[MAX(PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE,
+			      PQ_PHASE7_READY7_CP2_FRAME_SIZE)];
 
 /* Phase 5 material retained only between its explicit worker jobs. */
 static struct pq_phase5_keys phase5_keys;
@@ -162,6 +164,98 @@ static int validate_diagnostic_crc(void)
 		"(CRC-32/IEEE, 32 zero bytes): PASS "
 		"(0x%08x)", crc);
 	return 0;
+}
+
+/* Called only on the crypto worker, after ML-KEM decapsulation. The runtime
+ * ML-KEM keypair and consumed job buffers stay immutable until job_done.
+ * Only the public key and TEST-ONLY diagnostic leave this function. */
+static int phase7_cp2_result(size_t *wire_len)
+{
+	psa_key_id_t private_key = 0;
+	uint8_t ss_ecdh[PQ_PHASE7_SHARED_SECRET_SIZE] = { 0 };
+	uint8_t hybrid_ikm[PQ_PHASE7_HYBRID_IKM_SIZE] = { 0 };
+	uint8_t hash[PQ_PHASE7_HASH_SIZE] = { 0 };
+	uint8_t payload[PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE] = { 0 };
+	struct pq_phase7_keys keys = { 0 };
+	size_t public_key_len = 0U;
+	size_t ss_ecdh_len = 0U;
+	size_t ikm_len = 0U;
+	size_t transcript_len = 0U;
+	int ret;
+
+	*wire_len = 0U;
+	ret = pq_phase7_generate_p256_keypair(&private_key);
+	if (ret != 0) {
+		goto out;
+	}
+	ret = pq_phase7_export_p256_public_key(
+		private_key, payload, PQ_PHASE7_P256_PUBLIC_KEY_SIZE, &public_key_len);
+	if (ret != 0) {
+		goto out;
+	}
+	LOG_INF("Phase 7 ephemeral P-256 public-key size: %zu B", public_key_len);
+	ret = pq_phase7_validate_p256_public_key(phase7_central_public_key_job,
+					       sizeof(phase7_central_public_key_job));
+	if (ret != 0) {
+		goto out;
+	}
+	LOG_INF("Phase 7 Central P-256 public-key validation: PASS");
+	ret = pq_phase7_p256_ecdh(private_key, phase7_central_public_key_job,
+		sizeof(phase7_central_public_key_job), ss_ecdh, sizeof(ss_ecdh),
+		&ss_ecdh_len);
+	if (ret != 0 || ss_ecdh_len != PQ_PHASE7_SHARED_SECRET_SIZE) {
+		ret = ret != 0 ? ret : -EIO;
+		goto out;
+	}
+	LOG_INF("Phase 7 P-256 ECDH: PASS");
+	report_crypto_stack("after Phase 7 P-256 KeyGen + ECDH");
+	ret = pq_phase7_transcript_hash(
+		session_id_job, sizeof(session_id_job), public_key, sizeof(public_key),
+		ciphertext_job, sizeof(ciphertext_job), phase7_central_public_key_job,
+		sizeof(phase7_central_public_key_job), payload, public_key_len,
+		hash, &transcript_len);
+	if (ret != 0 || transcript_len != PQ_PHASE7_TRANSCRIPT_SIZE) {
+		ret = ret != 0 ? ret : -EIO;
+		goto out;
+	}
+	LOG_INF("Phase 7 transcript hash: PASS");
+	ret = pq_phase7_build_hybrid_ikm(shared_secret, sizeof(shared_secret),
+		ss_ecdh, ss_ecdh_len, hybrid_ikm, sizeof(hybrid_ikm), &ikm_len);
+	if (ret == 0) {
+		ret = pq_phase7_derive_keys(hybrid_ikm, ikm_len, hash, sizeof(hash), &keys);
+	}
+	if (ret != 0) {
+		goto out;
+	}
+	secure_clear(shared_secret, sizeof(shared_secret));
+	pq_phase7_clear(ss_ecdh, sizeof(ss_ecdh));
+	LOG_INF("Phase 7 hybrid key schedule: PASS");
+	report_crypto_stack("after Phase 7 transcript + hybrid key schedule");
+	ret = pq_phase7_compute_cp2_diagnostic(keys.application, sizeof(keys.application),
+		hash, sizeof(hash), payload + PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+	if (ret == 0) {
+		LOG_INF("Phase 7 CP2 diagnostic: PASS");
+		ret = pq_phase7_encode_frame(PQ_PHASE7_READY7_CP2, payload, sizeof(payload),
+			secure_wire, sizeof(secure_wire), wire_len);
+	}
+out:
+	/* A destruction failure is also a job failure: never emit READY on error. */
+	if (pq_phase7_destroy_p256_key(&private_key) != 0) {
+		LOG_ERR("Phase 7 volatile P-256 key destruction failed");
+		ret = -EIO;
+	}
+	secure_clear(shared_secret, sizeof(shared_secret));
+	pq_phase7_clear(ss_ecdh, sizeof(ss_ecdh));
+	pq_phase7_clear(hybrid_ikm, sizeof(hybrid_ikm));
+	pq_phase7_clear_keys(&keys);
+	pq_phase7_clear(hash, sizeof(hash));
+	/* Includes the diagnostic temporary, already copied into the result. */
+	pq_phase7_clear(payload, sizeof(payload));
+	if (ret != 0) {
+		*wire_len = 0U;
+		secure_clear(secure_wire, sizeof(secure_wire));
+	}
+	return ret;
 }
 
 static void crypto_worker(void *unused1, void *unused2, void *unused3)
@@ -299,7 +393,9 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		mode = pending_job_mode;
 		job_epoch = pending_phase5_epoch;
 
-		if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+		if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+			job_valid = (job_epoch == phase5_epoch);
+		} else if (mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
 			if (job_epoch != phase5_epoch || !phase5_wait_finished) {
 				job_valid = false;
 			} else {
@@ -385,13 +481,17 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		k_mutex_unlock(&session_lock);
 
 		if (!job_valid) {
-			LOG_WRN("Canceled or stale Phase 5 worker job discarded");
+			LOG_WRN("Canceled or stale worker job discarded");
 			goto job_done;
 		}
 
 		if (mode == PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC ||
 		    mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
-		    mode == PQ_MLKEM_JOB_PHASE5_START) {
+		    mode == PQ_MLKEM_JOB_PHASE5_START ||
+		    mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+			if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+				LOG_INF("Phase 7 CP2 crypto job started");
+			}
 			/*
 			 * ML-KEM decapsulation uses implicit rejection. A structurally
 			 * valid modified ciphertext normally returns success and derives
@@ -399,7 +499,8 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			 */
 			ret = pqble_mlkem_dec(
 				shared_secret, ciphertext_job, secret_key);
-			report_crypto_stack("after ML-KEM Decapsulation");
+			report_crypto_stack(mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 ?
+				"after Phase 7 ML-KEM Decapsulation" : "after ML-KEM Decapsulation");
 			if (ret != 0) {
 				status = PQ_MLKEM_STATUS_DECAPSULATION_FAILURE;
 				LOG_ERR("ML-KEM decapsulation local/API failure: %d",
@@ -409,7 +510,14 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			status = PQ_MLKEM_STATUS_SUCCESS;
 			LOG_INF("ML-KEM Decapsulation: PASS");
 
-			if (mode == PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC) {
+			if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+				LOG_INF("Phase 7 ML-KEM Decapsulation: PASS");
+				ret = phase7_cp2_result(&secure_wire_len);
+				if (ret != 0) {
+					LOG_ERR("Phase 7 CP2 crypto failed: %d", ret);
+					status = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+				}
+			} else if (mode == PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC) {
 				crc = crc32_ieee(shared_secret,
 						 sizeof(shared_secret));
 			} else if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
@@ -821,8 +929,18 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		secure_clear(shared_secret, sizeof(shared_secret));
 		secure_clear(ciphertext_job, sizeof(ciphertext_job));
 		secure_clear(finished_c_job, sizeof(finished_c_job));
+		/* Clear inputs before the slot can accept another job. */
+		secure_clear(session_id_job, sizeof(session_id_job));
+		secure_clear(phase7_central_public_key_job,
+			     sizeof(phase7_central_public_key_job));
 
 		k_mutex_lock(&session_lock, K_FOREVER);
+		if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 && job_epoch != phase5_epoch) {
+			status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+			secure_wire_len = 0U;
+			secure_clear(secure_wire, sizeof(secure_wire));
+			LOG_WRN("Phase 7 CP2 result canceled by session epoch change");
+		}
 		job_active = false;
 		secure_clear(
 			phase6_rx_wire_job,
@@ -839,7 +957,6 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			secure_wire_len);
 		
 		secure_clear(secure_wire, sizeof(secure_wire));
-		secure_clear(session_id_job, sizeof(session_id_job));
 		secure_clear(&local_keys, sizeof(local_keys));
 		secure_clear(local_hash, sizeof(local_hash));
 		secure_clear(received_finished_c, sizeof(received_finished_c));
@@ -969,15 +1086,21 @@ static int submit_job(
 	const uint8_t *ciphertext,
 	size_t ciphertext_len,
 	enum pq_mlkem_job_mode mode,
-	const uint8_t *session_id)
+	const uint8_t *session_id,
+	const uint8_t *central_public_key)
 {
 	if (ciphertext == NULL || ciphertext_len != sizeof(ciphertext_job)) {
 		return -EINVAL;
 	}
 
 	if ((mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
-	     mode == PQ_MLKEM_JOB_PHASE5_START) &&
+	     mode == PQ_MLKEM_JOB_PHASE5_START ||
+	     mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) &&
 	    session_id == NULL) {
+		return -EINVAL;
+	}
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 &&
+	    (central_public_key == NULL || central_public_key[0] != 0x04U)) {
 		return -EINVAL;
 	}
 
@@ -999,14 +1122,20 @@ static int submit_job(
 	pending_phase5_epoch = 0U;
 
 	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE ||
-	    mode == PQ_MLKEM_JOB_PHASE5_START) {
+	    mode == PQ_MLKEM_JOB_PHASE5_START ||
+	    mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
 		memcpy(session_id_job,
 		       session_id,
 		       sizeof(session_id_job));
 	} else {
 		memset(session_id_job, 0, sizeof(session_id_job));
 	}
-	if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+		memcpy(phase7_central_public_key_job, central_public_key,
+		       sizeof(phase7_central_public_key_job));
+	}
+	if (mode == PQ_MLKEM_JOB_PHASE5_START ||
+	    mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
 		clear_phase5_material_locked();
 		clear_phase6_material_locked();
 
@@ -1031,6 +1160,7 @@ int pq_mlkem_session_submit(
 		ciphertext,
 		ciphertext_len,
 		PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC,
+		NULL,
 		NULL);
 }
 
@@ -1043,7 +1173,7 @@ int pq_mlkem_session_submit_secure(
 		ciphertext,
 		ciphertext_len,
 		PQ_MLKEM_JOB_PHASE3_SECURE,
-		session_id);
+		session_id, NULL);
 }
 
 int pq_mlkem_session_submit_phase5(
@@ -1055,7 +1185,16 @@ int pq_mlkem_session_submit_phase5(
 		ciphertext,
 		ciphertext_len,
 		PQ_MLKEM_JOB_PHASE5_START,
-		session_id);
+		session_id, NULL);
+}
+
+int pq_mlkem_session_submit_phase7_cp2(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t session_id[PQ_PHASE7_SESSION_ID_SIZE],
+	const uint8_t central_public_key[PQ_PHASE7_P256_PUBLIC_KEY_SIZE])
+{
+	return submit_job(ciphertext, ciphertext_len, PQ_MLKEM_JOB_PHASE7_HYBRID_CP2,
+			  session_id, central_public_key);
 }
 
 int pq_mlkem_session_submit_phase5_finished_c(

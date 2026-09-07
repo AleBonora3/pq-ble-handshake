@@ -74,6 +74,93 @@ static bool valid_sec1_public_key_shape(
 	       public_key[0] == 0x04U;
 }
 
+BUILD_ASSERT(PQ_PHASE7_START7_PAYLOAD_SIZE ==
+	PQ_PHASE7_SESSION_ID_SIZE + PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+BUILD_ASSERT(PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE ==
+	PQ_PHASE7_P256_PUBLIC_KEY_SIZE + PQ_PHASE7_CP2_DIAGNOSTIC_SIZE);
+BUILD_ASSERT(PQ_PHASE7_START7_FRAME_SIZE ==
+	PQ_PHASE7_FRAME_HEADER_SIZE + PQ_PHASE7_START7_PAYLOAD_SIZE);
+BUILD_ASSERT(PQ_PHASE7_READY7_CP2_FRAME_SIZE ==
+	PQ_PHASE7_FRAME_HEADER_SIZE + PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE);
+BUILD_ASSERT(PQ_PHASE7_ERROR_FRAME_SIZE == PQ_PHASE7_FRAME_HEADER_SIZE + 1U);
+
+/* Keep GATT parsing cheap. PSA point validation belongs to the worker. */
+static bool valid_cp2_payload(uint8_t subtype, const uint8_t *payload,
+			      size_t payload_len)
+{
+	if (payload == NULL) {
+		return false;
+	}
+	switch (subtype) {
+	case PQ_PHASE7_START7:
+		return payload_len == PQ_PHASE7_START7_PAYLOAD_SIZE &&
+			valid_sec1_public_key_shape(
+				payload + PQ_PHASE7_SESSION_ID_SIZE,
+				PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+	case PQ_PHASE7_READY7_CP2:
+		return payload_len == PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE &&
+			valid_sec1_public_key_shape(payload,
+				PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+	case PQ_PHASE7_ERROR:
+		return payload_len == 1U;
+	default:
+		return false;
+	}
+}
+
+int pq_phase7_encode_frame(
+	uint8_t subtype, const uint8_t *payload, size_t payload_len,
+	uint8_t *output, size_t output_capacity, size_t *output_len)
+{
+	if (output_len == NULL) {
+		return -EINVAL;
+	}
+	*output_len = 0U;
+	if (output == NULL || !valid_cp2_payload(subtype, payload, payload_len)) {
+		return -EINVAL;
+	}
+	if (output_capacity < PQ_PHASE7_FRAME_HEADER_SIZE + payload_len) {
+		return -ENOBUFS;
+	}
+	memcpy(output, PQ_PHASE7_FRAME_MAGIC, PQ_PHASE7_FRAME_MAGIC_SIZE);
+	output[4] = PQ_PHASE7_FRAME_VERSION;
+	output[5] = subtype;
+	output[6] = (uint8_t)(payload_len >> 8);
+	output[7] = (uint8_t)payload_len;
+	memcpy(output + PQ_PHASE7_FRAME_HEADER_SIZE, payload, payload_len);
+	*output_len = PQ_PHASE7_FRAME_HEADER_SIZE + payload_len;
+	return 0;
+}
+
+int pq_phase7_parse_frame(
+	const uint8_t *frame, size_t frame_len, uint8_t *subtype,
+	const uint8_t **payload, size_t *payload_len)
+{
+	size_t declared_len;
+
+	if (frame == NULL || subtype == NULL || payload == NULL ||
+	    payload_len == NULL) {
+		return -EINVAL;
+	}
+	*payload = NULL;
+	*payload_len = 0U;
+	if (frame_len < PQ_PHASE7_FRAME_HEADER_SIZE ||
+	    memcmp(frame, PQ_PHASE7_FRAME_MAGIC, PQ_PHASE7_FRAME_MAGIC_SIZE) != 0 ||
+	    frame[4] != PQ_PHASE7_FRAME_VERSION) {
+		return -EINVAL;
+	}
+	declared_len = ((size_t)frame[6] << 8) | frame[7];
+	if (frame_len != PQ_PHASE7_FRAME_HEADER_SIZE + declared_len ||
+	    !valid_cp2_payload(frame[5], frame + PQ_PHASE7_FRAME_HEADER_SIZE,
+			       declared_len)) {
+		return -EINVAL;
+	}
+	*subtype = frame[5];
+	*payload = frame + PQ_PHASE7_FRAME_HEADER_SIZE;
+	*payload_len = declared_len;
+	return 0;
+}
+
 int pq_phase7_generate_p256_keypair(psa_key_id_t *key_id)
 {
 	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
@@ -544,6 +631,21 @@ static int hmac_sha256(
 	return ret;
 }
 
+int pq_phase7_compute_cp2_diagnostic(
+	const uint8_t *application_key, size_t application_key_len,
+	const uint8_t *transcript_hash, size_t transcript_hash_len,
+	uint8_t diagnostic[PQ_PHASE7_CP2_DIAGNOSTIC_SIZE])
+{
+	static const uint8_t label[] = PQ_PHASE7_CP2_DIAGNOSTIC_LABEL;
+
+	if (transcript_hash == NULL || transcript_hash_len != PQ_PHASE7_HASH_SIZE) {
+		return -EINVAL;
+	}
+	return hmac_sha256(application_key, application_key_len,
+		label, sizeof(label) - 1U, transcript_hash, transcript_hash_len,
+		diagnostic);
+}
+
 int pq_phase7_compute_sas(
 	const uint8_t *sas_key,
 	size_t sas_key_len,
@@ -869,6 +971,13 @@ static const struct pq_phase7_traffic_keys kat_expected_traffic_keys = {
 	}
 };
 
+static const uint8_t kat_cp2_diagnostic[PQ_PHASE7_CP2_DIAGNOSTIC_SIZE] = {
+	0x9e, 0xf8, 0xe2, 0x67, 0x07, 0x6b, 0x90, 0xc7,
+	0x28, 0x2b, 0x44, 0x3b, 0xab, 0x8e, 0x59, 0xc6,
+	0x09, 0xec, 0x87, 0x26, 0x2d, 0xb5, 0xc1, 0x76,
+	0xc8, 0x23, 0x05, 0x79, 0xd1, 0x60, 0xc2, 0x1e,
+};
+
 static int public_hybrid_kat_self_test(void)
 {
 	uint8_t session_id[PQ_PHASE7_SESSION_ID_SIZE];
@@ -880,6 +989,7 @@ static int public_hybrid_kat_self_test(void)
 	uint8_t hybrid_ikm[PQ_PHASE7_HYBRID_IKM_SIZE];
 	uint8_t finished_c[PQ_PHASE7_FINISHED_SIZE];
 	uint8_t finished_p[PQ_PHASE7_FINISHED_SIZE];
+	uint8_t cp2_diagnostic[PQ_PHASE7_CP2_DIAGNOSTIC_SIZE];
 	struct pq_phase7_keys keys;
 	struct pq_phase7_traffic_keys traffic_keys;
 	size_t transcript_len = 0U;
@@ -1013,6 +1123,16 @@ static int public_hybrid_kat_self_test(void)
 		goto out;
 	}
 	LOG_INF("Phase 7 directional-key KAT: PASS");
+	ret = pq_phase7_compute_cp2_diagnostic(
+		keys.application, sizeof(keys.application),
+		transcript_hash, sizeof(transcript_hash), cp2_diagnostic);
+	if (ret != 0 || memcmp(cp2_diagnostic, kat_cp2_diagnostic,
+			      sizeof(cp2_diagnostic)) != 0) {
+		ret = ret != 0 ? ret : -EIO;
+		LOG_ERR("Phase 7 CP2 diagnostic KAT: FAIL (%d)", ret);
+		goto out;
+	}
+	LOG_INF("Phase 7 CP2 diagnostic KAT: PASS");
 	ret = 0;
 
 out:
@@ -1022,6 +1142,7 @@ out:
 	pq_phase7_clear_keys(&keys);
 	pq_phase7_clear(finished_c, sizeof(finished_c));
 	pq_phase7_clear(finished_p, sizeof(finished_p));
+	pq_phase7_clear(cp2_diagnostic, sizeof(cp2_diagnostic));
 	pq_phase7_clear_traffic_keys(&traffic_keys);
 	return ret;
 }
