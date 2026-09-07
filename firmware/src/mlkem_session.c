@@ -563,7 +563,12 @@ static int phase7_auth_start_result(
 	}
 
 	LOG_INF(
-		"Phase 7 SAS Numeric Comparison: %06u",
+		"===================================="
+		"Phase 7 SAS Numeric Comparison: "
+		""
+		"%06u"
+		""
+		"====================================",
 		sas);
 
 	report_crypto_stack(
