@@ -19,6 +19,7 @@ target_sources(app PRIVATE
     src/pq_secure_channel.c
     src/pq_phase5.c
     src/pq_phase6.c
+    src/pq_phase7.c
     ${MLKEM_NATIVE_DIR}/mlkem_native.c
 )
 

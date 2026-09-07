@@ -1,18 +1,46 @@
 #!/usr/bin/env python3
 """
 PQ-BLE-HANDSHAKE — Central (Client) Entry Point.
-Usage:
-    python -m src.central.main [options]
-Options:
-    --device NAME        BLE device name to scan for (default: PQ-BLE-Device)
-    --no-sas-confirm     Skip interactive SAS confirmation (auto-accept)
-    --demo               Legacy demo: send START, wait for raw notify
-    --phase2-e2e         Run ML-KEM-768 liboqs/mlkem-native BLE interop test
-    --phase3-secure      Run ML-KEM + HKDF + AES-256-GCM real-DK test
-    --phase5-auth-pq     Run authenticated pure-PQ v0.5 hardware handshake
-    --phase5-negative    Run an isolated Phase 5 negative hardware test
-    --mtu SIZE           Request specific MTU (default: negotiated by stack)
-    --log-level LEVEL    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+
+Primary isolated hardware modes:
+
+    --phase2-e2e
+        ML-KEM-768 liboqs <-> mlkem-native BLE interoperability.
+
+    --phase3-secure
+        Pure-PQ HKDF-SHA256 + AES-256-GCM secure-channel validation.
+
+    --phase5-auth-pq
+        v0.5 authenticated pure-PQ handshake.
+
+    --phase6-c2p
+        v0.6 authenticated single bidirectional application round trip.
+
+    --phase6-bidirectional
+        v0.6 authenticated bidirectional application traffic.
+
+    --phase7-hybrid-e2e
+        v0.7 CP2 TEST-ONLY ML-KEM-768 + P-256 hybrid interoperability.
+
+    --phase7-auth-hybrid
+        v0.7 authenticated hybrid ML-KEM-768 + P-256 secure channel.
+
+CP4 TEST-ONLY security validation is selected with:
+
+    --phase7-auth-hybrid --phase7-negative-test-only MODE
+
+where MODE is one of:
+
+    sas-reject
+    finished-c
+    pre-auth
+    c2p-tamper
+    c2p-replay
+    p2c-tamper
+    p2c-replay
+
+Normal authenticated Phase 5/6/7 modes require explicit human SAS
+confirmation. --no-sas-confirm remains restricted to the legacy flow.
 """
 import argparse
 import asyncio
@@ -43,6 +71,14 @@ from .phase6_c2p import (
     run_phase6_bidirectional,
     run_phase6_c2p,
 )
+from .phase7_hybrid import run_phase7_hybrid_e2e
+
+from .phase7_auth import (
+    PHASE7_NEGATIVE_MODES,
+    Phase7AuthError,
+    Phase7NegativeTestPassed,
+    run_phase7_authenticated_hybrid,
+)
 
 logger = logging.getLogger("pq-ble.central.main")
 
@@ -70,7 +106,7 @@ def parse_args(argv=None):
         action="store_true",
         help=(
             "Skip interactive SAS confirmation in the legacy flow only; "
-            "not permitted with --phase5-auth-pq"
+            "not permitted with authenticated Phase 5/6/7 modes"
         ),
     )
     execution_mode = parser.add_mutually_exclusive_group()
@@ -106,7 +142,6 @@ def parse_args(argv=None):
             "(transcript + SAS + bidirectional FINISHED + AES-GCM)"
         ),
     )
-
     execution_mode.add_argument(
         "--phase6-c2p",
         action="store_true",
@@ -122,6 +157,19 @@ def parse_args(argv=None):
             "v0.6 Checkpoint 3: authenticated "
             "bidirectional AES-256-GCM traffic "
             "(3 secure round trips)"
+        ),
+    )
+    execution_mode.add_argument(
+        "--phase7-hybrid-e2e",
+        action="store_true",
+        help="v0.7 CP2 hybrid key-agreement interoperability (TEST-ONLY, no SAS/FINISHED)",
+    )
+    execution_mode.add_argument(
+        "--phase7-auth-hybrid",
+        action="store_true",
+        help=(
+            "v0.7 authenticated hybrid ML-KEM-768 + P-256 "
+            "secure channel (CP3 positive flow / CP4 validation)"
         ),
     )
     parser.add_argument(
@@ -159,6 +207,17 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        "--phase7-negative-test-only",
+        choices=PHASE7_NEGATIVE_MODES,
+        default=None,
+        help=(
+            "TEST-ONLY CP4 security validation; requires --phase7-auth-hybrid. "
+            "sas-reject simulates rejection; other modes require human SAS acceptance. "
+            "P->C mutations are receiver-local checks on real BLE responses."
+        ),
+    )
+
+    parser.add_argument(
         "--mtu",
         type=int,
         default=None,
@@ -170,7 +229,15 @@ def parse_args(argv=None):
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.phase7_negative_test_only is not None and not args.phase7_auth_hybrid:
+        parser.error("--phase7-negative-test-only requires --phase7-auth-hybrid")
+    if args.phase7_auth_hybrid:
+        if args.no_sas_confirm:
+            parser.error("--no-sas-confirm is not allowed with --phase7-auth-hybrid")
+        if any((args.phase3_negative, args.phase5_negative, args.phase6_negative)):
+            parser.error("Phase 7 cannot be combined with another phase's negative switches")
+    return args
 
 
 async def _run_phase2_e2e_cli(args) -> int:
@@ -725,6 +792,157 @@ async def _run_phase6_bidirectional_cli(
                 exc,
             )
             
+async def _run_phase7_hybrid_e2e_cli(args) -> int:
+    """Own the isolated CP2 connection, including cleanup after any failure."""
+    client = BLECentralClient(device_name=args.device)
+    try:
+        logger.info("Scanning for peripheral '%s'...", args.device)
+        if not await client.scan_and_connect(timeout=15.0):
+            raise RuntimeError(f"Could not find '{args.device}'")
+        await run_phase7_hybrid_e2e(client)
+        print("PQ-BLE PHASE7 HYBRID KEY AGREEMENT E2E: PASS")
+        return 0
+    except Exception as exc:
+        logger.error("Phase 7 CP2 failed: %s", exc)
+        print("PQ-BLE PHASE7 HYBRID KEY AGREEMENT E2E: FAIL")
+        return 1
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning("Phase 7 disconnect failed: %s", exc)
+
+async def _run_phase7_auth_hybrid_cli(
+    args,
+) -> int:
+    """Run CP3 or one explicit CP4 test; disconnect before reporting CP4 PASS."""
+
+    negative_test = args.phase7_negative_test_only
+
+    client = BLECentralClient(
+        device_name=args.device
+    )
+
+    logger.info(
+        "Scanning for peripheral '%s'...",
+        args.device,
+    )
+
+    try:
+        connected = await client.scan_and_connect(
+            timeout=15.0
+        )
+
+        if not connected:
+            logger.error(
+                "Could not find '%s'. "
+                "Make sure the v0.7 firmware is running.",
+                args.device,
+            )
+            return 1
+
+        logger.info(
+            "=== v0.7: AUTHENTICATED HYBRID "
+            "SECURE CHANNEL (CP3/CP4) ==="
+        )
+
+        result = (
+            await run_phase7_authenticated_hybrid(
+                client, negative_test=negative_test,
+            )
+        )
+        if negative_test is not None:
+            raise Phase7AuthError("CP4 negative test returned a positive result")
+
+        print()
+        print(
+            "ML-KEM + P-256 hybrid "
+            "key agreement: PASS"
+        )
+        print(
+            f"SAS: {result.sas}"
+        )
+        print(
+            "FINISHED_C / FINISHED_P: PASS"
+        )
+
+        print(
+            "Authenticated bidirectional "
+            f"traffic: PASS "
+            f"({result.rounds} rounds)"
+        )
+
+        print()
+
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID SECURE CHANNEL E2E: PASS"
+        )
+        print()
+
+        return 0
+
+    except Phase7NegativeTestPassed as exc:
+        if negative_test is None:
+            logger.error("Unexpected CP4 result in positive mode")
+            return 1
+        negative_result = str(exc)
+
+    except Phase7AuthError as exc:
+        logger.error(
+            "Phase 7 authenticated "
+            "hybrid handshake failed: %s",
+            exc,
+        )
+
+        print()
+        if negative_test is not None:
+            print(f"PQ-BLE PHASE7 CP4 NEGATIVE TEST: FAIL ({negative_test})")
+            return 1
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID SECURE CHANNEL E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected Phase 7 "
+            "authenticated failure: %s",
+            exc,
+        )
+
+        print()
+        if negative_test is not None:
+            print(f"PQ-BLE PHASE7 CP4 NEGATIVE TEST: FAIL ({negative_test})")
+            return 1
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID SECURE CHANNEL E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning(
+                "Phase 7 authenticated "
+                "disconnect failed: %s",
+                exc,
+            )
+            if negative_test is not None:
+                print(f"PQ-BLE PHASE7 CP4 NEGATIVE TEST: FAIL ({negative_test}; disconnect)")
+                return 1
+
+    print(f"NEGATIVE TEST PASS: {negative_result}")
+    print(f"PQ-BLE PHASE7 CP4 NEGATIVE TEST: PASS ({negative_test})")
+    return 0
+
 async def main():
     args = parse_args()
     level = getattr(logging, args.log_level)
@@ -736,7 +954,9 @@ async def main():
     logger.info(
         "Device: %s | Demo: %s | Phase 2 E2E: %s | "
         "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | "
-        "Phase 6 C2P: %s | Phase 6 Bidi: %s | MTU: %s",
+        "Phase 6 C2P: %s | Phase 6 Bidi: %s | "
+        "Phase 7 Hybrid E2E: %s | "
+        "Phase 7 Auth Hybrid: %s | MTU: %s",
         args.device,
         args.demo,
         args.phase2_e2e,
@@ -754,6 +974,16 @@ async def main():
         getattr(
             args,
             "phase6_bidirectional",
+            False,
+        ),
+        getattr(
+            args,
+            "phase7_hybrid_e2e",
+            False,
+        ),
+        getattr(
+            args,
+            "phase7_auth_hybrid",
             False,
         ),
         args.mtu or "auto",
@@ -788,13 +1018,18 @@ async def main():
                 args,
                 "phase6_bidirectional",
                 False,
+            ) 
+            or getattr(
+                args,
+                "phase7_auth_hybrid",
+                False,
             )
         )
         and args.no_sas_confirm
     ):
         logger.error(
             "--no-sas-confirm is not allowed "
-            "with authenticated Phase 5/6 modes; "
+            "with authenticated Phase 5/6/7 modes; "
             "explicit human SAS confirmation "
             "is required"
         )
@@ -830,7 +1065,18 @@ async def main():
                 args
             )
         )
+    if getattr(args, "phase7_auth_hybrid", False,):
+        if args.no_sas_confirm:
+            logger.error("--no-sas-confirm is not allowed with --phase7-auth-hybrid; explicit human SAS comparison is required")
+            return 2
+        return await _run_phase7_auth_hybrid_cli(args)
     
+    if getattr(args, "phase7_hybrid_e2e", False):
+        if args.no_sas_confirm:
+            logger.error("--no-sas-confirm does not apply to CP2; omit it")
+            return 2
+        return await _run_phase7_hybrid_e2e_cli(args)
+
     if getattr(args, "phase6_c2p", False):
         return await _run_phase6_c2p_cli(args)
     

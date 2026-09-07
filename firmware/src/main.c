@@ -12,17 +12,9 @@
  * - session binding through AAD
  * - monotonic sequence numbers / replay protection on the Central
  *
- * The firmware intentionally does not yet implement:
- * - ECDH / hybrid key establishment
- * - bidirectional encrypted application traffic
- * - persistent authenticated sessions
- *  * Phase 6 work in progress:
- * - authenticated Central -> Peripheral AES-256-GCM traffic
- * - direction-separated traffic keys
- *
- * Not yet implemented:
- * - full bidirectional application traffic
- * - ECDH / hybrid key establishment
+ * Phase 6 provides authenticated bidirectional application traffic.
+ * Phase 7 CP2 adds TEST-ONLY hybrid key-agreement interoperability.
+ * Phase 7 authentication and application traffic remain deferred.
  */
 
 #include <errno.h>
@@ -43,6 +35,7 @@
 #include "mlkem_session.h"
 #include "pq_phase5.h"
 #include "pq_phase6.h"
+#include "pq_phase7.h"
 #include "pq_secure_channel.h"
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
@@ -110,6 +103,15 @@ enum phase5_state {
 	PHASE5_STATE_PHASE6_RX_BUSY,
 };
 
+enum phase7_state {
+	PHASE7_STATE_IDLE,
+	PHASE7_STATE_CRYPTO_BUSY,
+	PHASE7_STATE_WAIT_FINISHED_C,
+	PHASE7_STATE_FINISHED_BUSY,
+	PHASE7_STATE_AUTHENTICATED,
+	PHASE7_STATE_DATA_BUSY,
+};
+
 static uint8_t ciphertext[PQ_MLKEM_CIPHERTEXT_SIZE];
 static uint8_t fragments[MAX_FRAGMENTS][MAX_FRAG_PAYLOAD];
 static bool fragment_received[MAX_FRAGMENTS];
@@ -117,6 +119,34 @@ static uint16_t fragment_lengths[MAX_FRAGMENTS];
 static uint8_t fragment_total;
 static enum ciphertext_state ciphertext_state = CIPHERTEXT_EMPTY;
 static enum phase5_state phase5_state = PHASE5_STATE_IDLE;
+static enum phase7_state phase7_state = PHASE7_STATE_IDLE;
+
+static const char *phase7_state_name(
+	enum phase7_state state)
+{
+	switch (state) {
+	case PHASE7_STATE_IDLE:
+		return "IDLE";
+
+	case PHASE7_STATE_CRYPTO_BUSY:
+		return "CRYPTO_BUSY";
+
+	case PHASE7_STATE_WAIT_FINISHED_C:
+		return "WAIT_FINISHED_C";
+
+	case PHASE7_STATE_FINISHED_BUSY:
+		return "FINISHED_BUSY";
+
+	case PHASE7_STATE_AUTHENTICATED:
+		return "AUTHENTICATED";
+		
+	case PHASE7_STATE_DATA_BUSY:
+		return "DATA_BUSY";
+
+	default:
+		return "UNKNOWN";
+	}
+}
 
 /*
  * current_conn owns one reference while connected. crypto_job_conn owns a
@@ -355,6 +385,21 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 	}
+	if (phase7_state !=
+		PHASE7_STATE_IDLE) {
+
+		LOG_WRN(
+			"Ciphertext fragment rejected: "
+			"Phase 7 state %s",
+			phase7_state_name(
+				phase7_state));
+
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
 	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
 		LOG_WRN("Ciphertext fragment rejected: state CRYPTO_BUSY");
 		k_mutex_unlock(&protocol_lock);
@@ -470,6 +515,7 @@ static ssize_t write_secure_data(
 	struct bt_conn *job_ref;
 	struct bt_conn *failed_job_ref = NULL;
 	const uint8_t *data = buf;
+	bool use_phase7 = false;
 	int ret;
 
 	ARG_UNUSED(attr);
@@ -477,7 +523,7 @@ static ssize_t write_secure_data(
 
 	if (offset != 0U) {
 		LOG_ERR(
-			"Phase 6 secure write has invalid ATT offset: %u",
+			"Secure Data write has invalid ATT offset: %u",
 			offset);
 
 		return BT_GATT_ERR(
@@ -486,11 +532,12 @@ static ssize_t write_secure_data(
 
 	if (data == NULL ||
 	    len < PQ_SECURE_FIXED_OVERHEAD ||
-	    len >
-		    PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE) {
+	    len > MAX(
+		    PQ_MLKEM_PHASE6_MAX_SECURE_WIRE_SIZE,
+		    PQ_MLKEM_PHASE7_MAX_SECURE_WIRE_SIZE)) {
 
 		LOG_ERR(
-			"Phase 6 secure write has invalid length: %u",
+			"Secure Data write has invalid length: %u",
 			len);
 
 		return BT_GATT_ERR(
@@ -503,36 +550,66 @@ static ssize_t write_secure_data(
 
 	if (conn != current_conn) {
 		LOG_ERR(
-			"Phase 6 secure write rejected: stale connection");
+			"Secure Data write rejected: "
+			"stale connection");
 
-		k_mutex_unlock(&protocol_lock);
+		k_mutex_unlock(
+			&protocol_lock);
 
 		return BT_GATT_ERR(
 			BT_ATT_ERR_WRITE_REQ_REJECTED);
 	}
 
-	/*
-	 * Notifications are required because Checkpoint 2 returns a
-	 * PQS6 control ACK after the worker authenticates the frame.
-	 */
 	if (!notify_enabled) {
 		LOG_ERR(
-			"Phase 6 secure write rejected: notifications disabled");
+			"Secure Data write rejected: "
+			"notifications disabled");
 
-		k_mutex_unlock(&protocol_lock);
+		k_mutex_unlock(
+			&protocol_lock);
 
 		return BT_GATT_ERR(
 			BT_ATT_ERR_CCC_IMPROPER_CONF);
 	}
 
-	if (phase5_state !=
-	    PHASE5_STATE_AUTHENTICATED) {
+	/*
+	 * Prefer the explicitly authenticated v0.7 state.
+	 * Phase 5/6 remains completely independent.
+	 */
+	if (phase7_state ==
+	    PHASE7_STATE_AUTHENTICATED) {
+
+		use_phase7 = true;
+
+	} else if (
+		phase7_state !=
+			PHASE7_STATE_IDLE) {
 
 		LOG_WRN(
-			"Phase 6 secure write rejected in state %s",
-			phase5_state_name(phase5_state));
+			"Secure Data write rejected: "
+			"Phase 7 state %s",
+			phase7_state_name(
+				phase7_state));
 
-		k_mutex_unlock(&protocol_lock);
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_WRITE_REQ_REJECTED);
+
+	} else if (
+		phase5_state ==
+			PHASE5_STATE_AUTHENTICATED) {
+
+		use_phase7 = false;
+
+	} else {
+		LOG_WRN(
+			"Secure Data write rejected: "
+			"no authenticated application session");
+
+		k_mutex_unlock(
+			&protocol_lock);
 
 		return BT_GATT_ERR(
 			BT_ATT_ERR_WRITE_REQ_REJECTED);
@@ -543,36 +620,52 @@ static ssize_t write_secure_data(
 		    CIPHERTEXT_CRYPTO_BUSY) {
 
 		LOG_WRN(
-			"Phase 6 secure write rejected: crypto worker busy");
+			"Secure Data write rejected: "
+			"crypto worker busy");
 
-		k_mutex_unlock(&protocol_lock);
+		k_mutex_unlock(
+			&protocol_lock);
 
 		return BT_GATT_ERR(
 			BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 	}
 
-	job_ref = bt_conn_ref(conn);
+	job_ref =
+		bt_conn_ref(conn);
 
 	if (job_ref == NULL) {
-		k_mutex_unlock(&protocol_lock);
+		k_mutex_unlock(
+			&protocol_lock);
 
 		return BT_GATT_ERR(
 			BT_ATT_ERR_WRITE_REQ_REJECTED);
 	}
 
 	crypto_job_conn = job_ref;
+
 	crypto_job_generation =
 		connection_generation;
-
-	phase5_state =
-		PHASE5_STATE_PHASE6_RX_BUSY;
 
 	ciphertext_state =
 		CIPHERTEXT_CRYPTO_BUSY;
 
-	ret = pq_mlkem_session_submit_phase6_c2p(
-		data,
-		len);
+	if (use_phase7) {
+		phase7_state =
+			PHASE7_STATE_DATA_BUSY;
+
+		ret =
+			pq_mlkem_session_submit_phase7_c2p(
+				data,
+				len);
+	} else {
+		phase5_state =
+			PHASE5_STATE_PHASE6_RX_BUSY;
+
+		ret =
+			pq_mlkem_session_submit_phase6_c2p(
+				data,
+				len);
+	}
 
 	if (ret != 0) {
 		failed_job_ref =
@@ -580,18 +673,28 @@ static ssize_t write_secure_data(
 
 		crypto_job_conn = NULL;
 
-		phase5_state =
-			PHASE5_STATE_AUTHENTICATED;
-
 		ciphertext_state =
 			CIPHERTEXT_EMPTY;
 
-		k_mutex_unlock(&protocol_lock);
+		if (use_phase7) {
+			phase7_state =
+				PHASE7_STATE_AUTHENTICATED;
+		} else {
+			phase5_state =
+				PHASE5_STATE_AUTHENTICATED;
+		}
 
-		bt_conn_unref(failed_job_ref);
+		k_mutex_unlock(
+			&protocol_lock);
+
+		bt_conn_unref(
+			failed_job_ref);
 
 		LOG_ERR(
-			"Could not schedule Phase 6 secure RX: %d",
+			"Could not schedule %s secure RX: %d",
+			use_phase7 ?
+				"Phase 7" :
+				"Phase 6",
 			ret);
 
 		return BT_GATT_ERR(
@@ -601,10 +704,14 @@ static ssize_t write_secure_data(
 	}
 
 	LOG_INF(
-		"Phase 6 C->P secure write accepted: %u B",
+		"%s C->P secure write accepted: %u B",
+		use_phase7 ?
+			"Phase 7" :
+			"Phase 6",
 		len);
 
-	k_mutex_unlock(&protocol_lock);
+	k_mutex_unlock(
+		&protocol_lock);
 
 	return len;
 }
@@ -613,7 +720,8 @@ static ssize_t handle_start(
 	struct bt_conn *conn,
 	uint16_t len,
 	enum pq_mlkem_job_mode mode,
-	const uint8_t *session_id)
+	const uint8_t *session_id,
+	const uint8_t *central_public_key)
 {
 	struct bt_conn *failed_job_ref = NULL;
 	struct bt_conn *job_ref;
@@ -640,11 +748,32 @@ static ssize_t handle_start(
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
 	}
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 &&
+	    bt_gatt_get_mtu(conn) < PQ_PHASE7_READY7_CP2_FRAME_SIZE + 3U) {
+		LOG_ERR("START7 rejected: CP2 requires ATT MTU >= 108 (got %u)",
+			bt_gatt_get_mtu(conn));
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 	if (phase5_state != PHASE5_STATE_IDLE) {
 		LOG_WRN("START rejected: Phase 5 state %s",
 			phase5_state_name(phase5_state));
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
+	if (phase7_state !=
+		PHASE7_STATE_IDLE) {
+
+		LOG_WRN(
+			"START rejected: Phase 7 state %s",
+			phase7_state_name(
+				phase7_state));
+
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 	}
 	if (ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
 		LOG_WRN("START rejected: state CRYPTO_BUSY "
@@ -685,8 +814,18 @@ static ssize_t handle_start(
 	crypto_job_conn = job_ref;
 	crypto_job_generation = connection_generation;
 	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
+	
+	if (mode == PQ_MLKEM_JOB_PHASE7_AUTH_START) {
+		ret = pq_mlkem_session_submit_phase7_auth(
+				ciphertext,
+				sizeof(ciphertext),
+				session_id,
+				central_public_key);
 
-	if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
+	} else if ( mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+		ret = pq_mlkem_session_submit_phase7_cp2(
+			ciphertext, sizeof(ciphertext), session_id, central_public_key);
+	} else if (mode == PQ_MLKEM_JOB_PHASE3_SECURE) {
 		ret = pq_mlkem_session_submit_secure(
 			ciphertext,
 			sizeof(ciphertext),
@@ -715,7 +854,9 @@ static ssize_t handle_start(
 				   BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
 				   BT_ATT_ERR_UNLIKELY);
 	}
-	if (mode == PQ_MLKEM_JOB_PHASE5_START) {
+	if (mode == PQ_MLKEM_JOB_PHASE7_AUTH_START) {
+		phase7_state = PHASE7_STATE_CRYPTO_BUSY;
+	} else if ( mode == PQ_MLKEM_JOB_PHASE5_START) {
 		phase5_state = PHASE5_STATE_CRYPTO_BUSY;
 	}
 
@@ -723,6 +864,8 @@ static ssize_t handle_start(
 	clear_transfer_storage_locked();
 	LOG_INF(
 		"Ciphertext state: CRYPTO_BUSY; %s consumed CT_READY job",
+		mode == PQ_MLKEM_JOB_PHASE7_AUTH_START ? "START7_AUTH" :
+		mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 ? "START7" :
 		mode == PQ_MLKEM_JOB_PHASE5_START ? "START5" :
 		mode == PQ_MLKEM_JOB_PHASE3_SECURE ? "START3" : "START");
 	k_mutex_unlock(&protocol_lock);
@@ -804,6 +947,103 @@ static ssize_t write_secure_data(
 	uint16_t offset,
 	uint8_t flags);
 
+static ssize_t handle_phase7_finished_c(
+	struct bt_conn *conn,
+	uint16_t len,
+	const uint8_t *payload)
+{
+	struct bt_conn *job_ref;
+	struct bt_conn *failed_ref = NULL;
+	int ret;
+
+	k_mutex_lock(
+		&protocol_lock,
+		K_FOREVER);
+
+	if (conn != current_conn ||
+	    !notify_enabled) {
+
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+
+	if (phase7_state !=
+		    PHASE7_STATE_WAIT_FINISHED_C ||
+	    crypto_job_conn != NULL) {
+
+		LOG_WRN(
+			"Phase 7 FINISHED_C rejected "
+			"in state %s",
+			phase7_state_name(
+				phase7_state));
+
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
+	job_ref =
+		bt_conn_ref(conn);
+
+	if (job_ref == NULL) {
+		k_mutex_unlock(
+			&protocol_lock);
+
+		return BT_GATT_ERR(
+			BT_ATT_ERR_WRITE_REQ_REJECTED);
+	}
+
+	crypto_job_conn =
+		job_ref;
+
+	crypto_job_generation =
+		connection_generation;
+
+	phase7_state =
+		PHASE7_STATE_FINISHED_BUSY;
+
+	ciphertext_state =
+		CIPHERTEXT_CRYPTO_BUSY;
+
+	ret =
+		pq_mlkem_session_submit_phase7_finished_c(
+			payload);
+
+	if (ret != 0) {
+		failed_ref =
+			crypto_job_conn;
+
+		crypto_job_conn = NULL;
+
+		phase7_state =
+			PHASE7_STATE_WAIT_FINISHED_C;
+
+		ciphertext_state =
+			CIPHERTEXT_EMPTY;
+
+		k_mutex_unlock(
+			&protocol_lock);
+
+		bt_conn_unref(
+			failed_ref);
+
+		return BT_GATT_ERR(
+			ret == -EBUSY ?
+			BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
+			BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
+	k_mutex_unlock(
+		&protocol_lock);
+
+	return len;
+}
+
 static ssize_t write_control(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr,
 			     const void *buf, uint16_t len,
@@ -823,12 +1063,52 @@ static ssize_t write_control(struct bt_conn *conn,
 
 	LOG_INF("Control write: len=%u", len);
 
+	if (len >= PQ_PHASE7_FRAME_MAGIC_SIZE &&
+	    memcmp(data, PQ_PHASE7_FRAME_MAGIC, PQ_PHASE7_FRAME_MAGIC_SIZE) == 0) {
+		if (pq_phase7_parse_frame(data, len, &subtype, &payload, &payload_len) != 0) {
+			LOG_ERR("Malformed Phase 7 control frame");
+			return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		}
+		if (subtype == PQ_PHASE7_START7) {
+			LOG_INF("START7 received");
+			return handle_start(
+				conn,
+				len,
+				PQ_MLKEM_JOB_PHASE7_HYBRID_CP2,
+				payload,
+				payload +
+					PQ_PHASE7_SESSION_ID_SIZE);
+		}
+		if (subtype == PQ_PHASE7_START7_AUTH) {
+			LOG_INF("START7_AUTH received");
+
+			return handle_start(
+				conn,
+				len,
+				PQ_MLKEM_JOB_PHASE7_AUTH_START,
+				payload,
+				payload +
+					PQ_PHASE7_SESSION_ID_SIZE);
+		}
+
+		if (subtype == PQ_PHASE7_FINISHED_C && payload_len == PQ_PHASE7_FINISHED_SIZE) {
+			LOG_INF(
+				"Phase 7 FINISHED_C received");
+			return handle_phase7_finished_c(
+				conn,
+				len,
+				payload);
+		}
+
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+
 	if (len == CTRL_START5_MESSAGE_LEN &&
 	    memcmp(data, CTRL_START5, CTRL_START5_LEN) == 0) {
 		LOG_INF("START5 received");
 		return handle_start(
 			conn, len, PQ_MLKEM_JOB_PHASE5_START,
-			data + CTRL_START5_LEN);
+			data + CTRL_START5_LEN, NULL);
 	}
 
 	if (len >= PQ_PHASE5_FRAME_HEADER_SIZE &&
@@ -864,7 +1144,7 @@ static ssize_t write_control(struct bt_conn *conn,
 			conn,
 			len,
 			PQ_MLKEM_JOB_PHASE3_SECURE,
-			data + CTRL_START3_LEN);
+			data + CTRL_START3_LEN, NULL);
 	}
 
 	if (len == CTRL_START_LEN &&
@@ -876,7 +1156,7 @@ static ssize_t write_control(struct bt_conn *conn,
 			conn,
 			len,
 			PQ_MLKEM_JOB_PHASE2_DIAGNOSTIC,
-			NULL);
+			NULL, NULL);
 	}
 
 	if (len == (RESUME_MAGIC_LEN + 1U + 16U) &&
@@ -891,26 +1171,103 @@ static ssize_t write_control(struct bt_conn *conn,
 	return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
 }
 
-static void ccc_config_changed(const struct bt_gatt_attr *attr, uint16_t value)
+static void ccc_config_changed(
+	const struct bt_gatt_attr *attr,
+	uint16_t value)
 {
 	bool enabled;
 	bool reset_phase5 = false;
+	bool reset_phase7 = false;
 
 	ARG_UNUSED(attr);
 
-	k_mutex_lock(&protocol_lock, K_FOREVER);
-	notify_enabled = (value == BT_GATT_CCC_NOTIFY);
-	enabled = notify_enabled;
-	if (!enabled && phase5_state != PHASE5_STATE_IDLE) {
-		phase5_state = PHASE5_STATE_IDLE;
+	k_mutex_lock(
+		&protocol_lock,
+		K_FOREVER);
+
+	notify_enabled =
+		(value == BT_GATT_CCC_NOTIFY);
+
+	enabled =
+		notify_enabled;
+
+	if (!enabled &&
+	    phase5_state !=
+		    PHASE5_STATE_IDLE) {
+
+		phase5_state =
+			PHASE5_STATE_IDLE;
+
 		reset_phase5 = true;
 	}
-	k_mutex_unlock(&protocol_lock);
+
+	if (!enabled &&
+	    phase7_state !=
+		    PHASE7_STATE_IDLE) {
+
+		phase7_state =
+			PHASE7_STATE_IDLE;
+
+		reset_phase7 = true;
+	}
+
+	k_mutex_unlock(
+		&protocol_lock);
+
 	if (reset_phase5) {
 		pq_mlkem_session_reset_phase5();
 	}
 
-	LOG_INF("Notifications %s", enabled ? "ENABLED" : "DISABLED");
+	if (reset_phase7) {
+		pq_mlkem_session_reset_phase7();
+	}
+
+	LOG_INF(
+		"Notifications %s",
+		enabled ?
+			"ENABLED" :
+			"DISABLED");
+}
+
+/* Called only with the originating, generation-checked connection reference. */
+static void notify_phase7_cp2_result(
+	struct bt_conn *conn, enum pq_mlkem_diagnostic_status status,
+	const uint8_t *wire, size_t wire_len)
+{
+	uint8_t error[PQ_PHASE7_ERROR_FRAME_SIZE];
+	uint8_t status_byte = (uint8_t)status;
+	uint8_t subtype;
+	const uint8_t *payload;
+	size_t payload_len;
+	size_t error_len = 0U;
+	int ret;
+
+	if (status == PQ_MLKEM_STATUS_SUCCESS) {
+		if (pq_phase7_parse_frame(wire, wire_len, &subtype,
+					 &payload, &payload_len) != 0 ||
+		    subtype != PQ_PHASE7_READY7_CP2 ||
+		    bt_gatt_get_mtu(conn) < PQ_PHASE7_READY7_CP2_FRAME_SIZE + 3U) {
+			status_byte = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+		} else {
+			ret = bt_gatt_notify(conn, &pq_service.attrs[6], wire, wire_len);
+			if (ret == 0) {
+				LOG_INF("Phase 7 READY7_CP2 notification sent: %zu B", wire_len);
+				return;
+			}
+			LOG_ERR("Phase 7 READY7_CP2 notification failure: %d", ret);
+			status_byte = PQ_MLKEM_STATUS_SECURE_CHANNEL_FAILURE;
+		}
+	}
+	ret = pq_phase7_encode_frame(PQ_PHASE7_ERROR, &status_byte, 1U,
+		error, sizeof(error), &error_len);
+	if (ret == 0) {
+		ret = bt_gatt_notify(conn, &pq_service.attrs[6], error, error_len);
+	}
+	if (ret != 0) {
+		LOG_ERR("Phase 7 ERROR notification failure: %d", ret);
+	} else {
+		LOG_INF("Phase 7 ERROR sent: status 0x%02x", status_byte);
+	}
 }
 
 static void mlkem_result_ready(
@@ -920,6 +1277,21 @@ static void mlkem_result_ready(
 	const uint8_t *secure_wire,
 	size_t secure_wire_len)
 {
+	uint8_t phase7_error[PQ_PHASE7_ERROR_FRAME_SIZE];
+	uint8_t phase7_status_byte = (uint8_t)status;
+	size_t phase7_error_len = 0U;
+
+	uint8_t phase7_subtype;
+	const uint8_t *phase7_payload;
+	size_t phase7_payload_len;
+
+	bool is_phase7_auth = 
+		mode == PQ_MLKEM_JOB_PHASE7_AUTH_START ||
+		mode == PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C;
+	bool is_phase7_app =
+		mode ==PQ_MLKEM_JOB_PHASE7_APP_C2P;
+
+	bool phase7_result_valid = false;
 	uint8_t result[PQ_MLKEM_DIAGNOSTIC_SIZE] = {
 		PQM2_MAGIC[0], PQM2_MAGIC[1], PQM2_MAGIC[2], PQM2_MAGIC[3],
 		(uint8_t)status, 0U, 0U, 0U, 0U,
@@ -978,8 +1350,7 @@ static void mlkem_result_ready(
 		} else if (mode == PQ_MLKEM_JOB_PHASE5_DATA &&
 			   secure_wire_len == PQ_SECURE_TEST_WIRE_SIZE) {
 			phase5_result_valid = true;
-		} else if (
-			mode == PQ_MLKEM_JOB_PHASE6_C2P &&
+		} else if (mode == PQ_MLKEM_JOB_PHASE6_C2P && 
 			secure_wire_len >=
 				PQ_SECURE_FIXED_OVERHEAD &&
 			secure_wire_len <=
@@ -993,6 +1364,40 @@ static void mlkem_result_ready(
 			 * notifications.
 			 */
 			phase6_result_valid = true;
+		} else if (
+			mode == PQ_MLKEM_JOB_PHASE7_AUTH_START &&
+			pq_phase7_parse_frame(
+				secure_wire,
+				secure_wire_len,
+				&phase7_subtype,
+				&phase7_payload,
+				&phase7_payload_len) == 0 &&
+			phase7_subtype == PQ_PHASE7_READY7_AUTH &&
+			phase7_payload_len == PQ_PHASE7_P256_PUBLIC_KEY_SIZE) {
+
+			phase7_result_valid = true;
+
+		} else if (
+			mode == PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C &&
+			pq_phase7_parse_frame(
+				secure_wire,
+				secure_wire_len,
+				&phase7_subtype,
+				&phase7_payload,
+				&phase7_payload_len) == 0 &&
+			phase7_subtype == PQ_PHASE7_FINISHED_P &&
+			phase7_payload_len == PQ_PHASE7_FINISHED_SIZE) {
+
+			phase7_result_valid = true;
+		} else if (
+			mode ==
+				PQ_MLKEM_JOB_PHASE7_APP_C2P &&
+			secure_wire_len >=
+				PQ_SECURE_FIXED_OVERHEAD &&
+			secure_wire_len <=
+				PQ_MLKEM_PHASE7_MAX_SECURE_WIRE_SIZE) {
+
+			phase7_result_valid = true;
 		}
 	}
 
@@ -1011,35 +1416,39 @@ static void mlkem_result_ready(
 	}
 	if (is_phase6) {
 		if (!connection_is_current) {
-			phase5_state =
-				PHASE5_STATE_IDLE;
+			phase5_state = PHASE5_STATE_IDLE;
 		} else {
 			/*
 			* An invalid application frame does not destroy the already
 			* authenticated handshake. Replay/authentication state is
 			* updated only by the worker after successful GCM.
 			*/
-			phase5_state =
-				PHASE5_STATE_AUTHENTICATED;
+			phase5_state = PHASE5_STATE_AUTHENTICATED;
+		}
+	} else if (is_phase7_app) {
+		if (!connection_is_current) {
+			phase7_state =
+				PHASE7_STATE_IDLE;
+		} else {
+			/*
+			 * Authentication/replay failure of one app frame
+			 * does not destroy the authenticated handshake.
+			 */
+			phase7_state =
+				PHASE7_STATE_AUTHENTICATED;
 		}
 	} else if (is_phase5) {
 		if (!connection_is_current ||
 			!phase5_result_valid) {
-			phase5_state =
-				PHASE5_STATE_IDLE;
+			phase5_state = PHASE5_STATE_IDLE;
 		} else if (
-			mode ==
-			PQ_MLKEM_JOB_PHASE5_START) {
-			phase5_state =
-				PHASE5_STATE_WAIT_FINISHED_C;
+			mode == PQ_MLKEM_JOB_PHASE5_START) {
+			phase5_state = PHASE5_STATE_WAIT_FINISHED_C;
 		} else if (
-			mode ==
-			PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
-			phase5_state =
-				PHASE5_STATE_AUTHENTICATED;
+			mode == PQ_MLKEM_JOB_PHASE5_FINISHED_C) {
+			phase5_state = PHASE5_STATE_AUTHENTICATED;
 		} else {
-			phase5_state =
-				PHASE5_STATE_IDLE;
+			phase5_state = PHASE5_STATE_IDLE;
 		}
 	}
 
@@ -1054,6 +1463,200 @@ static void mlkem_result_ready(
 	if (!connection_is_current) {
 		LOG_WRN("ML-KEM result discarded: originating connection is stale");
 		bt_conn_unref(job_conn);
+		return;
+	}
+
+	if (mode == PQ_MLKEM_JOB_PHASE7_HYBRID_CP2) {
+		/* CP2 leaves phase5_state IDLE and retains no Phase 7 app keys. */
+		notify_phase7_cp2_result(job_conn, status, secure_wire, secure_wire_len);
+		bt_conn_unref(job_conn);
+		return;
+	}
+
+	if (is_phase7_auth) {
+		if (phase7_result_valid) {
+			err = bt_gatt_notify(
+				job_conn,
+				&pq_service.attrs[6],
+				secure_wire,
+				secure_wire_len);
+		} else {
+			(void)pq_phase7_encode_frame(
+				PQ_PHASE7_ERROR,
+				&phase7_status_byte,
+				1U,
+				phase7_error,
+				sizeof(phase7_error),
+				&phase7_error_len);
+
+			err = bt_gatt_notify(
+				job_conn,
+				&pq_service.attrs[6],
+				phase7_error,
+				phase7_error_len);
+		}
+
+		if (err != 0 ||
+			!phase7_result_valid) {
+
+			LOG_ERR(
+				"Phase 7 authenticated "
+				"result delivery failed");
+
+			k_mutex_lock(
+				&protocol_lock,
+				K_FOREVER);
+
+			if (job_conn ==
+				current_conn) {
+				phase7_state =
+					PHASE7_STATE_IDLE;
+			}
+
+			k_mutex_unlock(
+				&protocol_lock);
+
+			pq_mlkem_session_reset_phase7();
+
+		} else if (
+			mode ==
+			PQ_MLKEM_JOB_PHASE7_AUTH_START) {
+
+			k_mutex_lock(
+				&protocol_lock,
+				K_FOREVER);
+
+			if (job_conn ==
+				current_conn) {
+				phase7_state =
+					PHASE7_STATE_WAIT_FINISHED_C;
+			}
+
+			k_mutex_unlock(
+				&protocol_lock);
+
+			LOG_INF(
+				"Phase 7 READY7_AUTH "
+				"notification sent: %zu B",
+				secure_wire_len);
+
+		} else {
+			/*
+			 * FINISHED_P has now been successfully queued.
+			 * Only now promote pending traffic keys to ACTIVE.
+			 */
+			err =
+				pq_mlkem_session_commit_phase7_authenticated();
+
+			if (err != 0) {
+				LOG_ERR(
+					"Phase 7 authenticated "
+					"traffic-key commit failed: %d",
+					err);
+
+				k_mutex_lock(
+					&protocol_lock,
+					K_FOREVER);
+
+				if (job_conn ==
+				    current_conn) {
+					phase7_state =
+						PHASE7_STATE_IDLE;
+				}
+
+				k_mutex_unlock(
+					&protocol_lock);
+
+				pq_mlkem_session_reset_phase7();
+
+			} else {
+				k_mutex_lock(
+					&protocol_lock,
+					K_FOREVER);
+
+				if (job_conn ==
+				    current_conn) {
+					phase7_state =
+						PHASE7_STATE_AUTHENTICATED;
+				}
+
+				k_mutex_unlock(
+					&protocol_lock);
+
+				LOG_INF(
+					"Phase 7 authenticated "
+					"hybrid state reached");
+			}
+		}
+
+		bt_conn_unref(
+			job_conn);
+
+		return;
+	}
+
+	if (is_phase7_app) {
+		if (phase7_result_valid) {
+			err = bt_gatt_notify(
+				job_conn,
+				&pq_service.attrs[6],
+				secure_wire,
+				secure_wire_len);
+		} else {
+			(void)pq_phase7_encode_frame(
+				PQ_PHASE7_ERROR,
+				&phase7_status_byte,
+				1U,
+				phase7_error,
+				sizeof(phase7_error),
+				&phase7_error_len);
+
+			err = bt_gatt_notify(
+				job_conn,
+				&pq_service.attrs[6],
+				phase7_error,
+				phase7_error_len);
+		}
+
+		if (err != 0) {
+			LOG_ERR(
+				"Phase 7 application "
+				"notification failure: %d",
+				err);
+
+			k_mutex_lock(
+				&protocol_lock,
+				K_FOREVER);
+
+			if (job_conn ==
+			    current_conn) {
+				phase7_state =
+					PHASE7_STATE_IDLE;
+			}
+
+			k_mutex_unlock(
+				&protocol_lock);
+
+			pq_mlkem_session_reset_phase7();
+
+		} else if (
+			phase7_result_valid) {
+
+			LOG_INF(
+				"Phase 7 P->C encrypted response "
+				"notification sent: %zu B",
+				secure_wire_len);
+
+		} else {
+			LOG_INF(
+				"Phase 7 application ERROR sent: "
+				"status 0x%02x",
+				status);
+		}
+
+		bt_conn_unref(
+			job_conn);
+
 		return;
 	}
 
@@ -1221,12 +1824,14 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	generation = connection_generation;
 	notify_enabled = false;
 	phase5_state = PHASE5_STATE_IDLE;
+	phase7_state = PHASE7_STATE_IDLE;
 	if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
 		clear_transfer_storage_locked();
 		ciphertext_state = CIPHERTEXT_EMPTY;
 	}
 	k_mutex_unlock(&protocol_lock);
 	pq_mlkem_session_reset_phase5();
+	pq_mlkem_session_reset_phase7();
 
 	if (old_current != NULL) {
 		bt_conn_unref(old_current);
@@ -1239,6 +1844,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	struct bt_conn *current_ref = NULL;
 	struct bt_conn *job_ref = NULL;
 	bool reset_phase5 = false;
+	bool reset_phase7 = false;
 
 	LOG_INF("Disconnected (reason %u)", reason);
 
@@ -1249,7 +1855,9 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		connection_generation++;
 		notify_enabled = false;
 		phase5_state = PHASE5_STATE_IDLE;
+		phase7_state = PHASE7_STATE_IDLE;
 		reset_phase5 = true;
+		reset_phase7 = true;
 		clear_transfer_storage_locked();
 		if (ciphertext_state != CIPHERTEXT_CRYPTO_BUSY) {
 			ciphertext_state = CIPHERTEXT_EMPTY;
@@ -1259,10 +1867,14 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		job_ref = crypto_job_conn;
 		crypto_job_conn = NULL;
 		reset_phase5 = true;
+		reset_phase7 = true;
 	}
 	k_mutex_unlock(&protocol_lock);
 	if (reset_phase5) {
 		pq_mlkem_session_reset_phase5();
+	}
+	if (reset_phase7) {
+		pq_mlkem_session_reset_phase7();
 	}
 
 	if (job_ref != NULL) {
@@ -1305,7 +1917,7 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
-	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL");
+	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL + PHASE7_HYBRID_CP2 + PHASE7_AUTH_CP3");
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 
@@ -1321,6 +1933,14 @@ void main(void)
 	err = pq_mlkem_session_init(mlkem_result_ready);
 	if (err != 0) {
 		LOG_ERR("ML-KEM keypair initialization failed: %d; "
+			"Bluetooth will not start", err);
+		return;
+	}
+
+	/* pq_mlkem_session_init() has already initialized PSA Crypto. */
+	err = pq_phase7_self_test();
+	if (err != 0) {
+		LOG_ERR("Phase 7 cryptographic startup self-test failed: %d; "
 			"Bluetooth will not start", err);
 		return;
 	}

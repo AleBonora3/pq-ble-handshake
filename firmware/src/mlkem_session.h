@@ -10,6 +10,7 @@
 #include <mlkem_native.h>
 
 #include "pq_phase5.h"
+#include "pq_phase7.h"
 #include "pq_secure_channel.h"
 
 
@@ -36,6 +37,15 @@
 	(PQ_MLKEM_PHASE6_MAX_PLAINTEXT_SIZE + \
 	 PQ_SECURE_FIXED_OVERHEAD)
 
+/*
+ * v0.7 authenticated application traffic uses the same
+ * generic AES-256-GCM wire as Phase 6, but independent keys/state.
+ */
+#define PQ_MLKEM_PHASE7_MAX_PLAINTEXT_SIZE 64U
+
+#define PQ_MLKEM_PHASE7_MAX_SECURE_WIRE_SIZE \
+	(PQ_MLKEM_PHASE7_MAX_PLAINTEXT_SIZE + \
+	 PQ_SECURE_FIXED_OVERHEAD)
 
 enum pq_mlkem_diagnostic_status {
 	PQ_MLKEM_STATUS_SUCCESS = 0x00,
@@ -55,6 +65,10 @@ enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_PHASE5_FINISHED_C = 3,
 	PQ_MLKEM_JOB_PHASE5_DATA = 4,
 	PQ_MLKEM_JOB_PHASE6_C2P = 5,
+	PQ_MLKEM_JOB_PHASE7_HYBRID_CP2 = 6,
+	PQ_MLKEM_JOB_PHASE7_AUTH_START = 7,
+	PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C = 8,
+	PQ_MLKEM_JOB_PHASE7_APP_C2P = 9,
 };
 
 
@@ -102,6 +116,43 @@ int pq_mlkem_session_submit_phase5(
 	size_t ciphertext_len,
 	const uint8_t session_id[PQ_PHASE5_SESSION_ID_SIZE]);
 
+/* CT/session/peer public key are copied; heavy crypto executes in the worker. */
+int pq_mlkem_session_submit_phase7_cp2(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t session_id[PQ_PHASE7_SESSION_ID_SIZE],
+	const uint8_t central_public_key[PQ_PHASE7_P256_PUBLIC_KEY_SIZE]);
+
+int pq_mlkem_session_submit_phase7_auth(
+	const uint8_t *ciphertext,
+	size_t ciphertext_len,
+	const uint8_t session_id[
+		PQ_PHASE7_SESSION_ID_SIZE],
+	const uint8_t central_public_key[
+		PQ_PHASE7_P256_PUBLIC_KEY_SIZE]);
+
+int pq_mlkem_session_submit_phase7_finished_c(
+	const uint8_t finished_c[
+		PQ_PHASE7_FINISHED_SIZE]);
+
+		/*
+ * Called only after FINISHED_P has been successfully queued
+ * to the originating live BLE connection.
+ *
+ * No cryptography is performed here: it atomically promotes
+ * already-derived pending v0.7 traffic keys to active state.
+ */
+int pq_mlkem_session_commit_phase7_authenticated(void);
+
+
+/*
+ * Submit one authenticated v0.7 Central -> Peripheral
+ * application frame to the crypto worker.
+ */
+int pq_mlkem_session_submit_phase7_c2p(
+	const uint8_t *secure_wire,
+	size_t secure_wire_len);
+	
+void pq_mlkem_session_reset_phase7(void);
 
 int pq_mlkem_session_submit_phase5_finished_c(
 	const uint8_t finished_c[PQ_PHASE5_FINISHED_SIZE]);
@@ -123,7 +174,8 @@ int pq_mlkem_session_submit_phase6_c2p(
 
 /*
  * Cancel the current authenticated epoch and wipe all retained Phase 5/6
- * session material.
+ * session material. Also invalidates pending/running CP2 jobs; the worker
+ * wipes their temporary buffers before delivery, without retaining keys.
  */
 void pq_mlkem_session_reset_phase5(void);
 
