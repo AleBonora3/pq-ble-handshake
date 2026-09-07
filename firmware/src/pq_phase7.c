@@ -84,25 +84,71 @@ BUILD_ASSERT(PQ_PHASE7_READY7_CP2_FRAME_SIZE ==
 	PQ_PHASE7_FRAME_HEADER_SIZE + PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE);
 BUILD_ASSERT(PQ_PHASE7_ERROR_FRAME_SIZE == PQ_PHASE7_FRAME_HEADER_SIZE + 1U);
 
-/* Keep GATT parsing cheap. PSA point validation belongs to the worker. */
-static bool valid_cp2_payload(uint8_t subtype, const uint8_t *payload,
-			      size_t payload_len)
+BUILD_ASSERT(
+	PQ_PHASE7_START7_AUTH_PAYLOAD_SIZE ==
+		PQ_PHASE7_SESSION_ID_SIZE +
+		PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+
+BUILD_ASSERT(
+	PQ_PHASE7_START7_AUTH_FRAME_SIZE ==
+		PQ_PHASE7_FRAME_HEADER_SIZE +
+		PQ_PHASE7_START7_AUTH_PAYLOAD_SIZE);
+
+BUILD_ASSERT(
+	PQ_PHASE7_READY7_AUTH_FRAME_SIZE ==
+		PQ_PHASE7_FRAME_HEADER_SIZE +
+		PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+
+BUILD_ASSERT(
+	PQ_PHASE7_FINISHED_FRAME_SIZE ==
+		PQ_PHASE7_FRAME_HEADER_SIZE +
+		PQ_PHASE7_FINISHED_SIZE);
+
+static bool valid_phase7_payload(
+	uint8_t subtype,
+	const uint8_t *payload,
+	size_t payload_len)
 {
 	if (payload == NULL) {
 		return false;
 	}
+
 	switch (subtype) {
 	case PQ_PHASE7_START7:
-		return payload_len == PQ_PHASE7_START7_PAYLOAD_SIZE &&
+	case PQ_PHASE7_START7_AUTH:
+		return
+			payload_len ==
+				PQ_PHASE7_START7_PAYLOAD_SIZE &&
 			valid_sec1_public_key_shape(
-				payload + PQ_PHASE7_SESSION_ID_SIZE,
+				payload +
+					PQ_PHASE7_SESSION_ID_SIZE,
 				PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+
 	case PQ_PHASE7_READY7_CP2:
-		return payload_len == PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE &&
-			valid_sec1_public_key_shape(payload,
+		return
+			payload_len ==
+				PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE &&
+			valid_sec1_public_key_shape(
+				payload,
 				PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+
+	case PQ_PHASE7_READY7_AUTH:
+		return
+			payload_len ==
+				PQ_PHASE7_READY7_AUTH_PAYLOAD_SIZE &&
+			valid_sec1_public_key_shape(
+				payload,
+				PQ_PHASE7_P256_PUBLIC_KEY_SIZE);
+
+	case PQ_PHASE7_FINISHED_C:
+	case PQ_PHASE7_FINISHED_P:
+		return
+			payload_len ==
+				PQ_PHASE7_FINISHED_SIZE;
+
 	case PQ_PHASE7_ERROR:
 		return payload_len == 1U;
+
 	default:
 		return false;
 	}
@@ -116,7 +162,7 @@ int pq_phase7_encode_frame(
 		return -EINVAL;
 	}
 	*output_len = 0U;
-	if (output == NULL || !valid_cp2_payload(subtype, payload, payload_len)) {
+	if (output == NULL || !valid_phase7_payload(subtype, payload, payload_len)) {
 		return -EINVAL;
 	}
 	if (output_capacity < PQ_PHASE7_FRAME_HEADER_SIZE + payload_len) {
@@ -151,7 +197,7 @@ int pq_phase7_parse_frame(
 	}
 	declared_len = ((size_t)frame[6] << 8) | frame[7];
 	if (frame_len != PQ_PHASE7_FRAME_HEADER_SIZE + declared_len ||
-	    !valid_cp2_payload(frame[5], frame + PQ_PHASE7_FRAME_HEADER_SIZE,
+	    !valid_phase7_payload(frame[5], frame + PQ_PHASE7_FRAME_HEADER_SIZE,
 			       declared_len)) {
 		return -EINVAL;
 	}
@@ -736,6 +782,25 @@ int pq_phase7_compute_finished_p(
 		transcript_hash,
 		transcript_hash_len,
 		finished);
+}
+
+bool pq_phase7_finished_equal(
+	const uint8_t left[PQ_PHASE7_FINISHED_SIZE],
+	const uint8_t right[PQ_PHASE7_FINISHED_SIZE])
+{
+	volatile uint8_t diff = 0U;
+
+	if (left == NULL || right == NULL) {
+		return false;
+	}
+
+	for (size_t i = 0U;
+	     i < PQ_PHASE7_FINISHED_SIZE;
+	     ++i) {
+		diff |= left[i] ^ right[i];
+	}
+
+	return diff == 0U;
 }
 
 int pq_phase7_derive_traffic_keys(

@@ -39,17 +39,40 @@ PHASE7_SAS_MODULUS = 1_000_000
 PHASE7_FRAME_MAGIC = b"PQS7"
 PHASE7_FRAME_VERSION = 0x07
 PHASE7_FRAME_HEADER_SIZE = 8
+
+# CP2 interoperability-only path.
 PHASE7_START7 = 0x01
 PHASE7_READY7_CP2 = 0x02
+
+# CP3 authenticated-hybrid path.
+PHASE7_START7_AUTH = 0x03
+PHASE7_READY7_AUTH = 0x04
+PHASE7_FINISHED_C = 0x05
+PHASE7_FINISHED_P = 0x06
+
 PHASE7_ERROR = 0x7F
-PHASE7_CP2_DIAGNOSTIC_LABEL = b"PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+
+PHASE7_CP2_DIAGNOSTIC_LABEL = (
+    b"PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+)
 PHASE7_CP2_DIAGNOSTIC_SIZE = 32
+
 PHASE7_START7_PAYLOAD_SIZE = 81
 PHASE7_START7_FRAME_SIZE = 89
+
 PHASE7_READY7_CP2_PAYLOAD_SIZE = 97
 PHASE7_READY7_CP2_FRAME_SIZE = 105
-PHASE7_ERROR_FRAME_SIZE = 9
 
+PHASE7_START7_AUTH_PAYLOAD_SIZE = 81
+PHASE7_START7_AUTH_FRAME_SIZE = 89
+
+PHASE7_READY7_AUTH_PAYLOAD_SIZE = 65
+PHASE7_READY7_AUTH_FRAME_SIZE = 73
+
+PHASE7_FINISHED_PAYLOAD_SIZE = 32
+PHASE7_FINISHED_FRAME_SIZE = 40
+
+PHASE7_ERROR_FRAME_SIZE = 9
 # Order of NIST P-256. This is used only to reject invalid deterministic test
 # scalars before asking the cryptography backend to construct a private key.
 _P256_ORDER = int(
@@ -375,25 +398,67 @@ class Phase7Frame:
     subtype: int
     payload: bytes
 
-
-def _validate_cp2_payload(subtype: int, payload: bytes) -> None:
+def _validate_phase7_payload(
+    subtype: int,
+    payload: bytes,
+) -> None:
     sizes = {
-        PHASE7_START7: PHASE7_START7_PAYLOAD_SIZE,
-        PHASE7_READY7_CP2: PHASE7_READY7_CP2_PAYLOAD_SIZE,
-        PHASE7_ERROR: 1,
-    }
-    if subtype not in sizes:
-        raise ValueError(f"unsupported PQS7 subtype: {subtype:#x}")
-    _require_size("PQS7 payload", payload, sizes[subtype])
-    if subtype == PHASE7_START7:
-        load_p256_public_key(payload[PHASE7_SESSION_ID_SIZE:])
-    elif subtype == PHASE7_READY7_CP2:
-        load_p256_public_key(payload[:PHASE7_P256_PUBLIC_KEY_SIZE])
+        PHASE7_START7:
+            PHASE7_START7_PAYLOAD_SIZE,
 
+        PHASE7_READY7_CP2:
+            PHASE7_READY7_CP2_PAYLOAD_SIZE,
+
+        PHASE7_START7_AUTH:
+            PHASE7_START7_AUTH_PAYLOAD_SIZE,
+
+        PHASE7_READY7_AUTH:
+            PHASE7_READY7_AUTH_PAYLOAD_SIZE,
+
+        PHASE7_FINISHED_C:
+            PHASE7_FINISHED_PAYLOAD_SIZE,
+
+        PHASE7_FINISHED_P:
+            PHASE7_FINISHED_PAYLOAD_SIZE,
+
+        PHASE7_ERROR:
+            1,
+    }
+
+    if subtype not in sizes:
+        raise ValueError(
+            f"unsupported PQS7 subtype: {subtype:#x}"
+        )
+
+    _require_size(
+        "PQS7 payload",
+        payload,
+        sizes[subtype],
+    )
+
+    if subtype in (
+        PHASE7_START7,
+        PHASE7_START7_AUTH,
+    ):
+        load_p256_public_key(
+            payload[
+                PHASE7_SESSION_ID_SIZE:
+            ]
+        )
+
+    elif subtype in (
+        PHASE7_READY7_CP2,
+        PHASE7_READY7_AUTH,
+    ):
+        load_p256_public_key(
+            payload[
+                :PHASE7_P256_PUBLIC_KEY_SIZE
+            ]
+        )
 
 def encode_phase7_frame(subtype: int, payload: bytes) -> bytes:
     payload = bytes(payload)
-    _validate_cp2_payload(subtype, payload)
+    _validate_phase7_payload(subtype, payload)
     return (
         PHASE7_FRAME_MAGIC
         + bytes((PHASE7_FRAME_VERSION, subtype))
@@ -413,7 +478,7 @@ def parse_phase7_frame(data: bytes) -> Phase7Frame:
     if len(data) != PHASE7_FRAME_HEADER_SIZE + int.from_bytes(data[6:8], "big"):
         raise ValueError("incorrect PQS7 payload length")
     frame = Phase7Frame(subtype=data[5], payload=data[8:])
-    _validate_cp2_payload(frame.subtype, frame.payload)
+    _validate_phase7_payload(frame.subtype, frame.payload)
     return frame
 
 
@@ -453,6 +518,138 @@ def parse_ready7_cp2(data: bytes) -> tuple[bytes, bytes]:
         frame.payload[PHASE7_P256_PUBLIC_KEY_SIZE:],
     )
 
+def encode_start7_auth(
+    session_id: bytes,
+    central_public_key: bytes,
+) -> bytes:
+    session_id = _require_size(
+        "session_id",
+        session_id,
+        PHASE7_SESSION_ID_SIZE,
+    )
+
+    central_public_key = _require_size(
+        "Central P-256 public key",
+        central_public_key,
+        PHASE7_P256_PUBLIC_KEY_SIZE,
+    )
+
+    load_p256_public_key(
+        central_public_key
+    )
+
+    return encode_phase7_frame(
+        PHASE7_START7_AUTH,
+        session_id + central_public_key,
+    )
+
+
+def parse_start7_auth(
+    data: bytes,
+) -> tuple[bytes, bytes]:
+    frame = parse_phase7_frame(data)
+
+    if frame.subtype != PHASE7_START7_AUTH:
+        raise ValueError(
+            "expected START7_AUTH"
+        )
+
+    return (
+        frame.payload[
+            :PHASE7_SESSION_ID_SIZE
+        ],
+        frame.payload[
+            PHASE7_SESSION_ID_SIZE:
+        ],
+    )
+
+
+def encode_ready7_auth(
+    peripheral_public_key: bytes,
+) -> bytes:
+    peripheral_public_key = _require_size(
+        "Peripheral P-256 public key",
+        peripheral_public_key,
+        PHASE7_P256_PUBLIC_KEY_SIZE,
+    )
+
+    load_p256_public_key(
+        peripheral_public_key
+    )
+
+    return encode_phase7_frame(
+        PHASE7_READY7_AUTH,
+        peripheral_public_key,
+    )
+
+
+def parse_ready7_auth(
+    data: bytes,
+) -> bytes:
+    frame = parse_phase7_frame(data)
+
+    if frame.subtype != PHASE7_READY7_AUTH:
+        raise ValueError(
+            "expected READY7_AUTH"
+        )
+
+    return frame.payload
+
+
+def encode_phase7_finished_c(
+    finished: bytes,
+) -> bytes:
+    finished = _require_size(
+        "FINISHED_C",
+        finished,
+        PHASE7_FINISHED_PAYLOAD_SIZE,
+    )
+
+    return encode_phase7_frame(
+        PHASE7_FINISHED_C,
+        finished,
+    )
+
+
+def parse_phase7_finished_c(
+    data: bytes,
+) -> bytes:
+    frame = parse_phase7_frame(data)
+
+    if frame.subtype != PHASE7_FINISHED_C:
+        raise ValueError(
+            "expected FINISHED_C"
+        )
+
+    return frame.payload
+
+
+def encode_phase7_finished_p(
+    finished: bytes,
+) -> bytes:
+    finished = _require_size(
+        "FINISHED_P",
+        finished,
+        PHASE7_FINISHED_PAYLOAD_SIZE,
+    )
+
+    return encode_phase7_frame(
+        PHASE7_FINISHED_P,
+        finished,
+    )
+
+
+def parse_phase7_finished_p(
+    data: bytes,
+) -> bytes:
+    frame = parse_phase7_frame(data)
+
+    if frame.subtype != PHASE7_FINISHED_P:
+        raise ValueError(
+            "expected FINISHED_P"
+        )
+
+    return frame.payload
 
 def compute_phase7_cp2_diagnostic(
     application_key: bytes, transcript_hash: bytes

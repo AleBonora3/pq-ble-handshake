@@ -45,6 +45,11 @@ from .phase6_c2p import (
 )
 from .phase7_hybrid import run_phase7_hybrid_e2e
 
+from .phase7_auth import (
+    Phase7AuthError,
+    run_phase7_authenticated_hybrid,
+)
+
 logger = logging.getLogger("pq-ble.central.main")
 
 
@@ -107,12 +112,6 @@ def parse_args(argv=None):
             "(transcript + SAS + bidirectional FINISHED + AES-GCM)"
         ),
     )
-
-    execution_mode.add_argument(
-        "--phase7-hybrid-e2e",
-        action="store_true",
-        help="v0.7 CP2 hybrid key-agreement interoperability (TEST-ONLY, no SAS/FINISHED)",
-    )
     execution_mode.add_argument(
         "--phase6-c2p",
         action="store_true",
@@ -128,6 +127,19 @@ def parse_args(argv=None):
             "v0.6 Checkpoint 3: authenticated "
             "bidirectional AES-256-GCM traffic "
             "(3 secure round trips)"
+        ),
+    )
+    execution_mode.add_argument(
+        "--phase7-hybrid-e2e",
+        action="store_true",
+        help="v0.7 CP2 hybrid key-agreement interoperability (TEST-ONLY, no SAS/FINISHED)",
+    )
+    execution_mode.add_argument(
+        "--phase7-auth-hybrid",
+        action="store_true",
+        help=(
+            "v0.7 CP3 authenticated hybrid "
+            "ML-KEM-768 + P-256 handshake"
         ),
     )
     parser.add_argument(
@@ -751,6 +763,113 @@ async def _run_phase7_hybrid_e2e_cli(args) -> int:
         except Exception as exc:
             logger.warning("Phase 7 disconnect failed: %s", exc)
 
+async def _run_phase7_auth_hybrid_cli(
+    args,
+) -> int:
+    """Run the isolated v0.7 CP3 authenticated hybrid handshake."""
+
+    client = BLECentralClient(
+        device_name=args.device
+    )
+
+    logger.info(
+        "Scanning for peripheral '%s'...",
+        args.device,
+    )
+
+    try:
+        connected = await client.scan_and_connect(
+            timeout=15.0
+        )
+
+        if not connected:
+            logger.error(
+                "Could not find '%s'. "
+                "Make sure the v0.7 firmware is running.",
+                args.device,
+            )
+            return 1
+
+        logger.info(
+            "=== v0.7 CP3-A: "
+            "AUTHENTICATED HYBRID HANDSHAKE ==="
+        )
+
+        result = (
+            await run_phase7_authenticated_hybrid(
+                client
+            )
+        )
+
+        print()
+        print(
+            "ML-KEM + P-256 hybrid "
+            "key agreement: PASS"
+        )
+        print(
+            f"SAS: {result.sas}"
+        )
+        print(
+            "FINISHED_C / FINISHED_P: PASS"
+        )
+
+        print(
+            "Authenticated bidirectional "
+            f"traffic: PASS "
+            f"({result.rounds} rounds)"
+        )
+
+        print()
+
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID SECURE CHANNEL E2E: PASS"
+        )
+        print()
+
+        return 0
+
+    except Phase7AuthError as exc:
+        logger.error(
+            "Phase 7 authenticated "
+            "hybrid handshake failed: %s",
+            exc,
+        )
+
+        print()
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID HANDSHAKE E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected Phase 7 "
+            "authenticated failure: %s",
+            exc,
+        )
+
+        print()
+        print(
+            "PQ-BLE PHASE7 AUTHENTICATED "
+            "HYBRID HANDSHAKE E2E: FAIL"
+        )
+        print()
+
+        return 1
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            logger.warning(
+                "Phase 7 authenticated "
+                "disconnect failed: %s",
+                exc,
+            )
 
 async def main():
     args = parse_args()
@@ -763,7 +882,9 @@ async def main():
     logger.info(
         "Device: %s | Demo: %s | Phase 2 E2E: %s | "
         "Phase 3 Secure: %s | Phase 5 Auth PQ: %s | "
-        "Phase 6 C2P: %s | Phase 6 Bidi: %s | Phase 7 Hybrid E2E: %s | MTU: %s",
+        "Phase 6 C2P: %s | Phase 6 Bidi: %s | "
+        "Phase 7 Hybrid E2E: %s | "
+        "Phase 7 Auth Hybrid: %s | MTU: %s",
         args.device,
         args.demo,
         args.phase2_e2e,
@@ -783,7 +904,16 @@ async def main():
             "phase6_bidirectional",
             False,
         ),
-        getattr(args, "phase7_hybrid_e2e", False),
+        getattr(
+            args,
+            "phase7_hybrid_e2e",
+            False,
+        ),
+        getattr(
+            args,
+            "phase7_auth_hybrid",
+            False,
+        ),
         args.mtu or "auto",
     )
 
@@ -815,6 +945,11 @@ async def main():
             or getattr(
                 args,
                 "phase6_bidirectional",
+                False,
+            ) 
+            or getattr(
+                args,
+                "phase7_auth_hybrid",
                 False,
             )
         )
@@ -858,6 +993,11 @@ async def main():
                 args
             )
         )
+    if getattr(args, "phase7_auth_hybrid", False,):
+        if args.no_sas_confirm:
+            logger.error("--no-sas-confirm is not allowed with --phase7-auth-hybrid; explicit human SAS comparison is required")
+            return 2
+        return await _run_phase7_auth_hybrid_cli(args)
     
     if getattr(args, "phase7_hybrid_e2e", False):
         if args.no_sas_confirm:

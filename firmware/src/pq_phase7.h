@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include <psa/crypto.h>
 
@@ -21,21 +22,84 @@
 #define PQ_PHASE7_KEY_BLOCK_SIZE (4U * PQ_PHASE7_KEY_SIZE)
 #define PQ_PHASE7_FINISHED_SIZE 32U
 
-/* CP2 TEST-ONLY frames; no authenticated Phase 7 runtime state. */
+/* PQS7 wire framing shared by CP2 and CP3. */
 #define PQ_PHASE7_FRAME_MAGIC "PQS7"
 #define PQ_PHASE7_FRAME_MAGIC_SIZE 4U
 #define PQ_PHASE7_FRAME_VERSION 0x07U
 #define PQ_PHASE7_FRAME_HEADER_SIZE 8U
+
+/* CP2 interoperability-only subtypes. */
 #define PQ_PHASE7_START7 0x01U
 #define PQ_PHASE7_READY7_CP2 0x02U
+
+/* CP3 authenticated-hybrid subtypes. */
+#define PQ_PHASE7_START7_AUTH 0x03U
+#define PQ_PHASE7_READY7_AUTH 0x04U
+#define PQ_PHASE7_FINISHED_C 0x05U
+#define PQ_PHASE7_FINISHED_P 0x06U
+
 #define PQ_PHASE7_ERROR 0x7fU
-#define PQ_PHASE7_CP2_DIAGNOSTIC_LABEL "PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+
+/* CP2 diagnostic. */
+#define PQ_PHASE7_CP2_DIAGNOSTIC_LABEL \
+	"PQ-BLE-HANDSHAKE-v0.7/CP2-DIAGNOSTIC"
+
 #define PQ_PHASE7_CP2_DIAGNOSTIC_SIZE 32U
+
+/*
+ * CP2 START7:
+ * session_id(16) || Central P-256 public key(65)
+ */
 #define PQ_PHASE7_START7_PAYLOAD_SIZE 81U
-#define PQ_PHASE7_START7_FRAME_SIZE 89U
+#define PQ_PHASE7_START7_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + \
+	 PQ_PHASE7_START7_PAYLOAD_SIZE)
+
+/*
+ * CP2 READY7_CP2:
+ * Peripheral P-256 public key(65) || diagnostic(32)
+ */
 #define PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE 97U
-#define PQ_PHASE7_READY7_CP2_FRAME_SIZE 105U
-#define PQ_PHASE7_ERROR_FRAME_SIZE 9U
+#define PQ_PHASE7_READY7_CP2_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + \
+	 PQ_PHASE7_READY7_CP2_PAYLOAD_SIZE)
+
+/*
+ * CP3 START7_AUTH has the same payload shape as CP2 START7,
+ * but a distinct subtype.
+ */
+#define PQ_PHASE7_START7_AUTH_PAYLOAD_SIZE \
+	PQ_PHASE7_START7_PAYLOAD_SIZE
+
+#define PQ_PHASE7_START7_AUTH_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + \
+	 PQ_PHASE7_START7_AUTH_PAYLOAD_SIZE)
+
+/*
+ * CP3 READY7_AUTH:
+ * Peripheral P-256 public key(65)
+ */
+#define PQ_PHASE7_READY7_AUTH_PAYLOAD_SIZE \
+	PQ_PHASE7_P256_PUBLIC_KEY_SIZE
+
+#define PQ_PHASE7_READY7_AUTH_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + \
+	 PQ_PHASE7_READY7_AUTH_PAYLOAD_SIZE)
+
+/*
+ * CP3 FINISHED_C / FINISHED_P:
+ * full HMAC-SHA256(32)
+ */
+#define PQ_PHASE7_FINISHED_PAYLOAD_SIZE \
+	PQ_PHASE7_FINISHED_SIZE
+
+#define PQ_PHASE7_FINISHED_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + \
+	 PQ_PHASE7_FINISHED_PAYLOAD_SIZE)
+
+/* PQS7 ERROR: status(1). */
+#define PQ_PHASE7_ERROR_FRAME_SIZE \
+	(PQ_PHASE7_FRAME_HEADER_SIZE + 1U)
 
 /* Structural checks only; the worker must validate peer points with PSA. */
 int pq_phase7_parse_frame(
@@ -146,6 +210,10 @@ int pq_phase7_compute_finished_p(
 	const uint8_t *transcript_hash,
 	size_t transcript_hash_len,
 	uint8_t finished[PQ_PHASE7_FINISHED_SIZE]);
+
+bool pq_phase7_finished_equal(
+	const uint8_t left[PQ_PHASE7_FINISHED_SIZE],
+	const uint8_t right[PQ_PHASE7_FINISHED_SIZE]);
 
 int pq_phase7_derive_traffic_keys(
 	const uint8_t *application_root_key,

@@ -73,7 +73,9 @@ def test_malformed_generic_frames_rejected(wire, mutation):
     elif mutation == "trailing":
         damaged += b"\x00"
     else:
-        damaged[5] = 0x03
+        # Use an actually unsupported subtype.
+        # 0x03-0x06 are valid CP3 authenticated-hybrid subtypes.
+        damaged[5] = 0x7E
     with pytest.raises(ValueError):
         p7.parse_phase7_frame(damaged)
 
