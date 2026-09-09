@@ -1,0 +1,397 @@
+(.venv) PS C:\pq_ble> python -m pytest -q
+............................................................ [  9%]
+............................................................ [ 18%]
+............................................................ [ 28%]
+............................................................ [ 37%]
+............................................................ [ 47%]
+............................................................ [ 56%]
+............................................................ [ 66%]
+............................................................ [ 75%]
+............................................................ [ 84%]
+............................................................ [ 94%]
+...s.....E..........................                         [100%]
+============================= ERRORS ==============================
+________ ERROR at setup of test_native_security_lifecycle _________
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Function test_native_security_lifecycle>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] Accesso negato: 'C:\\Users\\alebo\\AppData\\Local\\Temp\\pytest-of-alebo'
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:924: PermissionError
+======================== warnings summary =========================
+.venv\Lib\site-packages\oqs\__init__.py:1
+  C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning:liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+    from oqs.oqs import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+===================== short test summary info =====================
+ERROR tests/test_v1_firmware_lifecycle.py::test_native_security_lifecycle - PermissionError: [WinError 5] Accesso negato: 'C:\\Users\\alebo...
+634 passed, 1 skipped, 1 warning, 1 error in 8.17s
+(.venv) PS C:\pq_ble> python -m pytest -q --basetemp=C:\pq_ble\.pytest-temp
+............................................................ [  9%]
+............................................................ [ 18%]
+............................................................ [ 28%]
+............................................................ [ 37%]
+............................................................ [ 47%]
+............................................................ [ 56%]
+............................................................ [ 66%]
+............................................................ [ 75%]
+............................................................ [ 84%]
+............................................................ [ 94%]
+...s................................                         [100%]
+======================== warnings summary =========================
+.venv\Lib\site-packages\oqs\__init__.py:1
+  C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning:liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+    from oqs.oqs import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+635 passed, 1 skipped, 1 warning in 8.58s
+
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative pre-l4-only
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+18:43:58 [INFO   ] pq-ble.central.main: ==================================================
+18:43:58 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+18:43:58 [INFO   ] pq-ble.central.main: ==================================================
+18:43:58 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 AuthPQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+18:43:58 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+18:43:58 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+18:43:58 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+18:44:03 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+18:44:03 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+18:44:03 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+18:44:03 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+18:44:03 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+18:44:03 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:44:03 [INFO   ] pq-ble.central.client: Disconnected.
+NEGATIVE TEST PASS: all four PQ GATT operations denied before Level4; Central custom pairing not invoked (check DK log for unsolicitedSMP)
+PQ-BLE V1.0 CP1 NEGATIVE TEST: PASS (pre-l4-only)
+
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+18:33:36 [INFO   ] pq-ble.central.main: ==================================================
+18:33:36 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+18:33:36 [INFO   ] pq-ble.central.main: ==================================================
+18:33:36 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 AuthPQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+18:33:36 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+18:33:36 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+18:33:36 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+18:33:39 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+18:33:39 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+18:33:39 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+18:33:39 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] CustomPairing object acquired
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] PairingRequested handler registered
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] pair_async started: kinds=CONFIRM_PIN_MATCH (8), minimum protection=ENCRYPTION_AND_AUTHENTICATION (3)
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.405s] PairingRequested received: kind=CONFIRM_PIN_MATCH (8)
+18:33:39 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.405s] PINreceived: 177415; waiting for human confirmation
+
+========================================================
+  SMP NUMERIC COMPARISON (Windows shows): 177415
+  The nRF54L15 DK prints its own value on UART.
+  On the DK: BUTTON 0 = accept, BUTTON 1 = reject.
+========================================================
+Do BOTH values match? Type 'yes' to accept, 'no' to reject: yes
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.015s] human accepted
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.015s] Accept invoked
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.016s] deferral completed
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.199s] pair_async returned: status=PAIRED (0), protection_used=ENCRYPTION_AND_AUTHENTICATION
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.199s] PairingRequested handler unregistered
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: [pair +19.204s] Windows paired state=True protection=ENCRYPTION_AND_AUTHENTICATION
+18:33:58 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=PAIRED paired=True protection=ENCRYPTION_AND_AUTHENTICATION ceremony=CONFIRM_PIN_MATCH decision=True
+18:33:58 [INFO   ] pq-ble.central.v1-smp-l4: SMP pairing complete: PAIRED, protection ENCRYPTION_AND_AUTHENTICATION, 19208 ms (includeshuman time)
+18:33:59 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+18:33:59 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Secure Data CCCD: ALLOWED
+18:33:59 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+18:33:59 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Public Key read: ALLOWED (1184 B)
+18:33:59 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+18:34:00 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+18:34:00 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Ciphertext write: ALLOWED (1088 B)
+18:34:00 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Control write (SEC_QUERY): ALLOWED
+18:34:00 [INFO   ] pq-ble.central.v1-smp-l4: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+18:34:01 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP1 state: L4_GATT_VERIFIED (cold)
+
+Scenario: cold
+Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+SMP pairing: PAIRED / ENCRYPTION_AND_AUTHENTICATION (19208 ms incl.human time)
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, ControlOK, CCCD OK (2648 ms)
+
+PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: PASS
+
+18:34:01 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:34:01 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK
+[00:04:33.459,953] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:04:33.460,322] <inf> pq_ble: Connected (generation 3)
+[00:04:33.460,351] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:04:33.460,398] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:04:33.460,405] <inf> pq_v1_sec: Cold link: waiting for Central custom pairing; PQ GATT gate CLOSED
+[00:04:33.484,892] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:04:35.555,143] <inf> pq_v1_sec: Incoming SMP: peer IO=0x01 auth=0x2d max_key=16
+[00:04:35.555,176] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:04:35.615,403] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:04:35.615,436] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:04:35.615,452] <inf> pq_v1_sec: ========================================
+[00:04:35.615,458] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 177415
+[00:04:35.615,462] <inf> pq_v1_sec: Compare with the Windows Python console PIN. Release buttons first.
+[00:04:35.615,466] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:04:35.615,470] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:04:35.615,474] <inf> pq_v1_sec: ========================================
+[00:04:48.139,353] <inf> pq_v1_sec: Numeric Comparison ACCEPTED by operator (177415): 0
+[00:04:54.591,244] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> L4_SECURED
+[00:04:54.591,297] <inf> pq_v1_sec: Security changed: 3C:55:76:FB:9B:38 (public)
+[00:04:54.591,303] <inf> pq_v1_sec: Security level = L4
+[00:04:54.591,320] <inf> pq_v1_sec: Secure Connections = YES
+[00:04:54.591,334] <inf> pq_v1_sec: Authenticated link = YES
+[00:04:54.591,339] <inf> pq_v1_sec: Encryption key size = 16 octets
+[00:04:54.591,343] <inf> pq_v1_sec: PQ GATT gate: OPEN (authenticated Security Mode 1 Level 4)
+[00:04:54.731,454] <inf> pq_v1_sec: SMP pairing complete: 3C:55:76:FB:9B:38 (public)
+[00:04:54.731,470] <inf> pq_v1_sec: Bond created = YES
+[00:04:54.906,125] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:04:54.996,139] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:04:55.086,144] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:04:55.116,146] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:04:55.146,148] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:04:55.356,183] <inf> pq_ble: Notifications ENABLED
+[00:04:55.386,151] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:04:55.416,162] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:04:55.446,163] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:04:55.476,165] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:04:55.506,166] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:04:55.626,452] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:04:55.626,483] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:04:55.761,192] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:04:55.881,198] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:04:55.986,205] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:04:56.018,131] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:04:56.018,301] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:04:56.046,222] <inf> pq_ble: Control write: len=8
+[00:04:56.046,338] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:04:57.096,226] <inf> pq_ble: Notifications DISABLED
+[00:05:00.381,528] <inf> pq_ble: Disconnected (reason 19)
+[00:05:00.381,564] <inf> pq_v1_sec: v1.0 security state: L4_SECURED -> DISCONNECTED
+[00:05:00.381,572] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+18:35:43 [INFO   ] pq-ble.central.main: ==================================================
+18:35:43 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+18:35:43 [INFO   ] pq-ble.central.main: ==================================================
+18:35:43 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 AuthPQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+18:35:43 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+18:35:43 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+18:35:43 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+18:35:45 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+18:35:45 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+18:35:45 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+18:35:45 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:35:45 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=True can_pair=False protection=ENCRYPTION_AND_AUTHENTICATION
+18:35:45 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: bonded reconnection
+18:35:45 [INFO   ] pq-ble.central.v1-smp-l4: Bonded reconnect: pre-L4 probes skipped (Windows restores encryption with the stored LTK on the first protected access)
+18:35:45 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+18:35:45 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Secure Data CCCD: ALLOWED
+18:35:45 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+18:35:45 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Public Key read: ALLOWED (1184 B)
+18:35:45 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+18:35:47 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+18:35:47 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Ciphertext write: ALLOWED (1088 B)
+18:35:47 [INFO   ] pq-ble.central.v1-smp-l4: Post-L4 Control write (SEC_QUERY): ALLOWED
+18:35:47 [INFO   ] pq-ble.central.v1-smp-l4: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+18:35:48 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP1 state: L4_GATT_VERIFIED (bonded)
+
+Scenario: bonded
+SMP pairing: ALREADY_PAIRED / ENCRYPTION_AND_AUTHENTICATION
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, ControlOK, CCCD OK (3065 ms)
+
+PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: PASS
+
+18:35:48 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:35:48 [INFO   ] pq-ble.central.client: Disconnected.
+
+
+Sul DK
+[00:06:39.863,720] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:06:39.864,516] <inf> pq_ble: Connected (generation 5)
+[00:06:39.864,545] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:06:39.864,591] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:06:39.864,598] <inf> pq_v1_sec: Stored DK bond found: restoring authenticated L4
+[00:06:39.864,603] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:06:39.864,763] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:06:39.864,771] <inf> pq_v1_sec: SMP security procedure started
+[00:06:40.114,585] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> L4_SECURED
+[00:06:40.114,634] <inf> pq_v1_sec: Security changed: 3C:55:76:FB:9B:38 (public)
+[00:06:40.114,646] <inf> pq_v1_sec: Security level = L4
+[00:06:40.114,664] <inf> pq_v1_sec: Secure Connections = YES
+[00:06:40.114,678] <inf> pq_v1_sec: Authenticated link = YES
+[00:06:40.114,683] <inf> pq_v1_sec: Encryption key size = 16 octets
+[00:06:40.114,687] <inf> pq_v1_sec: PQ GATT gate: OPEN (authenticated Security Mode 1 Level 4)
+[00:06:40.204,367] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:06:41.329,522] <inf> pq_ble: Notifications ENABLED
+[00:06:41.419,493] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:06:41.509,507] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:06:41.599,511] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:06:41.689,517] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:06:41.779,522] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:06:42.094,817] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:06:42.094,842] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:06:42.409,566] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:06:42.724,582] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:06:43.129,604] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:06:43.221,535] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:06:43.221,704] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:06:43.309,628] <inf> pq_ble: Control write: len=8
+[00:06:43.309,744] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:06:44.389,634] <inf> pq_ble: Notifications DISABLED
+[00:06:47.629,933] <inf> pq_ble: Disconnected (reason 19)
+[00:06:47.629,970] <inf> pq_v1_sec: v1.0 security state: L4_SECURED -> DISCONNECTED
+[00:06:47.629,978] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+NC reject
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative nc-reject
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+18:39:59 [INFO   ] pq-ble.central.main: ==================================================
+18:39:59 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+18:39:59 [INFO   ] pq-ble.central.main: ==================================================
+18:39:59 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 AuthPQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+18:39:59 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+18:39:59 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+18:39:59 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+18:40:01 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+18:40:01 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+18:40:01 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+18:40:01 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+18:40:01 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+18:40:01 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:40:01 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] CustomPairing object acquired
+18:40:01 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] PairingRequested handler registered
+18:40:01 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] pair_async started: kinds=CONFIRM_PIN_MATCH (8), minimum protection=ENCRYPTION_AND_AUTHENTICATION (3)
+18:40:02 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.327s] PairingRequested received: kind=CONFIRM_PIN_MATCH (8)
+18:40:02 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.328s] PINreceived: 705752; waiting for human confirmation
+
+========================================================
+  SMP NUMERIC COMPARISON (Windows shows): 705752
+  The nRF54L15 DK prints its own value on UART.
+  On the DK: BUTTON 0 = accept, BUTTON 1 = reject.
+========================================================
+Do BOTH values match? Type 'yes' to accept, 'no' to reject: no
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: [pair +1.704s] human rejected
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: [pair +1.705s] deferral completed
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: [pair +1.707s] pair_async returned: status=REJECTED_BY_HANDLER (17), protection_used=NONE
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: [pair +1.708s] PairingRequested handler unregistered
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: [pair +1.711s] Windows paired state=False protection=NONE
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=REJECTED_BY_HANDLER paired=False protection=NONE ceremony=CONFIRM_PIN_MATCH decision=False
+18:40:03 [INFO   ] pq-ble.central.v1-smp-l4: Security rejection evidence: explicit PC Numeric Comparison rejection
+18:40:03 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:40:03 [INFO   ] pq-ble.central.v1-smp-l4: Retiring rejected pairing link; any security disconnect is expected
+18:40:03 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:40:03 [INFO   ] pq-ble.central.client: CP1 reconnect to originalpeer C0:48:FF:F5:9D:B8
+18:40:06 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:40:06 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+18:40:06 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+18:40:06 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+18:40:06 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+18:40:06 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+18:40:06 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:40:06 [INFO   ] pq-ble.central.client: Disconnected.
+NEGATIVE TEST PASS: nc-reject: explicit PC Numeric Comparison rejection; fresh unpaired connection: all 4 PQ operations remain denied. No successful PQ operation observed; verify DK log contains no L4/gate OPEN on either connection.
+PQ-BLE V1.0 CP1 NEGATIVE TEST: PASS (nc-reject)
+
+DK
+[00:11:00.883,318] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:11:00.883,687] <inf> pq_ble: Connected (generation 15)
+[00:11:00.883,716] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:11:00.883,764] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:11:00.883,770] <inf> pq_v1_sec: Cold link: waiting for Central custom pairing; PQ GATT gate CLOSED
+[00:11:00.953,601] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:11:05.814,058] <inf> pq_ble: Disconnected (reason 19)
+[00:11:05.814,095] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> DISCONNECTED
+[00:11:05.814,104] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative just-works
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+18:41:56 [INFO   ] pq-ble.central.main: ==================================================
+18:41:56 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+18:41:56 [INFO   ] pq-ble.central.main: ==================================================
+18:41:56 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 AuthPQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+18:41:56 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+18:41:56 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+18:41:57 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+18:42:00 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+18:42:00 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+18:42:00 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+18:42:00 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+18:42:00 [WARNING] pq-ble.central.v1-smp-l4: TEST ONLY: offering CONFIRM_ONLY with minimum ENCRYPTION; WinRT ceremony selection does not force on-air IO capability
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] CustomPairing object acquired
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] PairingRequested handler registered
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] pair_async started: kinds=CONFIRM_ONLY (1), minimum protection=ENCRYPTION (2)
+18:42:00 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.330s] pair_async returned: status=FAILED (19), protection_used=NONE
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.330s] PairingRequested handler unregistered
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.334s] Windows paired state=False protection=NONE
+18:42:00 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=FAILED paired=False protection=NONE ceremony=None decision=None
+18:42:00 [ERROR  ] pq-ble.central.main: v1.0 CP1 failed: INCONCLUSIVE just-works: FAILED, ceremony=None, decision=None; no sufficient security-rejection evidence. A timeout, missing handler, or generic FAILED is not a negative-test PASS. For nc-reject type 'no' on the PC; a DK-only rejection requires UART evidence.
+
+PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL (just-works)

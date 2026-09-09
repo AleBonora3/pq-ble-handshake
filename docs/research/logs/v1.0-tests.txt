@@ -1,0 +1,226 @@
+Gate prima di L4
+PC
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative pre-l4-only
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+17:19:36 [INFO   ] pq-ble.central.main: ==================================================
+17:19:36 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+17:19:36 [INFO   ] pq-ble.central.main: ==================================================
+17:19:36 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+17:19:36 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+17:19:36 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+17:19:37 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+17:19:42 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+17:19:42 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+17:19:42 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read:DENIED (ATT Insufficient Authentication)
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+17:19:42 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQGATT operations denied
+17:19:42 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+17:19:43 [INFO   ] pq-ble.central.client: Disconnected.
+NEGATIVE TEST PASS: all four PQ GATT operations denied before Level 4; no pairing attempted
+PQ-BLE V1.0 CP1 NEGATIVE TEST: PASS (pre-l4-only)
+
+DK
+[00:02:33.895,659] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:02:33.896,028] <inf> pq_ble: Connected (generation 1)
+[00:02:33.896,055] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:02:33.896,102] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:02:33.896,107] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:02:33.896,268] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:02:33.896,276] <inf> pq_v1_sec: SMP security procedure started
+[00:02:34.168,448] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:02:34.948,946] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:02:34.948,972] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:02:34.948,978] <inf> pq_v1_sec: ========================================
+[00:02:34.948,982] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 454181
+[00:02:34.948,986] <inf> pq_v1_sec: Compare with the Windows pairing dialog.
+[00:02:34.949,042] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:02:34.949,047] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:02:34.949,051] <inf> pq_v1_sec: ========================================
+[00:02:40.079,005] <inf> pq_v1_sec: Security change FAILED: 3C:55:76:FB:9B:38 (public)
+[00:02:40.079,026] <err> pq_v1_sec: Security error: UNSPECIFIED (9) at level 1
+[00:02:40.079,049] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> FAILED
+[00:02:40.079,091] <inf> pq_v1_sec: SMP pairing FAILED: 3C:55:76:FB:9B:38 (public)
+[00:02:40.079,107] <err> pq_v1_sec: Pairing failure reason: UNSPECIFIED (9); ML-KEM handshake will not start
+[00:02:40.079,235] <inf> pq_ble: Disconnected (reason 19)
+[00:02:40.079,261] <inf> pq_v1_sec: v1.0 security state: FAILED -> DISCONNECTED
+[00:02:40.079,266] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+Test 2 Cold pairing SMP L$ + Numeric Comparison
+PC
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+17:22:46 [INFO   ] pq-ble.central.main: ==================================================
+17:22:46 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+17:22:46 [INFO   ] pq-ble.central.main: ==================================================
+17:22:46 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+17:22:46 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+17:22:46 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+17:22:47 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+17:22:49 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+17:22:49 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+17:22:49 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read:DENIED (ATT Insufficient Authentication)
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+17:22:49 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQGATT operations denied
+17:22:49 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=FAILED paired=False protection=NONE
+17:22:49 [ERROR  ] pq-ble.central.main: v1.0 CP1 failed: SMP pairingfailed: FAILED; PQ GATT stays closed
+
+PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: FAIL
+
+17:22:49 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+17:22:49 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK
+[00:05:38.946,259] <wrn> pq_v1_sec: All stored bonds deleted: next connection is a cold pairing
+[00:05:41.570,552] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:05:41.570,921] <inf> pq_ble: Connected (generation 11)
+[00:05:41.570,948] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:05:41.570,995] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:05:41.571,000] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:05:41.571,161] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:05:41.571,169] <inf> pq_v1_sec: SMP security procedure started
+[00:05:41.595,066] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:05:42.091,080] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:05:42.091,105] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:05:42.091,118] <inf> pq_v1_sec: ========================================
+[00:05:42.091,122] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 097689
+[00:05:42.091,126] <inf> pq_v1_sec: Compare with the Windows pairing dialog.
+[00:05:42.091,130] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:05:42.091,134] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:05:42.091,138] <inf> pq_v1_sec: ========================================
+[00:05:43.335,404] <inf> pq_v1_sec: Security change FAILED: 3C:55:76:FB:9B:38 (public)
+[00:05:43.335,425] <err> pq_v1_sec: Security error: UNSPECIFIED (9) at level 1
+[00:05:43.335,448] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> FAILED
+[00:05:43.335,490] <inf> pq_v1_sec: SMP pairing FAILED: 3C:55:76:FB:9B:38 (public)
+[00:05:43.335,506] <err> pq_v1_sec: Pairing failure reason: UNSPECIFIED (9); ML-KEM handshake will not start
+[00:05:43.335,633] <inf> pq_ble: Disconnected (reason 19)
+[00:05:43.335,659] <inf> pq_v1_sec: v1.0 security state: FAILED -> DISCONNECTED
+[00:05:43.335,665] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+TEST 3 — Bonded reconnect 
+NON EFFETTUATO perchè tanto Test 2 ha fallito
+
+TEST 4 — Rifiuto Numeric Comparison
+
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative nc-reject
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+17:25:15 [INFO   ] pq-ble.central.main: ==================================================
+17:25:15 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+17:25:15 [INFO   ] pq-ble.central.main: ==================================================
+17:25:15 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+17:25:15 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+17:25:15 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+17:25:16 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+17:25:20 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+17:25:20 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+17:25:20 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read:DENIED (ATT Insufficient Authentication)
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQGATT operations denied
+17:25:20 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=FAILED paired=False protection=NONE
+17:25:20 [INFO   ] pq-ble.central.v1-smp-l4: Expected pairing rejection observed: FAILED
+17:25:20 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+17:25:20 [ERROR  ] pq-ble.central.main: v1.0 CP1 failed: public-key-read: connection lost during the pre-L4 probe
+
+PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL (nc-reject)
+
+DK
+[00:08:00.820,051] <wrn> pq_v1_sec: All stored bonds deleted: next connection is a cold pairing
+[00:08:12.893,507] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:08:12.893,875] <inf> pq_ble: Connected (generation 13)
+[00:08:12.893,903] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:08:12.893,950] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:08:12.893,955] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:08:12.894,116] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:08:12.894,124] <inf> pq_v1_sec: SMP security procedure started
+[00:08:12.918,571] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:08:13.369,050] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:08:13.369,128] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:08:13.369,150] <inf> pq_v1_sec: ========================================
+[00:08:13.369,154] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 673253
+[00:08:13.369,158] <inf> pq_v1_sec: Compare with the Windows pairing dialog.
+[00:08:13.369,162] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:08:13.369,166] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:08:13.369,170] <inf> pq_v1_sec: ========================================
+[00:08:14.673,909] <inf> pq_v1_sec: Security change FAILED: 3C:55:76:FB:9B:38 (public)
+[00:08:14.673,930] <err> pq_v1_sec: Security error: UNSPECIFIED (9) at level 1
+[00:08:14.673,953] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> FAILED
+[00:08:14.673,995] <inf> pq_v1_sec: SMP pairing FAILED: 3C:55:76:FB:9B:38 (public)
+[00:08:14.674,010] <err> pq_v1_sec: Pairing failure reason: UNSPECIFIED (9); ML-KEM handshake will not start
+[00:08:14.674,138] <inf> pq_ble: Disconnected (reason 19)
+[00:08:14.674,164] <inf> pq_v1_sec: v1.0 security state: FAILED -> DISCONNECTED
+[00:08:14.674,170] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+Test 5 - Just Work deve fallire L4
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-negative just-works
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version0.16.0
+  from oqs.oqs import (
+17:26:15 [INFO   ] pq-ble.central.main: ==================================================
+17:26:15 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+17:26:15 [INFO   ] pq-ble.central.main: ==================================================
+17:26:15 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+17:26:15 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+17:26:15 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+17:26:15 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+17:26:17 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+17:26:17 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+17:26:17 [INFO   ] pq-ble.central.main: === v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read:DENIED (ATT Insufficient Authentication)
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQGATT operations denied
+17:26:17 [WARNING] pq-ble.central.v1-smp-l4: TEST ONLY: offering Just Works (CONFIRM_ONLY)
+17:26:17 [INFO   ] pq-ble.central.v1-smp-l4: Expected pairing rejection observed: FAILED
+17:26:17 [WARNING] pq-ble.central.client: Unexpected disconnect fromC0:48:FF:F5:9D:B8
+17:26:17 [ERROR  ] pq-ble.central.main: v1.0 CP1 failed: public-key-read: connection lost during the pre-L4 probe
+
+PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL (just-works)
+
+DK
+[00:09:09.654,656] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:09:09.655,025] <inf> pq_ble: Connected (generation 15)
+[00:09:09.655,053] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:09:09.655,100] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:09:09.655,105] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:09:09.655,266] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:09:09.655,274] <inf> pq_v1_sec: SMP security procedure started
+[00:09:09.680,483] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:09:10.130,963] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:09:10.131,040] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:09:10.131,054] <inf> pq_v1_sec: ========================================
+[00:09:10.131,058] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 251969
+[00:09:10.131,062] <inf> pq_v1_sec: Compare with the Windows pairing dialog.
+[00:09:10.131,066] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:09:10.131,070] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:09:10.131,074] <inf> pq_v1_sec: ========================================
+[00:09:11.420,821] <inf> pq_v1_sec: Security change FAILED: 3C:55:76:FB:9B:38 (public)
+[00:09:11.420,842] <err> pq_v1_sec: Security error: UNSPECIFIED (9) at level 1
+[00:09:11.420,865] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> FAILED
+[00:09:11.420,907] <inf> pq_v1_sec: SMP pairing FAILED: 3C:55:76:FB:9B:38 (public)
+[00:09:11.420,923] <err> pq_v1_sec: Pairing failure reason: UNSPECIFIED (9); ML-KEM handshake will not start
+[00:09:11.421,050] <inf> pq_ble: Disconnected (reason 19)
+[00:09:11.421,076] <inf> pq_v1_sec: v1.0 security state: FAILED -> DISCONNECTED
+[00:09:11.421,082] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect

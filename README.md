@@ -27,6 +27,39 @@ The protocol runs **above BLE GATT** and does **not modify the Bluetooth stack**
 
 ---
 
+## Next architecture: v1.0 (in progress — CP1)
+
+v1.0 is a second, conceptually different architecture that will be compared
+experimentally with v0.7:
+
+```text
+v0.7  ML-KEM-768 + application P-256 ECDH + application SAS + FINISHED + AES-256-GCM
+v1.0  BLE SMP Security Mode 1 Level 4 + ML-KEM-768 + FINISHED + AES-256-GCM
+```
+
+In v1.0, classical peer authentication and BLE link protection are delegated
+to the standard Bluetooth Security Manager (authenticated LE Secure
+Connections, Numeric Comparison, Level 4); the application keeps ML-KEM-768
+and the PQ-derived AES-256-GCM channel. v1.0 is a **layered classical/PQ
+architecture**, not a hybrid key establishment: SMP Level 4 is classical
+(P-256) and is not post-quantum.
+
+Current state: **CP1 (SMP Level 4 foundation) passed real Windows PC ↔
+nRF54L15 DK validation on 2026-09-08.** Pre-L4 gating, cold Numeric Comparison,
+bonded reconnect and PC NC rejection passed. The Windows CONFIRM_ONLY attempt
+failed closed; actual on-air BLE Just Works was not demonstrated. CP2 is not
+started and v1.0 is not complete. CP1 adds a separate firmware
+profile (`firmware/v1_smp_l4_mlkem.conf`, `CONFIG_BT_SMP=y`,
+`CONFIG_BT_SMP_SC_ONLY=y`) that closes every PQ GATT characteristic until
+authenticated Level 4, real Numeric Comparison on the DK buttons, a
+WinRT-based Numeric Comparison pairer on the Central and the
+`--v1-smp-l4-mlkem` CLI mode. The v0.7 baseline (`prj.conf`,
+`CONFIG_BT_SMP=n`) is unchanged and remains the default build.
+
+Milestone document: `docs/research/milestones/v1.0-smp-l4-mlkem.md`.
+
+---
+
 ## Current release: v0.7
 
 Status: **COMPLETE**
@@ -873,6 +906,34 @@ PQ-BLE PHASE7 CP4 NEGATIVE TEST: PASS (<mode>)
 ```
 
 ---
+
+# v1.0 CP1 quick start (SMP Level 4 foundation)
+
+```powershell
+# firmware (from firmware/): v1.0 profile on top of the unchanged prj.conf
+west build -d build_v1_fix -b nrf54l15dk/nrf54l15/cpuapp -p always -- `
+  '-DCONF_FILE=prj.conf' '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf'
+west flash -d build_v1_fix
+
+# Central (Windows): gating before L4, Numeric Comparison, attestation after L4
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative pre-l4-only
+python -m src.central.main --v1-smp-l4-mlkem
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative nc-reject
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative just-works
+```
+
+Expected positive marker: `PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: PASS`.
+NCS 3.0.0 build and real CP1 foundation validation passed (2026-09-08). See
+`docs/research/milestones/v1.0-smp-l4-mlkem.md` for the exact order,
+bond clearing between scenarios and the PC console confirmation.
+A generic Windows FAILED before Numeric Comparison is inconclusive.
+The automated `nc-reject` verdict requires explicit PC `no`; DK-only
+rejection also requires its UART history.
+The legacy `just-works` mode requests Windows CONFIRM_ONLY with minimum
+ENCRYPTION. Its application ceremony does not prove on-air BLE Just Works.
+The observed hardware attempt failed closed with no authenticated bond or
+L4; the generic FAILED without a callback remains automatically INCONCLUSIVE
+(nonzero exit), and radio-level Just Works is NOT DEMONSTRATED.
 
 # Regression modes
 

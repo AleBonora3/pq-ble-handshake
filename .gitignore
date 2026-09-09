@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest-temp/
 *.py[cod]
 *.egg-info/
 dist/

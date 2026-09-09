@@ -2,6 +2,69 @@ mainmenu "PQ-BLE Phase 2 firmware"
 
 menu "PQ-BLE application options"
 
+choice PQ_PROFILE
+	prompt "PQ-BLE protocol profile"
+	default PQ_PROFILE_V07_HYBRID
+	help
+	  Select which experimental architecture the firmware implements.
+	  The two profiles share the GATT layout, the ML-KEM-768 worker, the
+	  ciphertext fragmentation and the PSA-based secure channel.
+
+config PQ_PROFILE_V07_HYBRID
+	bool "v0.7: application-level hybrid ML-KEM-768 + P-256 (CONFIG_BT_SMP=n)"
+	help
+	  Frozen experimental baseline. BLE SMP is disabled; peer
+	  authentication (SAS Numeric Comparison), the classical P-256 ECDH
+	  and key confirmation are all performed by the application protocol
+	  over GATT. This is the default and matches prj.conf.
+
+config PQ_PROFILE_V10_SMP_L4_MLKEM
+	bool "v1.0: BLE SMP Security Mode 1 Level 4 + ML-KEM-768"
+	depends on BT_SMP
+	help
+	  Layered classical/PQ architecture. Peer authentication and BLE link
+	  encryption are delegated to BLE SMP (authenticated LE Secure
+	  Connections, Numeric Comparison, Security Level 4). The PQ GATT
+	  characteristics are inaccessible until Level 4 is established, both
+	  through BT_GATT_PERM_*_AUTHEN | BT_GATT_PERM_*_LESC and through an
+	  explicit runtime security check in every sensitive GATT callback.
+	  The v0.x application-level control frames are rejected in this
+	  profile. Select with firmware/v1_smp_l4_mlkem.conf.
+
+endchoice
+
+if PQ_PROFILE_V10_SMP_L4_MLKEM
+
+config PQ_V1_NUMERIC_COMPARISON_TIMEOUT_MS
+	int "Numeric Comparison human-confirmation timeout (milliseconds)"
+	default 60000
+	range 5000 300000
+	help
+	  If no accept/reject decision is taken on the DK within this time,
+	  the pending Numeric Comparison is cancelled with
+	  bt_conn_auth_cancel() and the link is disconnected (fail closed).
+
+config PQ_V1_BUTTON_UI
+	bool "Use DK buttons for Numeric Comparison ACCEPT / REJECT"
+	default y
+	depends on DK_LIBRARY
+	help
+	  DK_BTN1 (devicetree sw0, silkscreen "BUTTON 0") accepts the
+	  displayed six-digit value, DK_BTN2 (sw1, "BUTTON 1") rejects it and
+	  DK_BTN4 (sw3, "BUTTON 3") deletes all stored bonds while idle.
+	  Without this option the firmware never confirms a Numeric
+	  Comparison: pairing can only time out or be rejected.
+
+config PQ_V1_CLEAR_BONDS_ON_BOOT
+	bool "TEST ONLY: delete every stored bond at boot"
+	default n
+	help
+	  Forces the cold-pairing scenario on every reset by calling
+	  bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY) right after settings_load().
+	  Never enable this in a bonded-reconnection benchmark build.
+
+endif # PQ_PROFILE_V10_SMP_L4_MLKEM
+
 config PQ_MLKEM_PHASE1_SELFTEST
 	bool "Run the full Phase 1 ML-KEM startup self-test"
 	default n

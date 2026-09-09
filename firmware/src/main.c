@@ -15,6 +15,10 @@
  * Phase 6 provides authenticated bidirectional application traffic.
  * Phase 7 CP2 adds TEST-ONLY hybrid key-agreement interoperability.
  * Phase 7 authentication and application traffic remain deferred.
+ *
+ * v1.0 profile (CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM, CP1): BLE SMP Security
+ * Mode 1 Level 4 gates every PQ GATT operation; the v0.x application-level
+ * control frames are rejected. See pq_v1_security.c and pq_v1_frame.c.
  */
 
 #include <errno.h>
@@ -37,6 +41,11 @@
 #include "pq_phase6.h"
 #include "pq_phase7.h"
 #include "pq_secure_channel.h"
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#include "pq_v1_frame.h"
+#include "pq_v1_security.h"
+#endif
 
 LOG_MODULE_REGISTER(pq_ble, LOG_LEVEL_INF);
 
@@ -193,6 +202,73 @@ static const struct bt_data ad[] = {
 };
 
 /*
+ * GATT permissions per profile.
+ *
+ * v0.7 (CONFIG_BT_SMP=n): plain READ/WRITE; security is application-level.
+ *
+ * v1.0: every PQ attribute requires an encrypted link with an authenticated
+ * key (BT_GATT_PERM_*_AUTHEN) established through LE Secure Connections
+ * (BT_GATT_PERM_*_LESC). In Zephyr 4.0.99 (subsys/bluetooth/host/gatt.c,
+ * bt_gatt_check_perm) AUTHEN accepts >= BT_SECURITY_L3 and LESC checks the
+ * BT_KEYS_SC flag; neither bit alone expresses "Level 4". Therefore each
+ * sensitive callback additionally calls pq_gatt_security_gate(), which
+ * requires pq_v1_security_conn_is_l4(): tracked security_changed(L4) plus a
+ * live bt_conn_get_security() == BT_SECURITY_L4, Secure Connections and a
+ * 16-octet key. Unauthenticated Secure Connections (L2) never pass.
+ */
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#define PQ_GATT_PERM_READ (BT_GATT_PERM_READ_AUTHEN | BT_GATT_PERM_READ_LESC)
+#define PQ_GATT_PERM_WRITE (BT_GATT_PERM_WRITE_AUTHEN | BT_GATT_PERM_WRITE_LESC)
+#else
+#define PQ_GATT_PERM_READ BT_GATT_PERM_READ
+#define PQ_GATT_PERM_WRITE BT_GATT_PERM_WRITE
+#endif
+
+#define PQ_GATT_PERM_CCC (PQ_GATT_PERM_READ | PQ_GATT_PERM_WRITE)
+
+/*
+ * Returns 0 when the operation may proceed, otherwise a BT_GATT_ERR() value.
+ * Fail closed: in the v1.0 profile nothing is parsed before this check.
+ */
+static ssize_t pq_gatt_security_gate(struct bt_conn *conn, const char *operation)
+{
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (!pq_v1_security_conn_is_l4(conn)) {
+		LOG_WRN("%s rejected: BLE link is not authenticated Security "
+			"Mode 1 Level 4 (PQ GATT closed)", operation);
+		return BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION);
+	}
+#else
+	ARG_UNUSED(conn);
+	ARG_UNUSED(operation);
+#endif
+	return 0;
+}
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+static ssize_t read_v1_ccc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			   void *buf, uint16_t len, uint16_t offset)
+{
+	ssize_t gate = pq_gatt_security_gate(conn, "Secure Data CCCD read");
+
+	return gate != 0 ? gate : bt_gatt_attr_read_ccc(conn, attr, buf, len, offset);
+}
+
+static ssize_t validate_v1_ccc(struct bt_conn *conn,
+			     const struct bt_gatt_attr *attr, uint16_t value)
+{
+	ssize_t gate = pq_gatt_security_gate(conn, "Secure Data CCCD write");
+
+	ARG_UNUSED(attr);
+	ARG_UNUSED(value);
+	return gate != 0 ? gate : (ssize_t)sizeof(value);
+}
+
+static struct _bt_gatt_ccc v1_ccc =
+	BT_GATT_CCC_INITIALIZER(ccc_config_changed, validate_v1_ccc, NULL);
+#endif
+
+/*
  * Attribute indices are intentionally stable:
  *
  *   [0] service
@@ -216,7 +292,7 @@ BT_GATT_SERVICE_DEFINE(
 	BT_GATT_CHARACTERISTIC(
 		BT_UUID_DECLARE_128(PQ_CHAR_PUBKEY_UUID),
 		BT_GATT_CHRC_READ,
-		BT_GATT_PERM_READ,
+		PQ_GATT_PERM_READ,
 		read_public_key,
 		NULL,
 		NULL),
@@ -224,7 +300,7 @@ BT_GATT_SERVICE_DEFINE(
 	BT_GATT_CHARACTERISTIC(
 		BT_UUID_DECLARE_128(PQ_CHAR_CIPHERTEXT_UUID),
 		BT_GATT_CHRC_WRITE,
-		BT_GATT_PERM_WRITE,
+		PQ_GATT_PERM_WRITE,
 		NULL,
 		write_ciphertext,
 		NULL),
@@ -232,19 +308,26 @@ BT_GATT_SERVICE_DEFINE(
 	BT_GATT_CHARACTERISTIC(
 		BT_UUID_DECLARE_128(PQ_CHAR_DATA_UUID),
 		BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_WRITE,
-		BT_GATT_PERM_WRITE,
+		PQ_GATT_PERM_WRITE,
 		NULL,
 		write_secure_data,
 		NULL),
 
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	/* Keep the stack's write function: Zephyr identifies persisted CCCs by
+	 * this pointer. cfg_write supplies the per-connection runtime gate. */
+	BT_GATT_ATTRIBUTE(BT_UUID_GATT_CCC, PQ_GATT_PERM_CCC,
+			  read_v1_ccc, bt_gatt_attr_write_ccc, &v1_ccc),
+#else
 	BT_GATT_CCC(
 		ccc_config_changed,
-		BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+		PQ_GATT_PERM_CCC),
+#endif
 
 	BT_GATT_CHARACTERISTIC(
 		BT_UUID_DECLARE_128(PQ_CHAR_CONTROL_UUID),
 		BT_GATT_CHRC_WRITE,
-		BT_GATT_PERM_WRITE,
+		PQ_GATT_PERM_WRITE,
 		NULL,
 		write_control,
 		NULL),
@@ -317,6 +400,11 @@ static ssize_t read_public_key(struct bt_conn *conn,
 {
 	const uint8_t *public_key;
 	size_t public_key_len;
+	ssize_t gate = pq_gatt_security_gate(conn, "Public-key read");
+
+	if (gate != 0) {
+		return gate;
+	}
 
 	public_key = pq_mlkem_session_public_key(&public_key_len);
 	if (public_key == NULL) {
@@ -342,10 +430,14 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 	uint8_t total;
 	size_t assembled_len = 0U;
 	bool all_received = true;
+	ssize_t gate = pq_gatt_security_gate(conn, "Ciphertext write");
 
 	ARG_UNUSED(attr);
 	ARG_UNUSED(flags);
 
+	if (gate != 0) {
+		return gate;
+	}
 	if (offset != 0U) {
 		LOG_ERR("Ciphertext fragment has invalid ATT offset: %u", offset);
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
@@ -517,10 +609,14 @@ static ssize_t write_secure_data(
 	const uint8_t *data = buf;
 	bool use_phase7 = false;
 	int ret;
+	ssize_t gate = pq_gatt_security_gate(conn, "Secure Data write");
 
 	ARG_UNUSED(attr);
 	ARG_UNUSED(flags);
 
+	if (gate != 0) {
+		return gate;
+	}
 	if (offset != 0U) {
 		LOG_ERR(
 			"Secure Data write has invalid ATT offset: %u",
@@ -1044,6 +1140,77 @@ static ssize_t handle_phase7_finished_c(
 	return len;
 }
 
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+/*
+ * CP1 security attestation. The Central writes SEC_QUERY after pairing; the
+ * DK answers with the host-observed link security so the PC log carries DK
+ * evidence of "Level 4 + Secure Connections + authenticated + 16-octet key".
+ * No cryptography runs here; the reply is built and queued inline.
+ */
+static ssize_t handle_v1_control(struct bt_conn *conn, const uint8_t *data,
+				 uint16_t len)
+{
+	struct pq_v1_security_info info;
+	uint8_t reply[PQ_V1_SEC_INFO_FRAME_SIZE];
+	size_t reply_len = 0U;
+	const uint8_t *payload;
+	size_t payload_len;
+	uint8_t subtype;
+	bool ready;
+	int err;
+
+	if (pq_v1_parse_frame(data, len, &subtype, &payload, &payload_len) != 0) {
+		LOG_ERR("Malformed or unsupported PQV1 control frame");
+		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	}
+	if (subtype != PQ_V1_SEC_QUERY) {
+		LOG_WRN("PQV1 subtype 0x%02x not implemented in CP1 (status 0x%02x)",
+			subtype, PQ_V1_STATUS_UNSUPPORTED_SUBTYPE);
+		return BT_GATT_ERR(BT_ATT_ERR_NOT_SUPPORTED);
+	}
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	ready = (conn == current_conn) && notify_enabled;
+	k_mutex_unlock(&protocol_lock);
+	if (!ready) {
+		LOG_WRN("SEC_QUERY rejected: stale connection or notifications "
+			"disabled (status 0x%02x)",
+			PQ_V1_STATUS_NOTIFICATIONS_DISABLED);
+		return BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
+	}
+
+	if (pq_v1_security_query(conn, &info) != 0) {
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+	if (!info.gate_open || !pq_v1_security_conn_is_l4(conn)) {
+		return BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION);
+	}
+	err = pq_v1_encode_sec_info(info.level, info.secure_connections,
+				    info.authenticated, info.gate_open,
+				    info.enc_key_size, reply, &reply_len);
+	if (err != 0) {
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+
+	/* Notifications on this write-only value do not inherit a READ security
+	 * permission check in Zephyr. Require the runtime gate at send time. */
+	if (!pq_v1_security_conn_is_l4(conn)) {
+		return BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION);
+	}
+	err = bt_gatt_notify(conn, &pq_service.attrs[6], reply, reply_len);
+	if (err != 0) {
+		LOG_ERR("SEC_INFO notification failure: %d", err);
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+	LOG_INF("SEC_INFO sent: level L%u, SC=%u, authenticated=%u, key=%u, "
+		"gate=%s, state=%s", info.level, info.secure_connections,
+		info.authenticated, info.enc_key_size,
+		info.gate_open ? "OPEN" : "CLOSED",
+		pq_v1_security_state_name(info.state));
+	return len;
+}
+#endif /* CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM */
+
 static ssize_t write_control(struct bt_conn *conn,
 			     const struct bt_gatt_attr *attr,
 			     const void *buf, uint16_t len,
@@ -1053,15 +1220,37 @@ static ssize_t write_control(struct bt_conn *conn,
 	const uint8_t *payload;
 	size_t payload_len;
 	uint8_t subtype;
+	ssize_t gate = pq_gatt_security_gate(conn, "Control write");
 
 	ARG_UNUSED(attr);
 	ARG_UNUSED(flags);
 
+	if (gate != 0) {
+		return gate;
+	}
 	if (offset != 0U) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
 	LOG_INF("Control write: len=%u", len);
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (len >= PQ_V1_FRAME_MAGIC_SIZE &&
+	    memcmp(data, PQ_V1_FRAME_MAGIC, PQ_V1_FRAME_MAGIC_SIZE) == 0) {
+		return handle_v1_control(conn, data, len);
+	}
+	/*
+	 * START / START3 / START5 / PQS5 / PQS7 / PQBL belong to the v0.x
+	 * application-level architectures. v1.0 must not run the v0.7 hybrid
+	 * handshake on top of SMP, so they are rejected even at Level 4.
+	 */
+	LOG_WRN("Legacy v0.x control frame rejected in the v1.0 SMP-L4 profile "
+		"(status 0x%02x)", PQ_V1_STATUS_LEGACY_CONTROL_REJECTED);
+	ARG_UNUSED(payload);
+	ARG_UNUSED(payload_len);
+	ARG_UNUSED(subtype);
+	return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+#endif
 
 	if (len >= PQ_PHASE7_FRAME_MAGIC_SIZE &&
 	    memcmp(data, PQ_PHASE7_FRAME_MAGIC, PQ_PHASE7_FRAME_MAGIC_SIZE) == 0) {
@@ -1837,6 +2026,10 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		bt_conn_unref(old_current);
 	}
 	LOG_INF("Connected (generation %u)", generation);
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	pq_v1_security_on_connected(conn);
+#endif
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -1847,6 +2040,10 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	bool reset_phase7 = false;
 
 	LOG_INF("Disconnected (reason %u)", reason);
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	pq_v1_security_on_disconnected(conn);
+#endif
 
 	k_mutex_lock(&protocol_lock, K_FOREVER);
 	if (current_conn == conn) {
@@ -1917,7 +2114,13 @@ void main(void)
 
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	LOG_INF("Profile: v1.0 SMP Security Mode 1 Level 4 + ML-KEM (CP1)");
+	LOG_INF("PQ GATT closed until authenticated L4; legacy v0.x control rejected");
+#else
+	LOG_INF("Profile: v0.7 application-level hybrid (CONFIG_BT_SMP=n)");
 	LOG_INF("Modes: PHASE2_DIAGNOSTIC + PHASE3_SECURE + PHASE5_AUTH_PQ + PHASE6_BIDIRECTIONAL + PHASE7_HYBRID_CP2 + PHASE7_AUTH_CP3");
+#endif
 	LOG_INF("Device: %s", DEVICE_NAME);
 	LOG_INF("========================================");
 
@@ -1951,6 +2154,19 @@ void main(void)
 		return;
 	}
 	LOG_INF("Bluetooth initialized");
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	err = pq_v1_security_init();
+	if (err != 0) {
+		LOG_ERR("v1.0 SMP security setup failed: %d; not advertising", err);
+		return;
+	}
+	err = pq_v1_security_settings_load();
+	if (err != 0) {
+		LOG_ERR("v1.0 settings/bond setup failed: %d; not advertising", err);
+		return;
+	}
+#endif
 
 	bt_gatt_cb_register(&gatt_callbacks);
 

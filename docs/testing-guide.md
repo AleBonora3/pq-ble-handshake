@@ -22,8 +22,21 @@ Su Windows PowerShell, dalla root della repo:
 
 ```powershell
 .\.venv\Scripts\activate
-python -m pytest tests/ -v
+python -m pytest -q --basetemp=C:\pq_ble\.pytest-temp
 ```
+
+Use the explicit writable basetemp on this Windows PC. The earlier
+`PermissionError` at `C:\Users\alebo\AppData\Local\Temp\pytest-of-alebo`
+was a temporary-directory setup issue, not a test failure; the command above
+resolved it. The 2026-09-08 hardware-session baseline is **635 passed,
+1 skipped, 1 warning** (liboqs 0.15.0 versus liboqs-python 0.16.0).
+Final consolidation results are recorded in [test-results.md](test-results.md).
+The 2026-09-09 consolidation passed with **643 passed, 1 skipped, 1 warning**
+(eight additional reporting regressions) and `git diff --check` passed.
+If activation is blocked by PowerShell execution policy, invoke
+`.\.venv\Scripts\python.exe` in place of `python`; no policy change is needed.
+The final run used normal host access to the existing basetemp. Its generated
+files are excluded by `.gitignore`.
 
 ---
 
@@ -43,7 +56,82 @@ python -m pytest tests/test_phase2_diagnostic.py -v
 python -m pytest tests/test_phase2_e2e.py -v
 python -m pytest tests/test_phase5_primitives.py -v
 python -m pytest tests/test_phase5_auth_mock.py -v
+python -m pytest tests/test_v1_cp1.py -v
 ```
+
+### v1.0 CP1 (SMP Security Mode 1 Level 4 foundation)
+
+The hardware-fix regressions also include `tests/test_winrt_pairing_lifecycle.py`
+(realistic synchronous WinRT events/deferrals/cancellation) and
+`tests/test_v1_firmware_lifecycle.py` (actual CP1 C state machine on host GCC).
+See [the CP1 audit](research/milestones/v1.0-cp1-hardware-fix-audit.md).
+**CP1 foundation passed on real Windows PC + nRF54L15 DK on 2026-09-08**:
+pre-L4 gating, cold NC with matching PIN 177415, bonded reconnect without
+new NC and PC NC rejection with PIN 705752. B/C both returned authenticated
+L4, SC, key=16, gate OPEN and profile=0x10, and allowed all four PQ GATT
+operations. See the preserved [PC/DK log](research/logs/v1.0-1-tests.txt).
+For `nc-reject`, type `no` in the PC console for the automated verdict;
+DK-only rejection needs the UART history. A generic FAILED with no ceremony
+is inconclusive. Clear both bonds between negative scenarios as specified
+in the milestone procedure below.
+
+The retained `--v1-negative just-works` name means **Windows CONFIRM_ONLY
+with minimum ENCRYPTION**. `DevicePairingKinds.CONFIRM_ONLY` is an application
+pairing ceremony, not proof of the BLE on-air Just Works association model.
+In run E, Windows returned FAILED, paired=False, protection=NONE,
+ceremony=None, decision=None; no authenticated bond or L4 was established.
+The reviewed observation is **CONFIRM_ONLY FAIL-CLOSED: PASS (observed
+outcome)**; **RADIO-LEVEL JUST WORKS: NOT DEMONSTRATED**. The full automated
+rejection oracle remains INCONCLUSIVE because it had neither a specific
+security refusal nor an observed/accepted ceremony; it did not perform
+fresh probes after E.
+
+Current CLI interpretation:
+
+| Evidence | Result and exit |
+|---|---|
+| Generic FAILED with no ceremony; timeout/setup status; missing fresh verification connection | `NEGATIVE TEST: INCONCLUSIVE`, exit **1**; no automated PASS and no claim that the CP1 foundation failed. |
+| Specific security refusal, or FAILED after observed/accepted CONFIRM_ONLY, then no bond/notification and four fresh security denials | `NEGATIVE TEST: PASS (just-works)` plus `CONFIRM_ONLY FAIL-CLOSED: PASS`, exit **0**. |
+| Pairing/bond accepted, successful pre-L4 PQ operation or notification | Negative test **FAIL**, exit **1**. |
+
+The CONFIRM_ONLY PASS and INCONCLUSIVE reports both explicitly state
+`RADIO-LEVEL JUST WORKS: NOT DEMONSTRATED`. Exceptions during setup still
+fail with a nonzero exit; they are not evidence of security refusal. The
+complete physical negative oracle also requires DK history with no L4/gate
+OPEN throughout the attempt and verification. Keep the original raw log's
+old E FAIL marker unchanged; its presentation is superseded by this distinction.
+
+These documentation/reporting changes require no new firmware build or
+hardware run. Reproduction is optional, as is a future radio-level Just
+Works experiment with a peer using controlled `NoInputNoOutput` IO capability.
+The separate DK-only BUTTON 1 variant is not claimed as a completed run.
+Neither optional variant blocks CP1 acceptance. Do not start CP2 or change
+the v0.7 profile for these checks.
+
+`tests/test_v1_cp1.py` valida su host: framing `PQV1`, predicato
+"authenticated Level 4", classificazione dei rifiuti GATT di sicurezza,
+flusso CP1 con DK e backend di pairing Windows simulati (positivo, bug di
+gating, rifiuti, bond stale, modalità negative) e coerenza dei sorgenti
+firmware (`prj.conf` invariato, frammento `v1_smp_l4_mlkem.conf`, permessi
+GATT `AUTHEN | LESC`, gate runtime in ogni callback, nessuna auto-conferma
+della Numeric Comparison). Non è evidenza hardware.
+
+Riproduzione hardware (Windows PC + nRF54L15 DK con profilo v1.0):
+
+```powershell
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative pre-l4-only
+python -m src.central.main --v1-smp-l4-mlkem
+# Repeat without clearing bonds for bonded reconnect (C).
+python -m src.central.main --v1-smp-l4-mlkem
+# Clear both bonds before each negative scenario; follow the milestone.
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative nc-reject
+python -m src.central.main --v1-smp-l4-mlkem --v1-negative just-works
+```
+
+Procedura completa, mappa dei pulsanti e log attesi:
+[CP1 milestone](research/milestones/v1.0-smp-l4-mlkem.md#hardware-reproduction-procedure).
+Archive any new logs under new names; preserve both `v1.0-tests.txt` and
+`v1.0-1-tests.txt` in `docs/research/logs/` unchanged.
 
 ---
 

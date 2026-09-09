@@ -23,6 +23,93 @@ La suite attiva valida la parte crittografica, la frammentazione GATT, la logica
 
 ---
 
+## v1.0 CP1 hardware validation (2026-09-08; consolidated 2026-09-09)
+
+**CP1 SMP-L4 foundation: real hardware PASS** on the Windows PC and
+nRF54L15 DK. Results are recorded in the preserved
+[raw PC/DK log](research/logs/v1.0-1-tests.txt) and the operator's hardware report.
+
+| Run | Result |
+|---|---|
+| A — pre-L4 gate | **PASS**: Public Key, Ciphertext, Control and Secure Data CCCD denied; cold DK waits for Central custom pairing with its gate CLOSED. |
+| B — cold Numeric Comparison | **PASS**: matching PC/DK **177415**, PC `yes`, DK BUTTON 0; Windows PAIRED with ENCRYPTION_AND_AUTHENTICATION; DK authenticated L4, SC, key=16, gate OPEN and bond created. |
+| C — bonded reconnect | **PASS**: stored authenticated bond restored L4 without a new NC; Windows paired=True, can_pair=False. |
+| B/C — protected GATT | **PASS**: CCCD, Public Key 1184 B, Ciphertext 1088 B / 5 fragments, Control SEC_QUERY; DK attestation `level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10`. |
+| D — NC rejection | **real hardware PASS**: PIN **705752**, PC `no`, REJECTED_BY_HANDLER, paired=False, protection=NONE; same DK reconnected, four fresh denials, negative PASS. |
+| E — Windows CONFIRM_ONLY attempt | **FAIL-CLOSED: PASS (observed outcome)**: minimum ENCRYPTION; FAILED, paired=False, protection=NONE, ceremony=None, decision=None; no authenticated bond or L4. Full automated rejection verdict remains **INCONCLUSIVE**, with no fresh post-attempt probes. |
+| E — actual on-air BLE Just Works | **NOT DEMONSTRATED** by this Windows run. |
+
+The legacy CLI mode `just-works` selects a Windows application pairing
+ceremony; it does not force the on-air BLE association model. The raw log's
+old FAIL marker for E is retained verbatim. Reporting now distinguishes
+INCONCLUSIVE (exit 1) from security failure and labels a supported automated
+PASS as CONFIRM_ONLY fail-closed, with radio-level Just Works still not
+demonstrated. Generic FAILED without ceremony evidence never becomes an
+automated PASS. The observed fail-closed outcome above is a narrower claim.
+
+No additional firmware build or hardware run is required for this
+documentation/reporting consolidation. A controlled `NoInputNoOutput` peer
+is an optional future radio-level experiment. CP2 has not started; v0.7
+behavior and the validated firmware are unchanged; v1.0 is not complete.
+
+Windows repository baseline: **578 passed, 1 skipped**. After the CP1 fixes:
+**635 passed, 1 skipped, 1 warning** (8.58 s), including 57 new regression cases; the 495 v0.x
+tests and their source files are unchanged. The skip is the non-Windows-only
+WinRT availability test. Reproducible Windows command in the repository environment:
+
+```powershell
+python -m pytest -q --basetemp=C:\pq_ble\.pytest-temp
+```
+
+The warning is the existing liboqs 0.15.0 / liboqs-python 0.16.0 mismatch.
+The earlier default-temp `PermissionError` at
+`C:\Users\alebo\AppData\Local\Temp\pytest-of-alebo` was an environment
+setup issue resolved by the explicit writable basetemp, not a test failure.
+
+Real NCS 3.0.0 builds passed: v1 `build_v1_fix` uses 270172 B FLASH / 109024 B
+RAM; the default v0.7 profile also builds separately in `build_v07_fix_check`.
+The operator subsequently tested the corrected image with the results above.
+Full evidence and reproduction procedure:
+[CP1 audit](research/milestones/v1.0-cp1-hardware-fix-audit.md),
+[milestone](research/milestones/v1.0-smp-l4-mlkem.md).
+
+Final consolidation regression (2026-09-09), using the command above with
+the repository `.venv` selected in PATH and normal host access:
+
+```text
+643 passed, 1 skipped, 1 warning in 22.15s
+```
+
+Pytest exit **0**; `git diff --check` **PASS**, exit **0**. The increase from
+635 is eight CLI/runner reporting cases covering the precise hardware E
+outcome and the conservative security oracle. Native C lifecycle compilation
+and execution passed. All 22 inherited v0.x test files remain unchanged.
+The only warning is the liboqs version mismatch. The initial sandbox attempt
+could not access the existing basetemp; normal host access resolved this
+without changing permissions or dependencies. Generated `.pytest-temp/`
+files are ignored by Git. Both raw CP1 logs remain byte-for-byte unchanged.
+
+## v1.0 CP1 software validation (2026-09-07, original contributor environment)
+
+Suite eseguita su macOS (Python 3.13.15, pytest 9.1.1, bleak 3.0.2,
+cryptography 50.0.1, liboqs-python 0.16.0 con liboqs 0.16.0 condiviso):
+
+```text
+579 passed
+```
+
+di cui 84 nel nuovo `tests/test_v1_cp1.py` (framing `PQV1`, predicato Level 4,
+classificazione dei rifiuti GATT, flusso CP1 con DK e pairing Windows
+simulati, modalità negative, coerenza sorgenti firmware). I 495 test v0.x
+preesistenti restano invariati e passano.
+
+Non ancora eseguito: build del profilo firmware `v1_smp_l4_mlkem.conf`
+(nessun toolchain NCS sulla macchina di sviluppo usata) e validazione
+hardware Windows PC ↔ nRF54L15 DK di CP1. Il controllo sintattico host dei
+sorgenti C nuovi/modificati contro stub delle API Zephyr 4.0.99 è passato.
+
+---
+
 ## Python automated test suite
 
 | Test file | Active tests | Scope |

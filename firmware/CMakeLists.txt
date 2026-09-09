@@ -23,6 +23,13 @@ target_sources(app PRIVATE
     ${MLKEM_NATIVE_DIR}/mlkem_native.c
 )
 
+# v1.0 profile (firmware/v1_smp_l4_mlkem.conf): BLE SMP Security Mode 1
+# Level 4 gating, Numeric Comparison UI and the PQV1 control framing.
+target_sources_ifdef(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM app PRIVATE
+    src/pq_v1_security.c
+    src/pq_v1_frame.c
+)
+
 target_include_directories(app PRIVATE
     ${MLKEM_NATIVE_DIR}
 )

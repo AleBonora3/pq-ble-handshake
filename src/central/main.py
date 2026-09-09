@@ -73,6 +73,13 @@ from .phase6_c2p import (
 )
 from .phase7_hybrid import run_phase7_hybrid_e2e
 
+from .v1_smp_mlkem import (
+    V1_NEGATIVE_MODES,
+    V1Error,
+    V1NegativeTestInconclusive,
+    V1NegativeTestPassed,
+    run_v1_cp1,
+)
 from .phase7_auth import (
     PHASE7_NEGATIVE_MODES,
     Phase7AuthError,
@@ -172,6 +179,15 @@ def parse_args(argv=None):
             "secure channel (CP3 positive flow / CP4 validation)"
         ),
     )
+    execution_mode.add_argument(
+        "--v1-smp-l4-mlkem",
+        action="store_true",
+        help=(
+            "v1.0 CP1: BLE SMP Security Mode 1 Level 4 foundation "
+            "(real Numeric Comparison, PQ GATT closed before L4 / open after L4). "
+            "Requires the v1_smp_l4_mlkem.conf firmware profile and Windows."
+        ),
+    )
     parser.add_argument(
         "--phase3-negative",
         choices=("tamper", "aad", "replay"),
@@ -218,6 +234,32 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        "--v1-negative",
+        choices=V1_NEGATIVE_MODES,
+        default=None,
+        help=(
+            "v1.0 CP1 negative test; requires --v1-smp-l4-mlkem. "
+            "'pre-l4-only' proves gating without pairing; 'nc-reject' expects "
+            "the operator to reject the Numeric Comparison; 'just-works' offers "
+            "Windows CONFIRM_ONLY with minimum ENCRYPTION (legacy mode name; "
+            "this application ceremony does not prove on-air BLE Just Works)"
+        ),
+    )
+    parser.add_argument(
+        "--v1-unpair-first",
+        action="store_true",
+        help=(
+            "v1.0: delete the Windows bond after the initial connection "
+            "(deterministic cold pairing; also clear DK bonds with BUTTON 3)"
+        ),
+    )
+    parser.add_argument(
+        "--v1-pairing-timeout",
+        type=float,
+        default=90.0,
+        help="v1.0: seconds allowed for SMP pairing including human confirmation",
+    )
+    parser.add_argument(
         "--mtu",
         type=int,
         default=None,
@@ -230,6 +272,14 @@ def parse_args(argv=None):
         help="Logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
+    if (args.v1_negative is not None or args.v1_unpair_first) and not args.v1_smp_l4_mlkem:
+        parser.error("--v1-negative / --v1-unpair-first require --v1-smp-l4-mlkem")
+    if args.v1_smp_l4_mlkem:
+        if args.no_sas_confirm:
+            parser.error("--no-sas-confirm is not allowed with --v1-smp-l4-mlkem")
+        if any((args.phase3_negative, args.phase5_negative, args.phase6_negative,
+                args.phase7_negative_test_only)):
+            parser.error("v1.0 cannot be combined with another phase's negative switches")
     if args.phase7_negative_test_only is not None and not args.phase7_auth_hybrid:
         parser.error("--phase7-negative-test-only requires --phase7-auth-hybrid")
     if args.phase7_auth_hybrid:
@@ -792,6 +842,109 @@ async def _run_phase6_bidirectional_cli(
                 exc,
             )
             
+async def _confirm_numeric_comparison(pin: str) -> bool:
+    """Human decision on the Central; never auto-accept."""
+
+    print()
+    print("=" * 56)
+    print(f"  SMP NUMERIC COMPARISON (Windows shows): {pin}")
+    print("  The nRF54L15 DK prints its own value on UART.")
+    print("  On the DK: BUTTON 0 = accept, BUTTON 1 = reject.")
+    print("=" * 56)
+    from .winrt_pairing import read_console_line
+    answer = await read_console_line("Do BOTH values match? Type 'yes' to accept, 'no' to reject: ")
+    return answer.strip().lower() in ("y", "yes")
+
+
+async def _run_v1_smp_l4_mlkem_cli(args) -> int:
+    """v1.0 CP1: own the connection; disconnect before reporting."""
+
+    negative_test = args.v1_negative
+    client = BLECentralClient(device_name=args.device)
+    negative_result = None
+    try:
+        logger.info("Scanning for peripheral '%s'...", args.device)
+        if not await client.scan_and_connect(timeout=15.0):
+            logger.error(
+                "Could not find '%s'. Flash the v1.0 profile "
+                "(firmware/v1_smp_l4_mlkem.conf).", args.device,
+            )
+            return 1
+        logger.info("=== v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===")
+        result = await run_v1_cp1(
+            client,
+            confirm_numeric_comparison=_confirm_numeric_comparison,
+            negative_test=negative_test,
+            unpair_first=args.v1_unpair_first,
+            pairing_timeout=args.v1_pairing_timeout,
+        )
+        if negative_test is not None:
+            raise V1Error("CP1 negative test returned a positive result")
+        print()
+        print(f"Scenario: {result.scenario}")
+        if result.pre_l4_denials:
+            for name, reason in result.pre_l4_denials.items():
+                print(f"Pre-L4 {name}: DENIED ({reason})")
+        print(
+            f"SMP pairing: {result.pairing_status} / {result.pairing_protection}"
+            + (f" ({result.pairing_ms:.0f} ms incl. human time)" if result.pairing_ms else "")
+        )
+        print(f"DK attestation: {result.security_info.describe()}")
+        print(
+            f"Post-L4 PQ GATT: Public Key {result.public_key_len} B, "
+            f"Ciphertext {result.ciphertext_fragments} fragments, Control OK, "
+            f"CCCD OK ({result.post_l4_ms:.0f} ms)"
+        )
+        print()
+        print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: PASS")
+        print()
+        return 0
+    except V1NegativeTestPassed as exc:
+        if negative_test is None:
+            logger.error("Unexpected negative-test result in positive mode: %s", exc)
+            return 1
+        negative_result = str(exc)
+    except V1NegativeTestInconclusive as exc:
+        logger.warning("v1.0 CP1 negative experiment inconclusive: %s", exc)
+        print()
+        print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: INCONCLUSIVE ({negative_test})")
+        if negative_test == "just-works":
+            print("CONFIRM_ONLY FAIL-CLOSED: INCONCLUSIVE (insufficient automated evidence)")
+            print("RADIO-LEVEL JUST WORKS: NOT DEMONSTRATED")
+        print()
+        return 1
+    except V1Error as exc:
+        logger.error("v1.0 CP1 failed: %s", exc)
+        print()
+        if negative_test is not None:
+            print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
+        else:
+            print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: FAIL")
+        print()
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unexpected v1.0 CP1 failure: %s", exc)
+        print()
+        if negative_test is not None:
+            print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
+        else:
+            print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: FAIL")
+        print()
+        return 1
+    finally:
+        try:
+            await client.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("v1.0 disconnect failed: %s", exc)
+
+    print(f"NEGATIVE TEST PASS: {negative_result}")
+    print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: PASS ({negative_test})")
+    if negative_test == "just-works":
+        print("CONFIRM_ONLY FAIL-CLOSED: PASS")
+        print("RADIO-LEVEL JUST WORKS: NOT DEMONSTRATED")
+    return 0
+
+
 async def _run_phase7_hybrid_e2e_cli(args) -> int:
     """Own the isolated CP2 connection, including cleanup after any failure."""
     client = BLECentralClient(device_name=args.device)
@@ -988,6 +1141,9 @@ async def main():
         ),
         args.mtu or "auto",
     )
+
+    if getattr(args, "v1_smp_l4_mlkem", False):
+        return await _run_v1_smp_l4_mlkem_cli(args)
 
     if args.phase3_negative is not None and not args.phase3_secure:
         logger.error(

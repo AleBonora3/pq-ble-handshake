@@ -76,6 +76,45 @@ class BLECentralClient:
 
         return True
 
+    async def reconnect(self, timeout: float = 15.0) -> bool:
+        """Re-scan and reconnect (Windows may drop the link after bonding)."""
+        try:
+            await self.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Ignoring disconnect error before reconnect: %s", exc)
+        return await self.scan_and_connect(timeout=timeout)
+
+    async def reconnect_v1_peer(self, timeout: float = 15.0) -> bool:
+        """CP1: retire the old GATT session and reconnect the same scanned peer.
+
+        Wait for a new advertisement from the original address (the CP1 DK
+        stops advertising while connected). Do not scan by name: another DK
+        may advertise the same name. A new BleakClient also isolates delayed
+        disconnect events from the old one.
+        """
+        if self._device is None:
+            raise RuntimeError("No known CP1 peer to reconnect")
+        old_client = self._client
+        if old_client is not None:
+            await old_client.disconnect()
+        logger.info("CP1 reconnect to original peer %s", self._device.address)
+        peer = await BleakScanner.find_device_by_address(self._device.address, timeout=timeout)
+        if peer is None:
+            logger.error("Original CP1 peer did not resume advertising")
+            return False
+        self._device = peer
+        self._client = BleakClient(
+            self._device, timeout=timeout,
+            disconnected_callback=self._on_v1_disconnect,
+            winrt={"use_cached_services": False},
+        )
+        await self._client.connect()
+        return self._client.is_connected
+
+    def _on_v1_disconnect(self, client: BleakClient):
+        logger.info("CP1 link disconnected from %s (classified by the active test)",
+                    client.address)
+
     async def disconnect(self):
         """Gracefully disconnect."""
         if self._client and self._client.is_connected:
@@ -83,6 +122,9 @@ class BLECentralClient:
             logger.info("Disconnected.")
 
     def _on_disconnect(self, client: BleakClient):
+        if getattr(self, "_v1_security_test", False):
+            self._on_v1_disconnect(client)
+            return
         logger.warning("Unexpected disconnect from %s", client.address)
 
     async def read_fragmented_public_key(self) -> bytes:
@@ -151,6 +193,14 @@ class BLECentralClient:
                          i + 1, len(fragments), len(frag))
 
         logger.info("Ciphertext written [OK] (%d fragments)", len(fragments))
+        return len(fragments)
+
+    async def write_raw_ciphertext_fragment(self, fragment: bytes) -> None:
+        """Write one already-framed fragment (v1.0 CP1 pre-L4 gating probe)."""
+
+        if not self._client or not self._client.is_connected:
+            raise RuntimeError("Not connected")
+        await self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, fragment)
 
     # Backward-compatible alias
     async def write_ciphertext(self, data: bytes) -> None:
@@ -203,6 +253,16 @@ class BLECentralClient:
     @property
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected
+
+    @property
+    def address(self) -> Optional[str]:
+        """Peer Bluetooth address as reported by the scanner."""
+        return self._device.address if self._device is not None else None
+
+    @property
+    def raw_client(self) -> Optional[BleakClient]:
+        """Underlying BleakClient (needed by platform pairing helpers)."""
+        return self._client
 
     @property
     def mtu_size(self) -> int:

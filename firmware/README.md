@@ -218,6 +218,55 @@ west flash
 `CONFIG_MAIN_STACK_SIZE=24576` is intentionally unchanged. Normal
 KeyGen and Decapsulation execute on the dedicated 28672-byte worker stack.
 
+## v1.0 profile: BLE SMP Security Mode 1 Level 4 + ML-KEM (CP1)
+
+`prj.conf` stays the frozen v0.7 baseline (`CONFIG_BT_SMP=n`). The v1.0
+profile is selected with the extra fragment `v1_smp_l4_mlkem.conf`, which
+enables `CONFIG_BT_SMP=y`, `CONFIG_BT_SMP_SC_ONLY=y`, bonding with persistent
+settings (ZMS on the RRAM `storage` partition), the DK button library and
+`CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM=y` (Kconfig choice `PQ_PROFILE`).
+
+```powershell
+west build -d build_v1_fix -b nrf54l15dk/nrf54l15/cpuapp -p always -- `
+  '-DCONF_FILE=prj.conf' '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf'
+west flash -d build_v1_fix
+```
+
+In nRF Connect for VS Code add `v1_smp_l4_mlkem.conf` under **Extra Kconfig
+fragments** and run **Pristine Build**.
+
+Behaviour of the v1.0 profile:
+
+- cold connections wait for Windows custom pairing; only stored DK bonds
+  trigger a `BT_SECURITY_L4` restoration request. The host advertises
+  DisplayYesNo; Numeric Comparison requires an explicit decision on both
+  peers. Secure Connections Only still rejects Just Works for incoming SMP;
+- the six-digit value is printed on UART; **BUTTON 0 accepts, BUTTON 1
+  rejects** (DK library `DK_BTN1`/`DK_BTN2`, devicetree `sw0`/`sw1`);
+  nothing is confirmed automatically; a 60 s timeout cancels the pairing and
+  disconnects;
+- Public Key, Ciphertext, Secure Data, its CCCD and Control carry
+  `BT_GATT_PERM_*_AUTHEN | BT_GATT_PERM_*_LESC`, and every sensitive callback
+  additionally requires `pq_v1_security_conn_is_l4()` (tracked
+  `security_changed(L4)` plus live L4 + Secure Connections + 16-octet key).
+  Before Level 4 every PQ GATT request is answered with ATT *Insufficient
+  Authentication*;
+- v0.x control frames (`START*`, `PQS5`, `PQS7`, `PQBL`) are rejected in this
+  profile; the CP1 `PQV1 SEC_QUERY` returns a `SEC_INFO` attestation of the
+  live link security through the Secure Data notification;
+- bonds persist across resets; **BUTTON 3 while disconnected deletes all
+  bonds**; `CONFIG_PQ_V1_CLEAR_BONDS_ON_BOOT=y` (TEST ONLY) forces cold
+  pairing at every boot.
+
+NCS 3.0.0 build PASS (2026-09-08): FLASH 270172 B, RAM 109024 B.
+CP1 foundation passed on the real Windows PC + nRF54L15 DK (2026-09-08):
+pre-L4 gate, cold NC, bonded reconnect and PC NC rejection. The Windows
+CONFIRM_ONLY attempt failed closed; actual on-air BLE Just Works was not
+demonstrated. See the [milestone](../docs/research/milestones/v1.0-smp-l4-mlkem.md)
+for evidence and the reproduction procedure. Generic FAILED without a
+ceremony remains automatically inconclusive. The documentation/reporting
+consolidation changes no firmware and needs no new build or hardware run.
+
 ## Opt-in frozen Phase 1 self-test
 
 `src/mlkem_selftest.c` and `src/mlkem_selftest.h` are retained unchanged. The
