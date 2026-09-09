@@ -8,8 +8,8 @@
  *
  *   magic(4) "PQV1" || version(1) 0x10 || subtype(1) || payload_len(2, BE)
  *
- * CP1 defines only the security attestation exchange. The ML-KEM handshake
- * subtypes are reserved and rejected until CP2/CP3.
+ * CP1 defines security attestation; CP2 adds START/READY diagnostics.
+ * FINISHED subtypes remain reserved and rejected until CP3.
  */
 
 #ifndef PQ_V1_FRAME_H_
@@ -28,13 +28,19 @@
 #define PQ_V1_SEC_QUERY 0x01U
 #define PQ_V1_SEC_INFO 0x02U
 
-/* Reserved for CP2/CP3 (not accepted in CP1). */
+/* CP2: test-only ML-KEM interoperability. FINISHED remains reserved. */
 #define PQ_V1_START 0x10U
 #define PQ_V1_READY 0x11U
 #define PQ_V1_FINISHED_C 0x12U
 #define PQ_V1_FINISHED_P 0x13U
 
 #define PQ_V1_ERROR 0x7FU
+
+#define PQ_V1_CP2_SESSION_ID_SIZE 16U
+#define PQ_V1_CP2_DIAGNOSTIC_SIZE 32U
+#define PQ_V1_START_FRAME_SIZE (PQ_V1_FRAME_HEADER_SIZE + PQ_V1_CP2_SESSION_ID_SIZE)
+#define PQ_V1_READY_FRAME_SIZE (PQ_V1_FRAME_HEADER_SIZE + PQ_V1_CP2_DIAGNOSTIC_SIZE)
+#define PQ_V1_CP2_DIAGNOSTIC_LABEL "PQ-BLE-HANDSHAKE-v1.0/CP2-DIAGNOSTIC"
 
 /*
  * SEC_INFO payload (4 bytes):
@@ -62,6 +68,7 @@
 #define PQ_V1_STATUS_INVALID_STATE 0x12U
 #define PQ_V1_STATUS_NOTIFICATIONS_DISABLED 0x13U
 #define PQ_V1_STATUS_UNSUPPORTED_SUBTYPE 0x14U
+#define PQ_V1_STATUS_CP2_CRYPTO_FAILURE 0x15U
 
 #define PQ_V1_SEC_QUERY_FRAME_SIZE PQ_V1_FRAME_HEADER_SIZE
 

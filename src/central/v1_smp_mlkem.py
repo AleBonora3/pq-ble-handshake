@@ -292,7 +292,7 @@ async def _post_l4_exchange(
     return info
 
 
-async def run_v1_cp1(
+async def _run_v1(
     client,
     *,
     confirm_numeric_comparison: ConfirmCallback,
@@ -302,6 +302,9 @@ async def run_v1_cp1(
     notification_timeout: float = 10.0,
     quiet_window: float = 1.0,
     pairing_backend=winrt_pairing,
+    post_l4_exchange=_post_l4_exchange,
+    result_type=V1CP1Result,
+    checkpoint: str = "CP1",
 ) -> V1CP1Result:
     """Run CP1. Raises V1Error / V1NegativeTestPassed; never returns on failure."""
 
@@ -334,7 +337,7 @@ async def run_v1_cp1(
                 raise V1Error("Windows still reports the device as paired after unpair")
 
         scenario = "bonded" if state.is_paired else "cold"
-        result = V1CP1Result(
+        result = result_type(
             scenario=scenario,
             security_info=V1SecurityInfo(0, False, False, False, 0, 0),
         )
@@ -404,7 +407,7 @@ async def run_v1_cp1(
 
         try:
             notify_started = True  # also clean up if a later post-L4 step fails
-            info = await _post_l4_exchange(
+            info = await post_l4_exchange(
                 client, notifications, notification_handler,
                 notification_timeout=notification_timeout,
                 quiet=quiet_window, result=result,
@@ -428,7 +431,7 @@ async def run_v1_cp1(
         notify_started = True
         result.security_info = info
         result.total_ms = _ms(total_started)
-        logger.info("v1.0 CP1 state: L4_GATT_VERIFIED (%s)", scenario)
+        logger.info("v1.0 %s state: L4_GATT_VERIFIED (%s)", checkpoint, scenario)
         return result
     finally:
         if notify_started:
@@ -436,3 +439,8 @@ async def run_v1_cp1(
                 await client.stop_notify()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not stop notifications: %s", exc)
+
+
+async def run_v1_cp1(client, **kwargs) -> V1CP1Result:
+    """CP1 access-only validation; never submits ML-KEM decapsulation."""
+    return await _run_v1(client, **kwargs)

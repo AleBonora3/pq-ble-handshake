@@ -80,6 +80,7 @@ from .v1_smp_mlkem import (
     V1NegativeTestPassed,
     run_v1_cp1,
 )
+from .v1_cp2 import run_v1_cp2
 from .phase7_auth import (
     PHASE7_NEGATIVE_MODES,
     Phase7AuthError,
@@ -246,6 +247,10 @@ def parse_args(argv=None):
         ),
     )
     parser.add_argument(
+        "--v1-cp2", action="store_true",
+        help="TEST ONLY: ML-KEM interoperability over L4; requires --v1-smp-l4-mlkem",
+    )
+    parser.add_argument(
         "--v1-unpair-first",
         action="store_true",
         help=(
@@ -272,6 +277,8 @@ def parse_args(argv=None):
         help="Logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
+    if args.v1_cp2 and (not args.v1_smp_l4_mlkem or args.v1_negative is not None):
+        parser.error("--v1-cp2 requires --v1-smp-l4-mlkem and cannot use --v1-negative")
     if (args.v1_negative is not None or args.v1_unpair_first) and not args.v1_smp_l4_mlkem:
         parser.error("--v1-negative / --v1-unpair-first require --v1-smp-l4-mlkem")
     if args.v1_smp_l4_mlkem:
@@ -860,6 +867,11 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
     """v1.0 CP1: own the connection; disconnect before reporting."""
 
     negative_test = args.v1_negative
+    cp2 = getattr(args, "v1_cp2", False)
+    positive_marker = (
+        "PQ-BLE V1.0 CP2 ML-KEM-L4 INTEROPERABILITY" if cp2 else
+        "PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION"
+    )
     client = BLECentralClient(device_name=args.device)
     negative_result = None
     try:
@@ -869,9 +881,13 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
                 "Could not find '%s'. Flash the v1.0 profile "
                 "(firmware/v1_smp_l4_mlkem.conf).", args.device,
             )
+            if cp2:
+                print(f"{positive_marker}: FAIL")
             return 1
-        logger.info("=== v1.0 CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION ===")
-        result = await run_v1_cp1(
+        logger.info("=== v1.0 %s ===", "CP2: ML-KEM-768 OVER SMP LEVEL 4" if cp2 else
+                    "CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION")
+        run = run_v1_cp2 if cp2 else run_v1_cp1
+        result = await run(
             client,
             confirm_numeric_comparison=_confirm_numeric_comparison,
             negative_test=negative_test,
@@ -890,13 +906,23 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
             + (f" ({result.pairing_ms:.0f} ms incl. human time)" if result.pairing_ms else "")
         )
         print(f"DK attestation: {result.security_info.describe()}")
+        if cp2:
+            if not (result.diagnostic_match and result.start_sent and result.ready_received):
+                raise V1Error("CP2 returned without a verified diagnostic exchange")
+            print("SMP Security Mode 1 Level 4: VERIFIED")
+            print("ML-KEM public key: 1184 B")
+            print("ML-KEM ciphertext: 1088 B")
+            print("ML-KEM shared secret: 32 B (value never logged)")
+            print("START_V1: SENT")
+            print("READY_V1: RECEIVED")
+            print("CP2 diagnostic match: YES (TEST ONLY)")
         print(
             f"Post-L4 PQ GATT: Public Key {result.public_key_len} B, "
             f"Ciphertext {result.ciphertext_fragments} fragments, Control OK, "
             f"CCCD OK ({result.post_l4_ms:.0f} ms)"
         )
         print()
-        print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: PASS")
+        print(f"{positive_marker}: PASS")
         print()
         return 0
     except V1NegativeTestPassed as exc:
@@ -914,21 +940,21 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
         print()
         return 1
     except V1Error as exc:
-        logger.error("v1.0 CP1 failed: %s", exc)
+        logger.error("v1.0 %s failed: %s", "CP2" if cp2 else "CP1", exc)
         print()
         if negative_test is not None:
             print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
         else:
-            print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: FAIL")
+            print(f"{positive_marker}: FAIL")
         print()
         return 1
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected v1.0 CP1 failure: %s", exc)
+        logger.exception("Unexpected v1.0 %s failure: %s", "CP2" if cp2 else "CP1", exc)
         print()
         if negative_test is not None:
             print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
         else:
-            print("PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION: FAIL")
+            print(f"{positive_marker}: FAIL")
         print()
         return 1
     finally:

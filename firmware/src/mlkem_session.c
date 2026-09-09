@@ -8,6 +8,9 @@
 
 #include "mlkem_session.h"
 #include "pq_phase6.h"
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#include "pq_v1_cp2.h"
+#endif
 
 #include <errno.h>
 #include <string.h>
@@ -165,6 +168,10 @@ static bool worker_started;
 static bool keypair_ready;
 static bool job_pending;
 static bool job_active;
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+static uint32_t v1_cp2_epoch;
+static uint32_t pending_v1_cp2_epoch;
+#endif
 static int initialization_result = -EINPROGRESS;
 
 static void clear_phase5_material_locked(void);
@@ -227,6 +234,40 @@ static int validate_diagnostic_crc(void)
 /* Called only on the crypto worker, after ML-KEM decapsulation. The runtime
  * ML-KEM keypair and consumed job buffers stay immutable until job_done.
  * Only the public key and TEST-ONLY diagnostic leave this function. */
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+static int v1_cp2_result(size_t *wire_len)
+{
+	uint8_t ss_mlkem[PQ_MLKEM_SHARED_SECRET_SIZE] = { 0 };
+	uint8_t diagnostic[PQ_V1_CP2_DIAGNOSTIC_SIZE] = { 0 };
+	int ret;
+
+	*wire_len = 0U;
+	ret = pqble_mlkem_dec(ss_mlkem, ciphertext_job, secret_key);
+	if (ret == 0) {
+		LOG_INF("v1 CP2 ML-KEM decapsulation: PASS");
+		ret = pq_v1_cp2_diagnostic(ss_mlkem, sizeof(ss_mlkem),
+			session_id_job, sizeof(session_id_job), public_key, sizeof(public_key),
+			ciphertext_job, sizeof(ciphertext_job), diagnostic);
+	}
+	/* Raw SS never leaves this worker stack, including on API/PSA failure. */
+	secure_clear(ss_mlkem, sizeof(ss_mlkem));
+	if (ret == 0) {
+		LOG_INF("v1 CP2 diagnostic generated (TEST ONLY)");
+		ret = pq_v1_encode_frame(PQ_V1_READY, diagnostic, sizeof(diagnostic),
+			secure_wire, sizeof(secure_wire), wire_len);
+	}
+	secure_clear(diagnostic, sizeof(diagnostic));
+	LOG_INF("v1 CP2 temporary secret material cleared");
+	report_crypto_stack("after v1 CP2 ML-KEM decapsulation + diagnostic");
+	if (ret != 0) {
+		LOG_ERR("v1 CP2 cryptographic operation failed: %d", ret);
+		*wire_len = 0U;
+		secure_clear(secure_wire, sizeof(secure_wire));
+	}
+	return ret;
+}
+#endif
+
 static int phase7_cp2_result(size_t *wire_len)
 {
 	psa_key_id_t private_key = 0;
@@ -815,6 +856,20 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		job_pending = false;
 		job_active = true;
 		mode = pending_job_mode;
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		if (mode == PQ_MLKEM_JOB_V1_CP2) {
+			job_epoch = pending_v1_cp2_epoch;
+			job_valid = job_epoch == v1_cp2_epoch;
+			k_mutex_unlock(&session_lock);
+			if (job_valid) {
+				status = v1_cp2_result(&secure_wire_len) == 0 ?
+					PQ_MLKEM_STATUS_SUCCESS : PQ_MLKEM_STATUS_DECAPSULATION_FAILURE;
+			}
+			/* No legacy crypto, CRC, hybrid combiner, SAS or key retention. */
+			goto job_done;
+		}
+#endif
 
 		if (mode == PQ_MLKEM_JOB_PHASE7_AUTH_START ||
 			mode == PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C ||
@@ -2024,7 +2079,19 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 			LOG_WRN("Phase 7 authenticated result canceled by session epoch change");
 		}
-		job_active = false;
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		if (mode == PQ_MLKEM_JOB_V1_CP2) {
+			if (job_epoch != v1_cp2_epoch) {
+				status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+				secure_wire_len = 0U;
+				secure_clear(secure_wire, sizeof(secure_wire));
+			}
+			/* Keep this single slot owned through result delivery and wiping. */
+		} else
+#endif
+		{
+			job_active = false;
+		}
 		secure_clear(
 			phase6_rx_wire_job,
 			sizeof(phase6_rx_wire_job));
@@ -2046,6 +2113,13 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			secure_wire_len);
 		
 		secure_clear(secure_wire, sizeof(secure_wire));
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		if (mode == PQ_MLKEM_JOB_V1_CP2) {
+			k_mutex_lock(&session_lock, K_FOREVER);
+			job_active = false;
+			k_mutex_unlock(&session_lock);
+		}
+#endif
 		secure_clear(&local_keys, sizeof(local_keys));
 		secure_clear(local_hash, sizeof(local_hash));
 		secure_clear(received_finished_c, sizeof(received_finished_c));
@@ -2210,6 +2284,44 @@ const uint8_t *pq_mlkem_session_public_key(size_t *public_key_len)
 	*public_key_len = sizeof(public_key);
 	return public_key;
 }
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+int pq_mlkem_session_submit_v1_cp2(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t *session_id, size_t session_id_len)
+{
+	BUILD_ASSERT(PQ_V1_CP2_SESSION_ID_SIZE == sizeof(session_id_job));
+	BUILD_ASSERT(PQ_V1_READY_FRAME_SIZE <= sizeof(secure_wire));
+	if (ciphertext == NULL || ciphertext_len != sizeof(ciphertext_job) ||
+	    session_id == NULL || session_id_len != PQ_V1_CP2_SESSION_ID_SIZE) {
+		return -EINVAL;
+	}
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (!keypair_ready || job_pending || job_active) {
+		int ret = !keypair_ready ? -EACCES : -EBUSY;
+
+		k_mutex_unlock(&session_lock);
+		return ret;
+	}
+	memcpy(ciphertext_job, ciphertext, sizeof(ciphertext_job));
+	memcpy(session_id_job, session_id, sizeof(session_id_job));
+	pending_job_mode = PQ_MLKEM_JOB_V1_CP2;
+	pending_v1_cp2_epoch = ++v1_cp2_epoch;
+	job_pending = true;
+	k_mutex_unlock(&session_lock);
+	k_sem_give(&job_available);
+	return 0;
+}
+
+void pq_mlkem_session_reset_v1_cp2(void)
+{
+	k_mutex_lock(&session_lock, K_FOREVER);
+	v1_cp2_epoch++;
+	/* A running decapsulation must retain immutable inputs until it ends.
+	 * job_done clears every buffer even for an invalidated pending job. */
+	k_mutex_unlock(&session_lock);
+}
+#endif
 
 static int submit_job(
 	const uint8_t *ciphertext,

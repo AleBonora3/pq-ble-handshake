@@ -168,6 +168,12 @@ static struct bt_conn *crypto_job_conn;
 static uint32_t connection_generation;
 static uint32_t crypto_job_generation;
 static bool notify_enabled;
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+/* The CP1 security state remains authoritative; CP2 adds only an owned,
+ * transient transaction. Keep active until its worker completion drains. */
+static bool v1_cp2_active;
+static bool v1_cp2_valid;
+#endif
 
 static ssize_t read_public_key(struct bt_conn *conn,
 			       const struct bt_gatt_attr *attr,
@@ -1141,6 +1147,164 @@ static ssize_t handle_phase7_finished_c(
 }
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+/* Caller holds protocol_lock. Never wipe the worker's running inputs here. */
+static void invalidate_v1_cp2_locked(void)
+{
+	v1_cp2_valid = false;
+	pq_mlkem_session_reset_v1_cp2();
+}
+
+static ssize_t handle_v1_cp2_start(struct bt_conn *conn, uint16_t len,
+				 const uint8_t *session_id, size_t session_id_len)
+{
+	struct bt_conn *job_ref;
+	ssize_t result;
+	int ret;
+
+	if (session_id == NULL || session_id_len != PQ_V1_CP2_SESSION_ID_SIZE) {
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (conn != current_conn || !pq_v1_security_conn_is_l4(conn)) {
+		result = BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION);
+		goto out;
+	}
+	if (!notify_enabled || !bt_gatt_is_subscribed(conn, &pq_service.attrs[6],
+						     BT_GATT_CCC_NOTIFY)) {
+		result = BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF);
+		goto out;
+	}
+	/* READY is 40 bytes: require only the actual ATT value capacity. */
+	if (bt_gatt_get_mtu(conn) < PQ_V1_READY_FRAME_SIZE + 3U) {
+		result = BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		goto out;
+	}
+	if (!pq_mlkem_session_keypair_ready()) {
+		result = BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+		goto out;
+	}
+	if (v1_cp2_active || ciphertext_state == CIPHERTEXT_CRYPTO_BUSY ||
+	    phase5_state != PHASE5_STATE_IDLE || phase7_state != PHASE7_STATE_IDLE) {
+		result = BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+		goto out;
+	}
+	if (ciphertext_state != CIPHERTEXT_READY || crypto_job_conn != NULL) {
+		result = BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+		goto out;
+	}
+	job_ref = bt_conn_ref(conn);
+	if (job_ref == NULL) {
+		result = BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
+		goto out;
+	}
+	crypto_job_conn = job_ref;
+	crypto_job_generation = connection_generation;
+	v1_cp2_active = true;
+	v1_cp2_valid = true;
+	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
+	ret = pq_mlkem_session_submit_v1_cp2(ciphertext, sizeof(ciphertext),
+					   session_id, session_id_len);
+	if (ret != 0) {
+		crypto_job_conn = NULL;
+		v1_cp2_active = false;
+		v1_cp2_valid = false;
+		ciphertext_state = CIPHERTEXT_READY;
+		bt_conn_unref(job_ref);
+		result = BT_GATT_ERR(ret == -EBUSY ? BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
+				    BT_ATT_ERR_UNLIKELY);
+		goto out;
+	}
+	clear_transfer_storage_locked(); /* complete CT was copied/consumed once */
+	LOG_INF("v1 START_V1 accepted; ML-KEM ciphertext complete: 1088 B");
+	LOG_INF("v1 CP2 state: L4_SECURED -> PQ_CRYPTO_BUSY");
+	result = len;
+out:
+	k_mutex_unlock(&protocol_lock);
+	return result;
+}
+
+static void v1_cp2_result_ready(enum pq_mlkem_diagnostic_status status,
+				const uint8_t *wire, size_t wire_len)
+{
+	struct bt_conn *job_conn;
+	uint32_t generation;
+	bool deliver;
+	uint8_t error[PQ_V1_ERROR_FRAME_SIZE];
+	uint8_t subtype;
+	const uint8_t *payload;
+	size_t payload_len;
+	size_t error_len = 0U;
+	int ret = -ECANCELED;
+
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	job_conn = crypto_job_conn;
+	crypto_job_conn = NULL; /* local ownership persists across BLE queueing */
+	generation = crypto_job_generation;
+	deliver = v1_cp2_active && v1_cp2_valid && job_conn != NULL &&
+		job_conn == current_conn && generation == connection_generation && notify_enabled;
+	k_mutex_unlock(&protocol_lock);
+
+	if (deliver && status == PQ_MLKEM_STATUS_SUCCESS &&
+	    (pq_v1_parse_frame(wire, wire_len, &subtype, &payload, &payload_len) != 0 ||
+	     subtype != PQ_V1_READY)) {
+		status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+	}
+	if (deliver && status != PQ_MLKEM_STATUS_SUCCESS) {
+		ret = pq_v1_encode_error(PQ_V1_STATUS_CP2_CRYPTO_FAILURE, error, &error_len);
+		deliver = ret == 0;
+		wire = error;
+		wire_len = error_len;
+	}
+	/* Recheck generation, cancellation, subscription and strict L4 at delivery.
+	 * No new START can reuse this slot until the callback has finished. */
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	deliver = deliver && v1_cp2_valid && job_conn == current_conn &&
+		generation == connection_generation && notify_enabled;
+	k_mutex_unlock(&protocol_lock);
+	if (deliver && pq_v1_security_conn_is_l4(job_conn) &&
+	    bt_gatt_is_subscribed(job_conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY) &&
+	    bt_gatt_get_mtu(job_conn) >= wire_len + 3U) {
+		ret = bt_gatt_notify(job_conn, &pq_service.attrs[6], wire, wire_len);
+		if (ret == 0 && status == PQ_MLKEM_STATUS_SUCCESS) {
+			LOG_INF("READY_V1 notification sent: %zu B", wire_len);
+		} else {
+			LOG_ERR("v1 CP2 failed: crypto status=%u, notification result=%d", status, ret);
+		}
+	} else {
+		ret = -ECANCELED;
+		LOG_WRN("v1 CP2 result discarded: disconnected, stale, canceled or below L4");
+	}
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	v1_cp2_active = false;
+	v1_cp2_valid = false;
+	clear_transfer_storage_locked();
+	ciphertext_state = CIPHERTEXT_EMPTY;
+	k_mutex_unlock(&protocol_lock);
+	if (job_conn != NULL) {
+		bt_conn_unref(job_conn);
+	}
+	if (ret == 0 && status == PQ_MLKEM_STATUS_SUCCESS) {
+		LOG_INF("v1 CP2 state: PQ_CRYPTO_BUSY -> L4_SECURED (no application keys)");
+	}
+}
+
+static void v1_cp2_security_changed(struct bt_conn *conn, bt_security_t level,
+				   enum bt_security_err err)
+{
+	if (err == BT_SECURITY_ERR_SUCCESS && level == BT_SECURITY_L4) {
+		return;
+	}
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (conn == current_conn) {
+		invalidate_v1_cp2_locked();
+		clear_transfer_storage_locked();
+		if (!v1_cp2_active) {
+			ciphertext_state = CIPHERTEXT_EMPTY;
+		}
+	}
+	k_mutex_unlock(&protocol_lock);
+}
+
 /*
  * CP1 security attestation. The Central writes SEC_QUERY after pairing; the
  * DK answers with the host-observed link security so the PC log carries DK
@@ -1164,6 +1328,9 @@ static ssize_t handle_v1_control(struct bt_conn *conn, const uint8_t *data,
 		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
 	}
 	if (subtype != PQ_V1_SEC_QUERY) {
+		if (subtype == PQ_V1_START) {
+			return handle_v1_cp2_start(conn, len, payload, payload_len);
+		}
 		LOG_WRN("PQV1 subtype 0x%02x not implemented in CP1 (status 0x%02x)",
 			subtype, PQ_V1_STATUS_UNSUPPORTED_SUBTYPE);
 		return BT_GATT_ERR(BT_ATT_ERR_NOT_SUPPORTED);
@@ -1380,6 +1547,12 @@ static void ccc_config_changed(
 	enabled =
 		notify_enabled;
 
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (!enabled) {
+		invalidate_v1_cp2_locked();
+	}
+#endif
+
 	if (!enabled &&
 	    phase5_state !=
 		    PHASE5_STATE_IDLE) {
@@ -1466,6 +1639,12 @@ static void mlkem_result_ready(
 	const uint8_t *secure_wire,
 	size_t secure_wire_len)
 {
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (mode == PQ_MLKEM_JOB_V1_CP2) {
+		v1_cp2_result_ready(status, secure_wire, secure_wire_len);
+		return; /* Never a legacy notification or application-state transition. */
+	}
+#endif
 	uint8_t phase7_error[PQ_PHASE7_ERROR_FRAME_SIZE];
 	uint8_t phase7_status_byte = (uint8_t)status;
 	size_t phase7_error_len = 0U;
@@ -2009,6 +2188,9 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		LOG_WRN("Replacing an unexpected existing connection reference");
 	}
 	current_conn = new_current;
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	invalidate_v1_cp2_locked();
+#endif
 	connection_generation++;
 	generation = connection_generation;
 	notify_enabled = false;
@@ -2047,6 +2229,9 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	k_mutex_lock(&protocol_lock, K_FOREVER);
 	if (current_conn == conn) {
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		invalidate_v1_cp2_locked();
+#endif
 		current_ref = current_conn;
 		current_conn = NULL;
 		connection_generation++;
@@ -2086,6 +2271,9 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	.security_changed = v1_cp2_security_changed,
+#endif
 };
 
 static void mtu_updated(struct bt_conn *conn, uint16_t tx, uint16_t rx)
@@ -2115,7 +2303,7 @@ void main(void)
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
-	LOG_INF("Profile: v1.0 SMP Security Mode 1 Level 4 + ML-KEM (CP1)");
+	LOG_INF("Profile: v1.0 SMP Security Mode 1 Level 4 + ML-KEM (CP1 + CP2 TEST ONLY)");
 	LOG_INF("PQ GATT closed until authenticated L4; legacy v0.x control rejected");
 #else
 	LOG_INF("Profile: v0.7 application-level hybrid (CONFIG_BT_SMP=n)");
@@ -2141,12 +2329,14 @@ void main(void)
 	}
 
 	/* pq_mlkem_session_init() has already initialized PSA Crypto. */
+#if !defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 	err = pq_phase7_self_test();
 	if (err != 0) {
 		LOG_ERR("Phase 7 cryptographic startup self-test failed: %d; "
 			"Bluetooth will not start", err);
 		return;
 	}
+#endif
 
 	err = bt_enable(NULL);
 	if (err != 0) {

@@ -69,6 +69,7 @@ enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_PHASE7_AUTH_START = 7,
 	PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C = 8,
 	PQ_MLKEM_JOB_PHASE7_APP_C2P = 9,
+	PQ_MLKEM_JOB_V1_CP2 = 10,
 };
 
 
@@ -89,6 +90,16 @@ int pq_mlkem_session_init(
 
 
 bool pq_mlkem_session_keypair_ready(void);
+
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+/* Explicit v1 path: copies CT + public session context, retains no app key. */
+int pq_mlkem_session_submit_v1_cp2(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t *session_id, size_t session_id_len);
+
+/* Invalidate pending/running work. Only the worker wipes its active inputs. */
+void pq_mlkem_session_reset_v1_cp2(void);
+#endif
 
 
 /* The returned immutable public key remains valid for the lifetime of the DK. */

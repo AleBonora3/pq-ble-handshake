@@ -28,6 +28,7 @@ target_sources(app PRIVATE
 target_sources_ifdef(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM app PRIVATE
     src/pq_v1_security.c
     src/pq_v1_frame.c
+    src/pq_v1_cp2.c
 )
 
 target_include_directories(app PRIVATE
