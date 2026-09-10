@@ -10,6 +10,7 @@
 #include "pq_phase6.h"
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 #include "pq_v1_cp2.h"
+#include "pq_v1_cp3.h"
 #endif
 
 #include <errno.h>
@@ -171,6 +172,14 @@ static bool job_active;
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 static uint32_t v1_cp2_epoch;
 static uint32_t pending_v1_cp2_epoch;
+static uint32_t v1_cp3_epoch, pending_v1_cp3_epoch;
+static uint8_t v1_cp3_sec_job[PQ_V1_SEC_INFO_FRAME_SIZE];
+static uint8_t v1_cp3_start_job[PQ_V1_START_CP3_FRAME_SIZE];
+static uint8_t v1_cp3_finished_job[PQ_V1_FINISHED_FRAME_SIZE];
+static uint8_t v1_cp3_session_id[PQ_V1_CP3_SESSION_ID_SIZE];
+static struct pq_v1_cp3_handshake v1_cp3_handshake;
+static struct pq_v1_cp3_application v1_cp3_application;
+static bool v1_cp3_wait_finished, v1_cp3_keys_pending, v1_cp3_app_secure;
 #endif
 static int initialization_result = -EINPROGRESS;
 
@@ -235,6 +244,89 @@ static int validate_diagnostic_crc(void)
  * ML-KEM keypair and consumed job buffers stay immutable until job_done.
  * Only the public key and TEST-ONLY diagnostic leave this function. */
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+static int v1_cp3_start_result(size_t *wire_len, uint32_t epoch)
+{
+	uint8_t ss[32] = { 0 }, th0[32] = { 0 };
+	struct pq_v1_cp3_handshake local = { 0 };
+	int ret = pqble_mlkem_dec(ss, ciphertext_job, secret_key);
+	*wire_len = 0U;
+	if (ret == 0) {
+		ret = pq_v1_cp3_transcript(v1_cp3_sec_job, sizeof(v1_cp3_sec_job),
+			public_key, sizeof(public_key), ciphertext_job, sizeof(ciphertext_job),
+			v1_cp3_start_job, sizeof(v1_cp3_start_job), th0);
+	}
+	if (ret == 0) { ret = pq_v1_cp3_derive(ss, th0, &local); }
+	secure_clear(ss, sizeof(ss));
+	if (ret == 0) {
+		ret = pq_v1_encode_frame(PQ_V1_READY_CP3, th0, sizeof(th0),
+			secure_wire, sizeof(secure_wire), wire_len);
+	}
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (ret == 0 && epoch == v1_cp3_epoch) {
+		v1_cp3_handshake = local;
+		v1_cp3_wait_finished = true;
+	} else { ret = ret != 0 ? ret : -ECANCELED; }
+	k_mutex_unlock(&session_lock);
+	secure_clear(&local, sizeof(local));
+	secure_clear(th0, sizeof(th0));
+	if (ret != 0) {
+		*wire_len = 0U;
+		secure_clear(secure_wire, sizeof(secure_wire));
+	}
+	LOG_INF("v1 CP3 decapsulation + transcript + HKDF: %s; SS_MLKEM cleared",
+		ret == 0 ? "PASS" : "FAIL");
+	report_crypto_stack("after v1 CP3 decapsulation + transcript + HKDF");
+	return ret;
+}
+
+static int v1_cp3_finished_result(size_t *wire_len, uint32_t epoch)
+{
+	struct pq_v1_cp3_handshake local = { 0 };
+	struct pq_v1_cp3_application app = { 0 };
+	int ret = -ECANCELED;
+	*wire_len = 0U;
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (epoch == v1_cp3_epoch && v1_cp3_wait_finished) {
+		local = v1_cp3_handshake;
+		secure_clear(&v1_cp3_handshake, sizeof(v1_cp3_handshake));
+		v1_cp3_wait_finished = false;
+		ret = 0;
+	}
+	k_mutex_unlock(&session_lock);
+	if (ret == 0) {
+		ret = pq_v1_cp3_finish(&local, v1_cp3_finished_job,
+			sizeof(v1_cp3_finished_job), secure_wire, &app);
+	}
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (ret == 0 && epoch == v1_cp3_epoch) {
+		v1_cp3_application = app;
+		v1_cp3_keys_pending = true;
+		*wire_len = PQ_V1_FINISHED_FRAME_SIZE;
+	} else { ret = ret != 0 ? ret : -ECANCELED; }
+	k_mutex_unlock(&session_lock);
+	secure_clear(&local, sizeof(local));
+	secure_clear(&app, sizeof(app));
+	if (ret != 0) { secure_clear(secure_wire, sizeof(secure_wire)); }
+	LOG_INF("FINISHED_C verification on DK: %s", ret == 0 ? "PASS" : "FAIL");
+	report_crypto_stack("after v1 CP3 FINISHED + application key derivation");
+	return ret;
+}
+
+/* Worker calls this under session_lock before callback delivery. */
+static void v1_cp3_job_complete_locked(uint32_t epoch,
+	enum pq_mlkem_diagnostic_status *status, size_t *wire_len)
+{
+	secure_clear(v1_cp3_sec_job, sizeof(v1_cp3_sec_job));
+	secure_clear(v1_cp3_start_job, sizeof(v1_cp3_start_job));
+	secure_clear(v1_cp3_finished_job, sizeof(v1_cp3_finished_job));
+	if (epoch != v1_cp3_epoch) {
+		*status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+		*wire_len = 0U;
+		secure_clear(secure_wire, sizeof(secure_wire));
+	}
+	job_active = false;
+}
+
 static int v1_cp2_result(size_t *wire_len)
 {
 	uint8_t ss_mlkem[PQ_MLKEM_SHARED_SECRET_SIZE] = { 0 };
@@ -858,6 +950,19 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		mode = pending_job_mode;
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		if (mode == PQ_MLKEM_JOB_V1_CP3 || mode == PQ_MLKEM_JOB_V1_CP3_FINISHED_C) {
+			job_epoch = pending_v1_cp3_epoch;
+			job_valid = job_epoch == v1_cp3_epoch;
+			k_mutex_unlock(&session_lock);
+			if (job_valid) {
+				int ret = mode == PQ_MLKEM_JOB_V1_CP3 ?
+					v1_cp3_start_result(&secure_wire_len, job_epoch) :
+					v1_cp3_finished_result(&secure_wire_len, job_epoch);
+				status = ret == 0 ? PQ_MLKEM_STATUS_SUCCESS :
+					PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE;
+			}
+			goto job_done;
+		}
 		if (mode == PQ_MLKEM_JOB_V1_CP2) {
 			job_epoch = pending_v1_cp2_epoch;
 			job_valid = job_epoch == v1_cp2_epoch;
@@ -2092,6 +2197,14 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		{
 			job_active = false;
 		}
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		/* CP3 inputs were erased before releasing the slot. The same worker
+		 * cannot execute the next job until this callback returns; a prompt
+		 * FINISHED_C can safely queue while READY_CP3 is being delivered. */
+		if (mode == PQ_MLKEM_JOB_V1_CP3 || mode == PQ_MLKEM_JOB_V1_CP3_FINISHED_C) {
+			v1_cp3_job_complete_locked(job_epoch, &status, &secure_wire_len);
+		}
+#endif
 		secure_clear(
 			phase6_rx_wire_job,
 			sizeof(phase6_rx_wire_job));
@@ -2286,6 +2399,84 @@ const uint8_t *pq_mlkem_session_public_key(size_t *public_key_len)
 }
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+void pq_mlkem_session_reset_v1_cp3(void)
+{
+	k_mutex_lock(&session_lock, K_FOREVER);
+	v1_cp3_epoch++;
+	v1_cp3_wait_finished = false;
+	v1_cp3_keys_pending = false;
+	v1_cp3_app_secure = false;
+	secure_clear(&v1_cp3_handshake, sizeof(v1_cp3_handshake));
+	secure_clear(&v1_cp3_application, sizeof(v1_cp3_application));
+	secure_clear(v1_cp3_session_id, sizeof(v1_cp3_session_id));
+	/* Running inputs belong to the worker, which erases them at job_done. */
+	k_mutex_unlock(&session_lock);
+}
+
+int pq_mlkem_session_submit_v1_cp3(
+	const uint8_t *ct, size_t ct_len, const uint8_t *sec, size_t sec_len,
+	const uint8_t *start, size_t start_len)
+{
+	static const uint8_t strict_sec[] = { 'P','Q','V','1',0x10,2,0,4,4,7,16,0x10 };
+	const uint8_t *payload;
+	size_t payload_len;
+	uint8_t subtype;
+	if (ct == NULL || ct_len != sizeof(ciphertext_job) || sec == NULL ||
+	    sec_len != sizeof(strict_sec) || memcmp(sec, strict_sec, sizeof(strict_sec)) != 0 ||
+	    pq_v1_parse_frame(start, start_len, &subtype, &payload, &payload_len) != 0 ||
+	    subtype != PQ_V1_START_CP3) { return -EINVAL; }
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (!keypair_ready || job_pending || job_active || v1_cp3_wait_finished ||
+	    v1_cp3_keys_pending || v1_cp3_app_secure) {
+		k_mutex_unlock(&session_lock);
+		return -EBUSY;
+	}
+	memcpy(ciphertext_job, ct, ct_len);
+	memcpy(v1_cp3_sec_job, sec, sec_len);
+	memcpy(v1_cp3_start_job, start, start_len);
+	memcpy(v1_cp3_session_id, payload, sizeof(v1_cp3_session_id));
+	pending_v1_cp3_epoch = ++v1_cp3_epoch;
+	pending_job_mode = PQ_MLKEM_JOB_V1_CP3;
+	job_pending = true;
+	k_mutex_unlock(&session_lock);
+	k_sem_give(&job_available);
+	return 0;
+}
+
+int pq_mlkem_session_submit_v1_cp3_finished_c(const uint8_t *frame, size_t len)
+{
+	const uint8_t *payload;
+	size_t payload_len;
+	uint8_t subtype;
+	if (pq_v1_parse_frame(frame, len, &subtype, &payload, &payload_len) != 0 ||
+	    subtype != PQ_V1_FINISHED_C) { return -EINVAL; }
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (job_pending || job_active || !v1_cp3_wait_finished) {
+		k_mutex_unlock(&session_lock);
+		return -EBUSY;
+	}
+	memcpy(v1_cp3_finished_job, frame, len);
+	pending_v1_cp3_epoch = v1_cp3_epoch;
+	pending_job_mode = PQ_MLKEM_JOB_V1_CP3_FINISHED_C;
+	job_pending = true;
+	k_mutex_unlock(&session_lock);
+	k_sem_give(&job_available);
+	return 0;
+}
+
+int pq_mlkem_session_commit_v1_cp3(void)
+{
+	int ret = -ECANCELED;
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (v1_cp3_keys_pending && !v1_cp3_app_secure) {
+		v1_cp3_keys_pending = false;
+		v1_cp3_app_secure = true;
+		ret = 0;
+	}
+	k_mutex_unlock(&session_lock);
+	return ret;
+}
+
 int pq_mlkem_session_submit_v1_cp2(
 	const uint8_t *ciphertext, size_t ciphertext_len,
 	const uint8_t *session_id, size_t session_id_len)

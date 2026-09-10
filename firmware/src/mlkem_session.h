@@ -70,6 +70,8 @@ enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_PHASE7_AUTH_FINISHED_C = 8,
 	PQ_MLKEM_JOB_PHASE7_APP_C2P = 9,
 	PQ_MLKEM_JOB_V1_CP2 = 10,
+	PQ_MLKEM_JOB_V1_CP3 = 11,
+	PQ_MLKEM_JOB_V1_CP3_FINISHED_C = 12,
 };
 
 
@@ -92,6 +94,15 @@ int pq_mlkem_session_init(
 bool pq_mlkem_session_keypair_ready(void);
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+int pq_mlkem_session_submit_v1_cp3(
+	const uint8_t *ciphertext, size_t ciphertext_len,
+	const uint8_t *sec_info, size_t sec_info_len,
+	const uint8_t *start, size_t start_len);
+int pq_mlkem_session_submit_v1_cp3_finished_c(const uint8_t *frame, size_t len);
+/* Promote pending keys only after FINISHED_P queued to the live owner. */
+int pq_mlkem_session_commit_v1_cp3(void);
+void pq_mlkem_session_reset_v1_cp3(void);
+
 /* Explicit v1 path: copies CT + public session context, retains no app key. */
 int pq_mlkem_session_submit_v1_cp2(
 	const uint8_t *ciphertext, size_t ciphertext_len,

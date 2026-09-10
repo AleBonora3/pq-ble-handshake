@@ -35,6 +35,14 @@ endchoice
 
 if PQ_PROFILE_V10_SMP_L4_MLKEM
 
+config PQ_V1_CP3_TIMEOUT_MS
+	int "CP3 absolute handshake deadline (milliseconds)"
+	default 30000
+	range 1000 120000
+	help
+	  Bounds START_CP3 through FINISHED_P queueing, including worker time.
+	  Failure consumes the transaction; reconnect to start another CP3.
+
 config PQ_V1_NUMERIC_COMPARISON_TIMEOUT_MS
 	int "Numeric Comparison human-confirmation timeout (milliseconds)"
 	default 60000

@@ -58,11 +58,21 @@ def test_cp2_wire_fail_closed(subtype, size, mutation):
 
 
 @pytest.mark.parametrize("subtype", [wire.V1_FINISHED_C, wire.V1_FINISHED_P])
-def test_finished_stays_unsupported(subtype):
-    with pytest.raises(ValueError):
-        wire.encode_v1_frame(subtype, bytes(32))
-    with pytest.raises(ValueError):
-        wire.parse_v1_frame(b"PQV1\x10" + bytes([subtype, 0, 32]) + bytes(32))
+def test_cp2_rejects_finished_response(subtype, keypair):
+    # FINISHED now has CP3 framing, but can never complete a CP2 exchange.
+    client = CP2Client(keypair)
+    backend = FakePairingBackend(client, paired=True)
+    original = client.send_control
+
+    async def send(data):
+        if wire.parse_v1_frame(data).subtype == wire.V1_START:
+            client.callback(1, bytearray(wire.encode_v1_frame(subtype, bytes(32))))
+        else:
+            await original(data)
+
+    client.send_control = send
+    with pytest.raises(V1Error, match="expected READY_V1"):
+        run(client, backend)
 
 
 def test_diagnostic_exact_construction():

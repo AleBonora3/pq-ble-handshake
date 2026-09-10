@@ -9,7 +9,7 @@
  *   magic(4) "PQV1" || version(1) 0x10 || subtype(1) || payload_len(2, BE)
  *
  * CP1 defines security attestation; CP2 adds START/READY diagnostics.
- * FINISHED subtypes remain reserved and rejected until CP3.
+ * CP3 uses separate START_CP3/READY_CP3 and directional FINISHED messages.
  */
 
 #ifndef PQ_V1_FRAME_H_
@@ -28,11 +28,18 @@
 #define PQ_V1_SEC_QUERY 0x01U
 #define PQ_V1_SEC_INFO 0x02U
 
-/* CP2: test-only ML-KEM interoperability. FINISHED remains reserved. */
+/* CP2: frozen test-only ML-KEM interoperability. */
 #define PQ_V1_START 0x10U
 #define PQ_V1_READY 0x11U
 #define PQ_V1_FINISHED_C 0x12U
 #define PQ_V1_FINISHED_P 0x13U
+#define PQ_V1_START_CP3 0x14U
+#define PQ_V1_READY_CP3 0x15U
+#define PQ_V1_CP3_SESSION_ID_SIZE 16U
+#define PQ_V1_CP3_HASH_SIZE 32U
+#define PQ_V1_START_CP3_FRAME_SIZE 24U
+#define PQ_V1_READY_CP3_FRAME_SIZE 40U
+#define PQ_V1_FINISHED_FRAME_SIZE 40U
 
 #define PQ_V1_ERROR 0x7FU
 
@@ -69,6 +76,7 @@
 #define PQ_V1_STATUS_NOTIFICATIONS_DISABLED 0x13U
 #define PQ_V1_STATUS_UNSUPPORTED_SUBTYPE 0x14U
 #define PQ_V1_STATUS_CP2_CRYPTO_FAILURE 0x15U
+#define PQ_V1_STATUS_CP3_FAILURE 0x16U
 
 #define PQ_V1_SEC_QUERY_FRAME_SIZE PQ_V1_FRAME_HEADER_SIZE
 

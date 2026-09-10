@@ -173,6 +173,18 @@ static bool notify_enabled;
  * transient transaction. Keep active until its worker completion drains. */
 static bool v1_cp2_active;
 static bool v1_cp2_valid;
+enum v1_cp3_state {
+	V1_CP3_IDLE, V1_CP3_CRYPTO_BUSY, V1_CP3_WAIT_FINISHED_C,
+	V1_CP3_FINISHED_P_BUSY, V1_CP3_APP_SECURE, V1_CP3_FAILED,
+};
+static enum v1_cp3_state v1_cp3_state;
+static struct bt_conn *v1_cp3_conn;
+static uint32_t v1_cp3_generation;
+static bool v1_cp3_worker_active, v1_cp3_delivery_active;
+static int64_t v1_cp3_deadline;
+static void v1_cp3_timeout(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(v1_cp3_timeout_work, v1_cp3_timeout);
+static void invalidate_v1_cp3_locked(void);
 #endif
 
 static ssize_t read_public_key(struct bt_conn *conn,
@@ -477,6 +489,12 @@ static ssize_t write_ciphertext(struct bt_conn *conn,
 		k_mutex_unlock(&protocol_lock);
 		return BT_GATT_ERR(BT_ATT_ERR_WRITE_REQ_REJECTED);
 	}
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (v1_cp3_state != V1_CP3_IDLE || v1_cp3_worker_active || v1_cp3_delivery_active) {
+		k_mutex_unlock(&protocol_lock);
+		return BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	}
+#endif
 	if (phase5_state != PHASE5_STATE_IDLE) {
 		LOG_WRN("Ciphertext fragment rejected: Phase 5 state %s",
 			phase5_state_name(phase5_state));
@@ -1154,6 +1172,181 @@ static void invalidate_v1_cp2_locked(void)
 	pq_mlkem_session_reset_v1_cp2();
 }
 
+/* No cryptography or worker-input mutation here. One CP3 attempt per link;
+ * FAILED is terminal until disconnect, preventing same-link START replay. */
+static void invalidate_v1_cp3_locked(void)
+{
+	if (v1_cp3_state != V1_CP3_IDLE) { v1_cp3_state = V1_CP3_FAILED; }
+	pq_mlkem_session_reset_v1_cp3();
+	(void)k_work_cancel_delayable(&v1_cp3_timeout_work);
+	if (v1_cp3_conn != NULL) {
+		bt_conn_unref(v1_cp3_conn);
+		v1_cp3_conn = NULL;
+	}
+}
+
+static void v1_cp3_timeout(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (v1_cp3_state == V1_CP3_CRYPTO_BUSY || v1_cp3_state == V1_CP3_WAIT_FINISHED_C ||
+	    v1_cp3_state == V1_CP3_FINISHED_P_BUSY) {
+		int64_t remaining = v1_cp3_deadline - k_uptime_get();
+		if (remaining > 0) {
+			(void)k_work_reschedule(&v1_cp3_timeout_work, K_MSEC(remaining));
+		} else {
+			invalidate_v1_cp3_locked();
+			LOG_ERR("v1 CP3 timeout: FAILED; all session keys cleared");
+		}
+	}
+	k_mutex_unlock(&protocol_lock);
+}
+
+static bool v1_cp3_live_locked(struct bt_conn *conn, uint32_t generation)
+{
+	return conn != NULL && conn == current_conn && conn == v1_cp3_conn &&
+		generation == connection_generation && generation == v1_cp3_generation &&
+		v1_cp3_state != V1_CP3_FAILED && notify_enabled &&
+		k_uptime_get() < v1_cp3_deadline && pq_v1_security_conn_is_l4(conn) &&
+		bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY);
+}
+
+static ssize_t handle_v1_cp3_start(struct bt_conn *conn, const uint8_t *frame, uint16_t len)
+{
+	struct pq_v1_security_info info;
+	uint8_t sec[PQ_V1_SEC_INFO_FRAME_SIZE];
+	size_t sec_len;
+	int ret;
+	ssize_t result = BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (conn != current_conn || !pq_v1_security_conn_is_l4(conn)) {
+		result = BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION); goto out;
+	}
+	if (v1_cp3_state != V1_CP3_IDLE || v1_cp3_worker_active || v1_cp3_delivery_active ||
+	    v1_cp2_active || crypto_job_conn != NULL || ciphertext_state == CIPHERTEXT_CRYPTO_BUSY) {
+		goto out;
+	}
+	if (!notify_enabled || !bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY)) {
+		result = BT_GATT_ERR(BT_ATT_ERR_CCC_IMPROPER_CONF); goto out;
+	}
+	if (bt_gatt_get_mtu(conn) < PQ_V1_READY_CP3_FRAME_SIZE + 3U ||
+	    ciphertext_state != CIPHERTEXT_READY || !pq_mlkem_session_keypair_ready()) {
+		result = BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED); goto out;
+	}
+	/* Snapshot the authoritative live state at acceptance, never an earlier query. */
+	if (pq_v1_security_query(conn, &info) != 0 || !info.gate_open ||
+	    pq_v1_encode_sec_info(info.level, info.secure_connections, info.authenticated,
+		info.gate_open, info.enc_key_size, sec, &sec_len) != 0) {
+		result = BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION); goto out;
+	}
+	v1_cp3_conn = bt_conn_ref(conn);
+	if (v1_cp3_conn == NULL) { goto out; }
+	ret = pq_mlkem_session_submit_v1_cp3(ciphertext, sizeof(ciphertext), sec, sec_len, frame, len);
+	if (ret != 0) {
+		bt_conn_unref(v1_cp3_conn); v1_cp3_conn = NULL;
+		result = BT_GATT_ERR(ret == -EBUSY ? BT_ATT_ERR_PROCEDURE_IN_PROGRESS :
+			BT_ATT_ERR_VALUE_NOT_ALLOWED); goto out;
+	}
+	v1_cp3_generation = connection_generation;
+	v1_cp3_state = V1_CP3_CRYPTO_BUSY;
+	v1_cp3_worker_active = true;
+	v1_cp3_deadline = k_uptime_get() + CONFIG_PQ_V1_CP3_TIMEOUT_MS;
+	(void)k_work_reschedule(&v1_cp3_timeout_work, K_MSEC(CONFIG_PQ_V1_CP3_TIMEOUT_MS));
+	clear_transfer_storage_locked();
+	ciphertext_state = CIPHERTEXT_CRYPTO_BUSY;
+	LOG_INF("START_CP3 accepted: L4_SECURED -> CP3_CRYPTO_BUSY");
+	result = len;
+out:
+	k_mutex_unlock(&protocol_lock);
+	return result;
+}
+
+static ssize_t handle_v1_cp3_finished_c(struct bt_conn *conn, const uint8_t *frame, uint16_t len)
+{
+	ssize_t result = BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (v1_cp3_state != V1_CP3_WAIT_FINISHED_C || v1_cp3_worker_active) { goto out; }
+	if (!v1_cp3_live_locked(conn, v1_cp3_generation)) {
+		if (conn == v1_cp3_conn) { invalidate_v1_cp3_locked(); }
+		result = BT_GATT_ERR(BT_ATT_ERR_AUTHENTICATION); goto out;
+	}
+	if (pq_mlkem_session_submit_v1_cp3_finished_c(frame, len) != 0) {
+		invalidate_v1_cp3_locked(); goto out;
+	}
+	v1_cp3_state = V1_CP3_FINISHED_P_BUSY;
+	v1_cp3_worker_active = true;
+	LOG_INF("FINISHED_C accepted: WAIT_FINISHED_C -> FINISHED_P_BUSY");
+	result = len;
+out:
+	k_mutex_unlock(&protocol_lock);
+	return result;
+}
+
+static void v1_cp3_result_ready(enum pq_mlkem_job_mode mode,
+	enum pq_mlkem_diagnostic_status status, const uint8_t *wire, size_t wire_len)
+{
+	struct bt_conn *conn = NULL;
+	uint32_t generation;
+	uint8_t subtype, error[PQ_V1_ERROR_FRAME_SIZE];
+	const uint8_t *payload;
+	size_t payload_len;
+	bool start = mode == PQ_MLKEM_JOB_V1_CP3;
+	bool deliver;
+	int ret = -ECANCELED;
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	v1_cp3_worker_active = false;
+	v1_cp3_delivery_active = true;
+	generation = v1_cp3_generation;
+	deliver = v1_cp3_live_locked(v1_cp3_conn, generation) &&
+		v1_cp3_state == (start ? V1_CP3_CRYPTO_BUSY : V1_CP3_FINISHED_P_BUSY);
+	if (deliver) { conn = bt_conn_ref(v1_cp3_conn); }
+	if (deliver && status == PQ_MLKEM_STATUS_SUCCESS &&
+	    (pq_v1_parse_frame(wire, wire_len, &subtype, &payload, &payload_len) != 0 ||
+	     subtype != (start ? PQ_V1_READY_CP3 : PQ_V1_FINISHED_P))) {
+		status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
+	}
+	if (deliver && status != PQ_MLKEM_STATUS_SUCCESS) {
+		deliver = pq_v1_encode_error(PQ_V1_STATUS_CP3_FAILURE, error, &wire_len) == 0;
+		wire = error;
+	}
+	/* Arm WAIT before queueing READY: an immediate response can be submitted
+	 * to the same worker safely. Queue failure invalidates that pending job. */
+	if (deliver && start && status == PQ_MLKEM_STATUS_SUCCESS) {
+		v1_cp3_state = V1_CP3_WAIT_FINISHED_C;
+	}
+	k_mutex_unlock(&protocol_lock);
+	if (deliver && pq_v1_security_conn_is_l4(conn) &&
+	    bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY) &&
+	    bt_gatt_get_mtu(conn) >= wire_len + 3U) {
+		ret = bt_gatt_notify(conn, &pq_service.attrs[6], wire, wire_len);
+	}
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (conn != NULL && conn == v1_cp3_conn && generation == connection_generation) {
+		if (ret != 0 || status != PQ_MLKEM_STATUS_SUCCESS || !v1_cp3_live_locked(conn, generation)) {
+			invalidate_v1_cp3_locked();
+			LOG_ERR("v1 CP3 FAILED; no active application keys");
+		} else if (start) {
+			LOG_INF("READY_CP3 queued: 40 B; WAIT_FINISHED_C");
+		} else if (pq_mlkem_session_commit_v1_cp3() == 0) {
+			v1_cp3_state = V1_CP3_APP_SECURE;
+			(void)k_work_cancel_delayable(&v1_cp3_timeout_work);
+			LOG_INF("FINISHED_P queued: 40 B");
+			LOG_INF("K_APP_C2P derived; K_APP_P2C derived (values never logged)");
+			LOG_INF("CP3 handshake secrets cleared; Application state: APP_SECURE");
+		} else { invalidate_v1_cp3_locked(); }
+	} else if (v1_cp3_state != V1_CP3_IDLE) {
+		/* A stale generation can never retain worker-derived secrets. */
+		invalidate_v1_cp3_locked();
+	}
+	v1_cp3_delivery_active = false;
+	if (v1_cp3_state == V1_CP3_IDLE && !v1_cp2_active) {
+		clear_transfer_storage_locked();
+		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
+	k_mutex_unlock(&protocol_lock);
+	if (conn != NULL) { bt_conn_unref(conn); }
+}
+
 static ssize_t handle_v1_cp2_start(struct bt_conn *conn, uint16_t len,
 				 const uint8_t *session_id, size_t session_id_len)
 {
@@ -1183,7 +1376,8 @@ static ssize_t handle_v1_cp2_start(struct bt_conn *conn, uint16_t len,
 		result = BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 		goto out;
 	}
-	if (v1_cp2_active || ciphertext_state == CIPHERTEXT_CRYPTO_BUSY ||
+	if (v1_cp3_state != V1_CP3_IDLE || v1_cp3_worker_active || v1_cp3_delivery_active ||
+	    v1_cp2_active || ciphertext_state == CIPHERTEXT_CRYPTO_BUSY ||
 	    phase5_state != PHASE5_STATE_IDLE || phase7_state != PHASE7_STATE_IDLE) {
 		result = BT_GATT_ERR(BT_ATT_ERR_PROCEDURE_IN_PROGRESS);
 		goto out;
@@ -1297,6 +1491,7 @@ static void v1_cp2_security_changed(struct bt_conn *conn, bt_security_t level,
 	k_mutex_lock(&protocol_lock, K_FOREVER);
 	if (conn == current_conn) {
 		invalidate_v1_cp2_locked();
+		invalidate_v1_cp3_locked();
 		clear_transfer_storage_locked();
 		if (!v1_cp2_active) {
 			ciphertext_state = CIPHERTEXT_EMPTY;
@@ -1328,10 +1523,12 @@ static ssize_t handle_v1_control(struct bt_conn *conn, const uint8_t *data,
 		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
 	}
 	if (subtype != PQ_V1_SEC_QUERY) {
+		if (subtype == PQ_V1_START_CP3) { return handle_v1_cp3_start(conn, data, len); }
+		if (subtype == PQ_V1_FINISHED_C) { return handle_v1_cp3_finished_c(conn, data, len); }
 		if (subtype == PQ_V1_START) {
 			return handle_v1_cp2_start(conn, len, payload, payload_len);
 		}
-		LOG_WRN("PQV1 subtype 0x%02x not implemented in CP1 (status 0x%02x)",
+		LOG_WRN("PQV1 subtype 0x%02x rejected in this direction (status 0x%02x)",
 			subtype, PQ_V1_STATUS_UNSUPPORTED_SUBTYPE);
 		return BT_GATT_ERR(BT_ATT_ERR_NOT_SUPPORTED);
 	}
@@ -1550,6 +1747,7 @@ static void ccc_config_changed(
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 	if (!enabled) {
 		invalidate_v1_cp2_locked();
+		invalidate_v1_cp3_locked();
 	}
 #endif
 
@@ -1640,6 +1838,10 @@ static void mlkem_result_ready(
 	size_t secure_wire_len)
 {
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (mode == PQ_MLKEM_JOB_V1_CP3 || mode == PQ_MLKEM_JOB_V1_CP3_FINISHED_C) {
+		v1_cp3_result_ready(mode, status, secure_wire, secure_wire_len);
+		return;
+	}
 	if (mode == PQ_MLKEM_JOB_V1_CP2) {
 		v1_cp2_result_ready(status, secure_wire, secure_wire_len);
 		return; /* Never a legacy notification or application-state transition. */
@@ -2190,6 +2392,11 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	current_conn = new_current;
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 	invalidate_v1_cp2_locked();
+	invalidate_v1_cp3_locked();
+	v1_cp3_state = V1_CP3_IDLE;
+	if (!v1_cp2_active && !v1_cp3_worker_active && !v1_cp3_delivery_active) {
+		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
 #endif
 	connection_generation++;
 	generation = connection_generation;
@@ -2231,6 +2438,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	if (current_conn == conn) {
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 		invalidate_v1_cp2_locked();
+		invalidate_v1_cp3_locked();
+		v1_cp3_state = V1_CP3_IDLE;
 #endif
 		current_ref = current_conn;
 		current_conn = NULL;
@@ -2303,7 +2512,7 @@ void main(void)
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
-	LOG_INF("Profile: v1.0 SMP Security Mode 1 Level 4 + ML-KEM (CP1 + CP2 TEST ONLY)");
+	LOG_INF("Profile: v1.0 SMP L4 + ML-KEM (CP1, CP2 TEST ONLY, CP3 FINISHED)");
 	LOG_INF("PQ GATT closed until authenticated L4; legacy v0.x control rejected");
 #else
 	LOG_INF("Profile: v0.7 application-level hybrid (CONFIG_BT_SMP=n)");

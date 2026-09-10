@@ -8,6 +8,12 @@
 static bool payload_size_valid(uint8_t subtype, size_t payload_len)
 {
 	switch (subtype) {
+	case PQ_V1_START_CP3:
+		return payload_len == PQ_V1_CP3_SESSION_ID_SIZE;
+	case PQ_V1_READY_CP3:
+	case PQ_V1_FINISHED_C:
+	case PQ_V1_FINISHED_P:
+		return payload_len == PQ_V1_CP3_HASH_SIZE;
 	case PQ_V1_START:
 		return payload_len == PQ_V1_CP2_SESSION_ID_SIZE;
 	case PQ_V1_READY:
@@ -19,7 +25,6 @@ static bool payload_size_valid(uint8_t subtype, size_t payload_len)
 	case PQ_V1_ERROR:
 		return payload_len == 1U;
 	default:
-		/* FINISHED remains reserved until CP3. */
 		return false;
 	}
 }

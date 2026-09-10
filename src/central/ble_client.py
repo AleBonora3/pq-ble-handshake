@@ -112,14 +112,24 @@ class BLECentralClient:
         return self._client.is_connected
 
     def _on_v1_disconnect(self, client: BleakClient):
+        if client is getattr(self, "_v1_cp3_link", None):
+            self.clear_v1_cp3()
         logger.info("CP1 link disconnected from %s (classified by the active test)",
                     client.address)
 
     async def disconnect(self):
         """Gracefully disconnect."""
+        self.clear_v1_cp3()
         if self._client and self._client.is_connected:
             await self._client.disconnect()
             logger.info("Disconnected.")
+
+    def clear_v1_cp3(self):
+        session = getattr(self, "_v1_cp3_session", None)
+        if session is not None:
+            session.clear()
+            self._v1_cp3_session = None
+            self._v1_cp3_link = None
 
     def _on_disconnect(self, client: BleakClient):
         if getattr(self, "_v1_security_test", False):
@@ -247,6 +257,7 @@ class BLECentralClient:
 
     async def stop_notify(self) -> None:
         """Unsubscribe from data notifications."""
+        self.clear_v1_cp3()
         if self._client and self._client.is_connected:
             await self._client.stop_notify(CHAR_DATA_UUID)
 

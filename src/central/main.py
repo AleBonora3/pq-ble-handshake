@@ -81,6 +81,7 @@ from .v1_smp_mlkem import (
     run_v1_cp1,
 )
 from .v1_cp2 import run_v1_cp2
+from .v1_cp3 import run_v1_cp3
 from .phase7_auth import (
     PHASE7_NEGATIVE_MODES,
     Phase7AuthError,
@@ -251,6 +252,10 @@ def parse_args(argv=None):
         help="TEST ONLY: ML-KEM interoperability over L4; requires --v1-smp-l4-mlkem",
     )
     parser.add_argument(
+        "--v1-cp3", action="store_true",
+        help="CP3 transcript + FINISHED over L4; requires --v1-smp-l4-mlkem",
+    )
+    parser.add_argument(
         "--v1-unpair-first",
         action="store_true",
         help=(
@@ -277,6 +282,8 @@ def parse_args(argv=None):
         help="Logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
+    if args.v1_cp3 and (not args.v1_smp_l4_mlkem or args.v1_cp2 or args.v1_negative is not None):
+        parser.error("--v1-cp3 requires --v1-smp-l4-mlkem; incompatible with --v1-cp2 / --v1-negative")
     if args.v1_cp2 and (not args.v1_smp_l4_mlkem or args.v1_negative is not None):
         parser.error("--v1-cp2 requires --v1-smp-l4-mlkem and cannot use --v1-negative")
     if (args.v1_negative is not None or args.v1_unpair_first) and not args.v1_smp_l4_mlkem:
@@ -868,7 +875,10 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
 
     negative_test = args.v1_negative
     cp2 = getattr(args, "v1_cp2", False)
+    cp3 = getattr(args, "v1_cp3", False)
+    checkpoint = "CP3" if cp3 else "CP2" if cp2 else "CP1"
     positive_marker = (
+        "PQ-BLE V1.0 CP3 TRANSCRIPT + FINISHED" if cp3 else
         "PQ-BLE V1.0 CP2 ML-KEM-L4 INTEROPERABILITY" if cp2 else
         "PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION"
     )
@@ -881,12 +891,13 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
                 "Could not find '%s'. Flash the v1.0 profile "
                 "(firmware/v1_smp_l4_mlkem.conf).", args.device,
             )
-            if cp2:
+            if cp2 or cp3:
                 print(f"{positive_marker}: FAIL")
             return 1
-        logger.info("=== v1.0 %s ===", "CP2: ML-KEM-768 OVER SMP LEVEL 4" if cp2 else
+        logger.info("=== v1.0 %s ===", "CP3: TRANSCRIPT + FINISHED" if cp3 else
+                    "CP2: ML-KEM-768 OVER SMP LEVEL 4" if cp2 else
                     "CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION")
-        run = run_v1_cp2 if cp2 else run_v1_cp1
+        run = run_v1_cp3 if cp3 else run_v1_cp2 if cp2 else run_v1_cp1
         result = await run(
             client,
             confirm_numeric_comparison=_confirm_numeric_comparison,
@@ -906,6 +917,27 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
             + (f" ({result.pairing_ms:.0f} ms incl. human time)" if result.pairing_ms else "")
         )
         print(f"DK attestation: {result.security_info.describe()}")
+        if cp3:
+            if not all((result.start_sent, result.transcript_match, result.finished_c_sent,
+                        result.finished_p_verified, result.app_secure)):
+                raise V1Error("CP3 returned without both FINISHED and APP_SECURE")
+            session = getattr(client, "_v1_cp3_session", None)
+            if (session is None or session.state != "APP_SECURE" or not client.is_connected
+                    or client.raw_client is not getattr(client, "_v1_cp3_link", None)):
+                raise V1Error("CP3 connection/session invalidated before reporting")
+            print("SMP Security Mode 1 Level 4: VERIFIED")
+            print("ML-KEM public key: 1184 B")
+            print("ML-KEM ciphertext: 1088 B")
+            print("START_CP3: SENT")
+            print("READY_CP3: RECEIVED")
+            print("Transcript hash match: YES")
+            print("FINISHED_C: SENT")
+            print("FINISHED_C verification on DK: PASS (confirmed by valid FINISHED_P)")
+            print("FINISHED_P: RECEIVED")
+            print("FINISHED_P verification on Central: PASS")
+            print("K_APP_C2P derived")
+            print("K_APP_P2C derived")
+            print("Application state: APP_SECURE")
         if cp2:
             if not (result.diagnostic_match and result.start_sent and result.ready_received):
                 raise V1Error("CP2 returned without a verified diagnostic exchange")
@@ -940,7 +972,7 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
         print()
         return 1
     except V1Error as exc:
-        logger.error("v1.0 %s failed: %s", "CP2" if cp2 else "CP1", exc)
+        logger.error("v1.0 %s failed: %s", checkpoint, exc)
         print()
         if negative_test is not None:
             print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
@@ -949,7 +981,7 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
         print()
         return 1
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected v1.0 %s failure: %s", "CP2" if cp2 else "CP1", exc)
+        logger.exception("Unexpected v1.0 %s failure: %s", checkpoint, exc)
         print()
         if negative_test is not None:
             print(f"PQ-BLE V1.0 CP1 NEGATIVE TEST: FAIL ({negative_test})")
@@ -958,6 +990,10 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
         print()
         return 1
     finally:
+        if cp3:
+            session = getattr(client, "_v1_cp3_session", None)
+            if session is not None:
+                session.clear()
         try:
             await client.disconnect()
         except Exception as exc:  # noqa: BLE001

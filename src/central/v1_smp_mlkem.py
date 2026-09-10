@@ -305,6 +305,7 @@ async def _run_v1(
     post_l4_exchange=_post_l4_exchange,
     result_type=V1CP1Result,
     checkpoint: str = "CP1",
+    retain_notify: bool = False,
 ) -> V1CP1Result:
     """Run CP1. Raises V1Error / V1NegativeTestPassed; never returns on failure."""
 
@@ -322,6 +323,7 @@ async def _run_v1(
         loop.call_soon_threadsafe(notifications.put_nowait, bytes(data))
 
     notify_started = False
+    completed = False
     try:
         state = await pairing_backend.inspect_pairing(client)
         logger.info(
@@ -431,10 +433,12 @@ async def _run_v1(
         notify_started = True
         result.security_info = info
         result.total_ms = _ms(total_started)
-        logger.info("v1.0 %s state: L4_GATT_VERIFIED (%s)", checkpoint, scenario)
+        logger.info("v1.0 %s state: %s (%s)", checkpoint,
+                    "APP_SECURE" if checkpoint == "CP3" else "L4_GATT_VERIFIED", scenario)
+        completed = True
         return result
     finally:
-        if notify_started:
+        if notify_started and not (completed and retain_notify):
             try:
                 await client.stop_notify()
             except Exception as exc:  # noqa: BLE001

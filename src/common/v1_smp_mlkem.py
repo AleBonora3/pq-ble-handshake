@@ -9,8 +9,8 @@ CP1 scope (SMP Level 4 foundation). This module defines:
   Central applies to the DK-reported link state;
 - the classification of GATT failures as *security* denials.
 
-The v1.0 transcript domain and key schedule are reserved here but are not
-used before CP3, exactly as required by the checkpoint plan.
+The original reserved domain constants below remain for compatibility.
+CP3's active domain labels and key schedule are defined in v1_cp3.py.
 
 Terminology: SMP Level 4 is classical (P-256). It authenticates and encrypts
 the BLE link and is not post-quantum. Only the ML-KEM application key
@@ -46,11 +46,13 @@ V1_FRAME_HEADER_SIZE = 8
 
 V1_SEC_QUERY = 0x01
 V1_SEC_INFO = 0x02
-# CP2 diagnostic exchange; FINISHED remains reserved until CP3.
+# CP2 diagnostic exchange; separate CP3 START/READY and directional FINISHED.
 V1_START = 0x10
 V1_READY = 0x11
 V1_FINISHED_C = 0x12
 V1_FINISHED_P = 0x13
+V1_START_CP3 = 0x14
+V1_READY_CP3 = 0x15
 V1_ERROR = 0x7F
 
 V1_SEC_INFO_PAYLOAD_SIZE = 4
@@ -62,6 +64,11 @@ V1_CP2_DIAGNOSTIC_SIZE = 32
 V1_START_FRAME_SIZE = V1_FRAME_HEADER_SIZE + V1_CP2_SESSION_ID_SIZE
 V1_READY_FRAME_SIZE = V1_FRAME_HEADER_SIZE + V1_CP2_DIAGNOSTIC_SIZE
 V1_CP2_DIAGNOSTIC_LABEL = b"PQ-BLE-HANDSHAKE-v1.0/CP2-DIAGNOSTIC"
+V1_CP3_SESSION_ID_SIZE = 16
+V1_CP3_HASH_SIZE = 32
+V1_START_CP3_FRAME_SIZE = 24
+V1_READY_CP3_FRAME_SIZE = 40
+V1_FINISHED_FRAME_SIZE = 40
 
 V1_SEC_FLAG_SC = 0x01
 V1_SEC_FLAG_AUTHENTICATED = 0x02
@@ -75,6 +82,7 @@ V1_STATUS_INVALID_STATE = 0x12
 V1_STATUS_NOTIFICATIONS_DISABLED = 0x13
 V1_STATUS_UNSUPPORTED_SUBTYPE = 0x14
 V1_STATUS_CP2_CRYPTO_FAILURE = 0x15
+V1_STATUS_CP3_FAILURE = 0x16
 
 V1_STATUS_NAMES = {
     V1_STATUS_INSUFFICIENT_SECURITY: "insufficient security",
@@ -83,6 +91,7 @@ V1_STATUS_NAMES = {
     V1_STATUS_NOTIFICATIONS_DISABLED: "notifications disabled",
     V1_STATUS_UNSUPPORTED_SUBTYPE: "unsupported subtype",
     V1_STATUS_CP2_CRYPTO_FAILURE: "CP2 cryptographic operation failed",
+    V1_STATUS_CP3_FAILURE: "CP3 handshake failed",
 }
 
 # ── BLE security constants (Zephyr bt_security_t values) ─────────────────
@@ -93,6 +102,10 @@ BT_SECURITY_L4 = 4
 L4_ENC_KEY_SIZE = 16
 
 _PAYLOAD_SIZES = {
+    V1_START_CP3: V1_CP3_SESSION_ID_SIZE,
+    V1_READY_CP3: V1_CP3_HASH_SIZE,
+    V1_FINISHED_C: V1_CP3_HASH_SIZE,
+    V1_FINISHED_P: V1_CP3_HASH_SIZE,
     V1_START: V1_CP2_SESSION_ID_SIZE,
     V1_READY: V1_CP2_DIAGNOSTIC_SIZE,
     V1_SEC_QUERY: 0,

@@ -11,7 +11,10 @@
 typedef int psa_status_t;
 typedef unsigned int psa_key_id_t;
 typedef int psa_key_attributes_t;
-typedef struct { uint8_t data[2272]; size_t len; } psa_hash_operation_t;
+#ifndef CP2_NATIVE_HASH_CAPACITY
+#define CP2_NATIVE_HASH_CAPACITY 2272
+#endif
+typedef struct { uint8_t data[CP2_NATIVE_HASH_CAPACITY]; size_t len; } psa_hash_operation_t;
 #define PSA_HASH_OPERATION_INIT { {0}, 0 }
 #define PSA_KEY_ATTRIBUTES_INIT 0
 #define PSA_SUCCESS 0

@@ -36,6 +36,10 @@ static struct bt_conn peer = {1, true, true, 247}, other = {1, true, true, 247};
 static struct bt_conn *current_conn = &peer, *crypto_job_conn;
 static uint32_t connection_generation = 1, crypto_job_generation;
 static bool notify_enabled = true, v1_cp2_active, v1_cp2_valid;
+#define V1_CP3_IDLE 0
+static int v1_cp3_state;
+static bool v1_cp3_worker_active, v1_cp3_delivery_active;
+static void invalidate_v1_cp3_locked(void) { }
 static int protocol_lock, session_lock, depth, wakes, job_available;
 static uint8_t ciphertext[1088], fragments[8][508];
 static uint16_t fragment_lengths[8];
