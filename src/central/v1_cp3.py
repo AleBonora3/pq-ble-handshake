@@ -30,11 +30,13 @@ class V1CP3Result(V1CP1Result):
 
 
 async def _exchange(client, notifications, notification_handler, *,
-                    notification_timeout, quiet, result):
+                    notification_timeout, quiet, result, application_exchange=None,
+                    application_notification=None):
     started = time.perf_counter()
     link = client.raw_client
     secret = bytearray()
     session = CentralHandshake()
+    application_active = False
     if getattr(client, "_v1_cp3_session", None) is not None:
         raise V1Error("CP3 transaction already exists; reconnect first")
     client._v1_cp3_session = session
@@ -50,6 +52,9 @@ async def _exchange(client, notifications, notification_handler, *,
     def deliver_notification(sender, data):
         # Also retire keys on unsolicited messages after the exchange returns.
         # The captured session/link cannot affect a later connection's owner.
+        if application_active and application_notification is not None:
+            application_notification(sender, data)
+            return
         if session.state == "APP_SECURE" or client.raw_client is not link or not client.is_connected:
             session.clear()
         notification_handler(sender, data)
@@ -156,6 +161,10 @@ async def _exchange(client, notifications, notification_handler, *,
         result.post_l4_ms = (time.perf_counter() - started) * 1000.0
         logger.info("K_APP_C2P derived; K_APP_P2C derived (values never logged)")
         logger.info("Application state: APP_SECURE")
+        if application_exchange is not None:
+            application_active = True
+            await application_exchange(client, session)
+            require_same_link()
         success = True
         return info
     except asyncio.CancelledError:

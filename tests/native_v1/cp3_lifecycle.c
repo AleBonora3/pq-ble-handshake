@@ -9,8 +9,10 @@
 #include <sys/types.h>
 #include "mlkem_session.h"
 #include "pq_v1_cp3.h"
+#include "pq_v1_cp4.h"
 
 int cp2_psa_failure;
+int cp4_psa_failure;
 uint8_t cp2_psa_key[32];
 #define BUILD_ASSERT(c, ...) _Static_assert(c, #c)
 #define K_FOREVER -1
@@ -57,8 +59,10 @@ static bool keypair_ready = true, job_pending, job_active;
 static enum pq_mlkem_job_mode pending_job_mode;
 static int notify_count, notify_error, decap_error, scenario;
 static bool inject_during_decap, immediate_finished;
-static uint8_t last_wire[40], central_finished[40];
+static uint8_t last_wire[PQ_V1_CP4_MAX_FRAME_SIZE], central_finished[40];
 static size_t last_len;
+static bool cp4_in_worker;
+static void cp4_cancel_event(void);
 static int64_t now;
 static int v1_cp3_timeout_work;
 static void v1_cp3_timeout(struct k_work *work);
@@ -127,6 +131,11 @@ static int bt_gatt_notify(struct bt_conn *c, const struct bt_gatt_attr *a, const
     (void)a;
     assert(depth == 0 && c == &peer && c == current_conn && c->refs > 1 && c->l4);
     if (notify_error) return -EIO;
+    if (len == PQ_V1_CP4_FRAME_SIZE) {
+        assert(v1_cp4_pending && v1_cp4_ready);
+        assert(v1_cp4_rx_c2p == v1_cp4_tx_p2c);
+        if (scenario >= 130 && scenario <= 134) cp4_cancel_event();
+    }
     assert(len <= sizeof(last_wire)); memcpy(last_wire, data, len);
     last_len = len; notify_count++;
     if (len == 40 && last_wire[5] == PQ_V1_FINISHED_P) {
@@ -158,14 +167,18 @@ static void run_worker(void) {
     uint32_t epoch = pending_v1_cp3_epoch;
     job_pending = false; job_active = true;
     size_t len = 0;
-    int ret = mode == PQ_MLKEM_JOB_V1_CP3 ? v1_cp3_start_result(&len, epoch) : v1_cp3_finished_result(&len, epoch);
+    cp4_in_worker = mode == PQ_MLKEM_JOB_V1_CP4_C2P;
+    int ret = cp4_in_worker ? v1_cp4_result(&len, epoch) :
+        mode == PQ_MLKEM_JOB_V1_CP3 ? v1_cp3_start_result(&len, epoch) : v1_cp3_finished_result(&len, epoch);
+    cp4_in_worker = false;
     enum pq_mlkem_diagnostic_status status = ret == 0 ? PQ_MLKEM_STATUS_SUCCESS : PQ_MLKEM_STATUS_AUTHENTICATION_FAILURE;
     secure_clear(ciphertext_job, sizeof(ciphertext_job));
     k_mutex_lock(&session_lock, K_FOREVER);
     v1_cp3_job_complete_locked(epoch, &status, &len);
     k_mutex_unlock(&session_lock);
     if (scenario == 23) len = 39;
-    v1_cp3_result_ready(mode, status, secure_wire, len);
+    if (mode == PQ_MLKEM_JOB_V1_CP4_C2P) v1_cp4_result_ready(status, secure_wire, len);
+    else v1_cp3_result_ready(mode, status, secure_wire, len);
     secure_clear(secure_wire, sizeof(secure_wire));
     assert(all_zero(v1_cp3_sec_job, sizeof(v1_cp3_sec_job)));
     assert(all_zero(v1_cp3_start_job, sizeof(v1_cp3_start_job)));
@@ -176,6 +189,7 @@ static void no_keys(void) {
     assert(!v1_cp3_app_secure && !v1_cp3_keys_pending && !v1_cp3_wait_finished);
     assert(all_zero(&v1_cp3_handshake, sizeof(v1_cp3_handshake)));
     assert(all_zero(&v1_cp3_application, sizeof(v1_cp3_application)));
+    assert(!v1_cp4_pending && !v1_cp4_ready);
 }
 
 /* Test-only facade: actual liboqs inputs through C ML-KEM + CP3 crypto. */
@@ -192,8 +206,15 @@ int cp3_native_decap(const uint8_t *pk, const uint8_t *sk, const uint8_t *ct,
     return ret;
 }
 
+#include "cp4_lifecycle.h"
+
 int main(int argc, char **argv) {
     scenario = argc > 1 ? atoi(argv[1]) : 0;
+    if (scenario == 101) {
+        uint8_t early[51] = {'P','Q','V','1',0x10,0x20,0,43};
+        assert(handle_v1_control(&peer, early, sizeof(early)) < 0);
+        assert(!job_pending); no_keys(); return 0;
+    }
     uint8_t coins[64] = {0}, enc_coins[32] = {1}, ss[32], th0[32], tag[32];
     uint8_t start[24], sid[16] = {0}, sec[12], expected_p[40];
     struct pq_v1_cp3_handshake h;
@@ -271,6 +292,7 @@ int main(int argc, char **argv) {
     assert(memcmp(last_wire, expected_p, 40) == 0);
     assert(memcmp(&v1_cp3_application, &expected_app, sizeof(expected_app)) == 0);
     assert(all_zero(&v1_cp3_handshake, sizeof(v1_cp3_handshake)));
+    if (scenario >= 100) { cp4_scenario(); return 0; }
     assert(handle_v1_cp3_finished_c(&peer, central_finished, 40) < 0);
     assert(handle_v1_control(&peer, start, 24) < 0);
     if (scenario == 32) ccc_config_changed(NULL, 0); else disconnected(&peer, 19);

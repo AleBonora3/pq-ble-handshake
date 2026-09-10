@@ -82,6 +82,7 @@ from .v1_smp_mlkem import (
 )
 from .v1_cp2 import run_v1_cp2
 from .v1_cp3 import run_v1_cp3
+from .v1_cp4 import run_v1_cp4
 from .phase7_auth import (
     PHASE7_NEGATIVE_MODES,
     Phase7AuthError,
@@ -256,6 +257,10 @@ def parse_args(argv=None):
         help="CP3 transcript + FINISHED over L4; requires --v1-smp-l4-mlkem",
     )
     parser.add_argument(
+        "--v1-cp4", action="store_true",
+        help="CP3 then two AES-256-GCM PING/PONG rounds; requires --v1-smp-l4-mlkem",
+    )
+    parser.add_argument(
         "--v1-unpair-first",
         action="store_true",
         help=(
@@ -282,6 +287,8 @@ def parse_args(argv=None):
         help="Logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
+    if args.v1_cp4 and (not args.v1_smp_l4_mlkem or args.v1_cp2 or args.v1_cp3 or args.v1_negative is not None):
+        parser.error("--v1-cp4 requires --v1-smp-l4-mlkem; incompatible with --v1-cp2 / --v1-cp3 / --v1-negative")
     if args.v1_cp3 and (not args.v1_smp_l4_mlkem or args.v1_cp2 or args.v1_negative is not None):
         parser.error("--v1-cp3 requires --v1-smp-l4-mlkem; incompatible with --v1-cp2 / --v1-negative")
     if args.v1_cp2 and (not args.v1_smp_l4_mlkem or args.v1_negative is not None):
@@ -876,8 +883,10 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
     negative_test = args.v1_negative
     cp2 = getattr(args, "v1_cp2", False)
     cp3 = getattr(args, "v1_cp3", False)
-    checkpoint = "CP3" if cp3 else "CP2" if cp2 else "CP1"
+    cp4 = getattr(args, "v1_cp4", False)
+    checkpoint = "CP4" if cp4 else "CP3" if cp3 else "CP2" if cp2 else "CP1"
     positive_marker = (
+        "PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA" if cp4 else
         "PQ-BLE V1.0 CP3 TRANSCRIPT + FINISHED" if cp3 else
         "PQ-BLE V1.0 CP2 ML-KEM-L4 INTEROPERABILITY" if cp2 else
         "PQ-BLE V1.0 CP1 SMP-L4 FOUNDATION"
@@ -891,13 +900,14 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
                 "Could not find '%s'. Flash the v1.0 profile "
                 "(firmware/v1_smp_l4_mlkem.conf).", args.device,
             )
-            if cp2 or cp3:
+            if cp2 or cp3 or cp4:
                 print(f"{positive_marker}: FAIL")
             return 1
-        logger.info("=== v1.0 %s ===", "CP3: TRANSCRIPT + FINISHED" if cp3 else
+        logger.info("=== v1.0 %s ===", "CP4: AES-256-GCM BIDIRECTIONAL DATA" if cp4 else
+                    "CP3: TRANSCRIPT + FINISHED" if cp3 else
                     "CP2: ML-KEM-768 OVER SMP LEVEL 4" if cp2 else
                     "CP1: SMP SECURITY MODE 1 LEVEL 4 FOUNDATION")
-        run = run_v1_cp3 if cp3 else run_v1_cp2 if cp2 else run_v1_cp1
+        run = run_v1_cp4 if cp4 else run_v1_cp3 if cp3 else run_v1_cp2 if cp2 else run_v1_cp1
         result = await run(
             client,
             confirm_numeric_comparison=_confirm_numeric_comparison,
@@ -917,7 +927,7 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
             + (f" ({result.pairing_ms:.0f} ms incl. human time)" if result.pairing_ms else "")
         )
         print(f"DK attestation: {result.security_info.describe()}")
-        if cp3:
+        if cp3 or cp4:
             if not all((result.start_sent, result.transcript_match, result.finished_c_sent,
                         result.finished_p_verified, result.app_secure)):
                 raise V1Error("CP3 returned without both FINISHED and APP_SECURE")
@@ -937,6 +947,15 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
             print("FINISHED_P verification on Central: PASS")
             print("K_APP_C2P derived")
             print("K_APP_P2C derived")
+            if cp4:
+                app = getattr(client, "_v1_cp4_session", None)
+                if (result.authenticated_rounds != 2 or app is None or
+                        app.tx_c2p != 2 or app.rx_p2c != 2 or
+                        getattr(client, "_v1_notify_link", None) is not client.raw_client):
+                    raise V1Error("CP4 returned without two authenticated rounds on a live subscription")
+                for seq in range(2):
+                    print(f"CP4 C2P PING seq={seq}: SENT")
+                    print(f"CP4 P2C PONG seq={seq}: AUTHENTICATED")
             print("Application state: APP_SECURE")
         if cp2:
             if not (result.diagnostic_match and result.start_sent and result.ready_received):
@@ -990,7 +1009,10 @@ async def _run_v1_smp_l4_mlkem_cli(args) -> int:
         print()
         return 1
     finally:
-        if cp3:
+        if cp3 or cp4:
+            app = getattr(client, "_v1_cp4_session", None)
+            if app is not None:
+                app.clear()
             session = getattr(client, "_v1_cp3_session", None)
             if session is not None:
                 session.clear()

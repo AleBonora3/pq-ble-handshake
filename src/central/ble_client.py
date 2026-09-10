@@ -56,6 +56,7 @@ class BLECentralClient:
 
         logger.info("Found %s (%s), connecting...", self._device.name, self._device.address)
 
+        self.clear_v1_cp3()
         self._client = BleakClient(
             self._device,
             disconnected_callback=self._on_disconnect,
@@ -95,6 +96,7 @@ class BLECentralClient:
         if self._device is None:
             raise RuntimeError("No known CP1 peer to reconnect")
         old_client = self._client
+        self.clear_v1_cp3()
         if old_client is not None:
             await old_client.disconnect()
         logger.info("CP1 reconnect to original peer %s", self._device.address)
@@ -125,6 +127,11 @@ class BLECentralClient:
             logger.info("Disconnected.")
 
     def clear_v1_cp3(self):
+        self._v1_notify_link = None
+        app = getattr(self, "_v1_cp4_session", None)
+        if app is not None:
+            app.clear()
+            self._v1_cp4_session = None
         session = getattr(self, "_v1_cp3_session", None)
         if session is not None:
             session.clear()
@@ -253,6 +260,7 @@ class BLECentralClient:
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
         await self._client.start_notify(CHAR_DATA_UUID, callback)
+        self._v1_notify_link = self._client
         logger.info("Subscribed to data notifications.")
 
     async def stop_notify(self) -> None:

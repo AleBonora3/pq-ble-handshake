@@ -72,6 +72,7 @@ enum pq_mlkem_job_mode {
 	PQ_MLKEM_JOB_V1_CP2 = 10,
 	PQ_MLKEM_JOB_V1_CP3 = 11,
 	PQ_MLKEM_JOB_V1_CP3_FINISHED_C = 12,
+	PQ_MLKEM_JOB_V1_CP4_C2P = 13,
 };
 
 
@@ -102,6 +103,10 @@ int pq_mlkem_session_submit_v1_cp3_finished_c(const uint8_t *frame, size_t len);
 /* Promote pending keys only after FINISHED_P queued to the live owner. */
 int pq_mlkem_session_commit_v1_cp3(void);
 void pq_mlkem_session_reset_v1_cp3(void);
+int pq_mlkem_session_submit_v1_cp4(const uint8_t *frame, size_t len);
+int pq_mlkem_session_commit_v1_cp4(void);
+/* Implemented by the connection owner; called with no session lock held. */
+bool pq_v1_cp4_job_live(void);
 
 /* Explicit v1 path: copies CT + public session context, retains no app key. */
 int pq_mlkem_session_submit_v1_cp2(

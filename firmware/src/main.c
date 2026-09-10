@@ -44,6 +44,7 @@
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
 #include "pq_v1_frame.h"
+#include "pq_v1_cp4.h"
 #include "pq_v1_security.h"
 #endif
 
@@ -1211,6 +1212,87 @@ static bool v1_cp3_live_locked(struct bt_conn *conn, uint32_t generation)
 		bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY);
 }
 
+static bool v1_cp4_live_locked(struct bt_conn *conn, uint32_t generation)
+{
+	/* APP_SECURE has no handshake deadline. */
+	return conn != NULL && conn == current_conn && conn == v1_cp3_conn &&
+		generation == connection_generation && generation == v1_cp3_generation &&
+		v1_cp3_state == V1_CP3_APP_SECURE && notify_enabled &&
+		pq_v1_security_conn_is_l4(conn) &&
+		bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY) &&
+		bt_gatt_get_mtu(conn) >= PQ_V1_CP4_FRAME_SIZE + 3U;
+}
+
+bool pq_v1_cp4_job_live(void)
+{
+	bool live;
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	live = v1_cp3_worker_active && v1_cp4_live_locked(v1_cp3_conn, v1_cp3_generation);
+	if (!live) { invalidate_v1_cp3_locked(); }
+	k_mutex_unlock(&protocol_lock);
+	return live;
+}
+
+static ssize_t handle_v1_cp4(struct bt_conn *conn, const uint8_t *wire, uint16_t len)
+{
+	ssize_t result = BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (!v1_cp4_live_locked(conn, v1_cp3_generation) || v1_cp3_worker_active ||
+	    v1_cp3_delivery_active || v1_cp2_active || crypto_job_conn != NULL ||
+	    len + 3U > bt_gatt_get_mtu(conn) ||
+	    pq_mlkem_session_submit_v1_cp4(wire, len) != 0) {
+		invalidate_v1_cp3_locked();
+	} else {
+		v1_cp3_worker_active = true;
+		result = len;
+	}
+	k_mutex_unlock(&protocol_lock);
+	return result;
+}
+
+static void v1_cp4_result_ready(enum pq_mlkem_diagnostic_status status,
+	const uint8_t *wire, size_t wire_len)
+{
+	struct bt_conn *conn = NULL;
+	struct pq_v1_cp4_frame frame;
+	uint32_t generation;
+	int ret = -ECANCELED;
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	generation = v1_cp3_generation;
+	if (v1_cp3_worker_active && status == PQ_MLKEM_STATUS_SUCCESS &&
+	    v1_cp4_live_locked(v1_cp3_conn, generation) &&
+	    pq_v1_cp4_parse(wire, wire_len, PQ_V1_APP_P2C, &frame) == 0 &&
+	    frame.msg_type == PQ_V1_CP4_PONG && frame.plaintext_len == 16U) {
+		conn = bt_conn_ref(v1_cp3_conn);
+	} else { invalidate_v1_cp3_locked(); }
+	v1_cp3_worker_active = false;
+	v1_cp3_delivery_active = true;
+	k_mutex_unlock(&protocol_lock);
+	/* No BLE calls under protocol_lock. The owned reference survives callbacks. */
+	if (conn != NULL) {
+		bool live;
+		k_mutex_lock(&protocol_lock, K_FOREVER);
+		live = v1_cp4_live_locked(conn, generation);
+		k_mutex_unlock(&protocol_lock);
+		if (live && pq_v1_security_conn_is_l4(conn) &&
+		    bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY) &&
+		    bt_gatt_get_mtu(conn) >= wire_len + 3U) {
+			ret = bt_gatt_notify(conn, &pq_service.attrs[6], wire, wire_len);
+		}
+	}
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	if (ret == 0 && v1_cp4_live_locked(conn, generation) &&
+	    pq_mlkem_session_commit_v1_cp4() == 0) {
+		LOG_INF("CP4 PING authenticated; PONG queued; Application state: APP_SECURE");
+	} else {
+		invalidate_v1_cp3_locked();
+		LOG_ERR("v1 CP4 FAILED; application keys cleared");
+	}
+	v1_cp3_delivery_active = false;
+	k_mutex_unlock(&protocol_lock);
+	if (conn != NULL) { bt_conn_unref(conn); }
+}
+
 static ssize_t handle_v1_cp3_start(struct bt_conn *conn, const uint8_t *frame, uint16_t len)
 {
 	struct pq_v1_security_info info;
@@ -1518,6 +1600,12 @@ static ssize_t handle_v1_control(struct bt_conn *conn, const uint8_t *data,
 	bool ready;
 	int err;
 
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	ready = v1_cp3_state == V1_CP3_APP_SECURE;
+	k_mutex_unlock(&protocol_lock);
+	if (ready || (len >= 6U && (data[5] == PQ_V1_APP_C2P || data[5] == PQ_V1_APP_P2C))) {
+		return handle_v1_cp4(conn, data, len);
+	}
 	if (pq_v1_parse_frame(data, len, &subtype, &payload, &payload_len) != 0) {
 		LOG_ERR("Malformed or unsupported PQV1 control frame");
 		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
@@ -1590,15 +1678,29 @@ static ssize_t write_control(struct bt_conn *conn,
 	ARG_UNUSED(flags);
 
 	if (gate != 0) {
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		k_mutex_lock(&protocol_lock, K_FOREVER);
+		if (v1_cp3_state == V1_CP3_APP_SECURE) { invalidate_v1_cp3_locked(); }
+		k_mutex_unlock(&protocol_lock);
+#endif
 		return gate;
 	}
 	if (offset != 0U) {
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+		k_mutex_lock(&protocol_lock, K_FOREVER);
+		if (v1_cp3_state == V1_CP3_APP_SECURE) { invalidate_v1_cp3_locked(); }
+		k_mutex_unlock(&protocol_lock);
+#endif
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 	}
 
 	LOG_INF("Control write: len=%u", len);
 
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	k_mutex_lock(&protocol_lock, K_FOREVER);
+	bool application = v1_cp3_state == V1_CP3_APP_SECURE;
+	k_mutex_unlock(&protocol_lock);
+	if (application) { return handle_v1_control(conn, data, len); }
 	if (len >= PQ_V1_FRAME_MAGIC_SIZE &&
 	    memcmp(data, PQ_V1_FRAME_MAGIC, PQ_V1_FRAME_MAGIC_SIZE) == 0) {
 		return handle_v1_control(conn, data, len);
@@ -1838,6 +1940,10 @@ static void mlkem_result_ready(
 	size_t secure_wire_len)
 {
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+	if (mode == PQ_MLKEM_JOB_V1_CP4_C2P) {
+		v1_cp4_result_ready(status, secure_wire, secure_wire_len);
+		return;
+	}
 	if (mode == PQ_MLKEM_JOB_V1_CP3 || mode == PQ_MLKEM_JOB_V1_CP3_FINISHED_C) {
 		v1_cp3_result_ready(mode, status, secure_wire, secure_wire_len);
 		return;
@@ -2512,7 +2618,7 @@ void main(void)
 	LOG_INF("========================================");
 	LOG_INF("PQ-BLE Handshake - nRF54L15 DK Peripheral");
 #if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
-	LOG_INF("Profile: v1.0 SMP L4 + ML-KEM (CP1, CP2 TEST ONLY, CP3 FINISHED)");
+	LOG_INF("Profile: v1.0 SMP L4 + ML-KEM (CP1-CP4, AES-GCM application channel)");
 	LOG_INF("PQ GATT closed until authenticated L4; legacy v0.x control rejected");
 #else
 	LOG_INF("Profile: v0.7 application-level hybrid (CONFIG_BT_SMP=n)");

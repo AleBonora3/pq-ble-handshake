@@ -53,6 +53,8 @@ V1_FINISHED_C = 0x12
 V1_FINISHED_P = 0x13
 V1_START_CP3 = 0x14
 V1_READY_CP3 = 0x15
+V1_APP_C2P = 0x20
+V1_APP_P2C = 0x21
 V1_ERROR = 0x7F
 
 V1_SEC_INFO_PAYLOAD_SIZE = 4
@@ -143,6 +145,10 @@ class V1SecurityInfo:
 
 
 def _validate_payload(subtype: int, payload: bytes) -> None:
+    if subtype in (V1_APP_C2P, V1_APP_P2C):
+        if not 27 <= len(payload) <= 27 + 128 or len(payload) != 27 + int.from_bytes(payload[9:11], "big"):
+            raise ValueError("invalid CP4 application payload length")
+        return
     if subtype not in _PAYLOAD_SIZES:
         raise ValueError(f"unsupported PQV1 subtype: {subtype:#x}")
     expected = _PAYLOAD_SIZES[subtype]

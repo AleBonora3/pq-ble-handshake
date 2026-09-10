@@ -317,11 +317,12 @@ def native_cp3(tmp_path_factory):
     native, firmware = root / "tests/native_v1", root / "firmware/src"
     mlkem = root / "firmware/third_party/mlkem-native/mlkem"
     (build / "psa").mkdir()
-    (build / "psa/crypto.h").write_text('#include "cp2_psa.h"\n')
+    (build / "psa/crypto.h").write_text('#include "cp4_psa.h"\n')
     source = (firmware / "main.c").read_text()
     state = source[source.index("enum v1_cp3_state {"):source.index("static void v1_cp3_timeout(")]
     names = ("clear_transfer_storage_locked", "begin_transfer_locked", "write_ciphertext",
              "invalidate_v1_cp2_locked", "invalidate_v1_cp3_locked", "v1_cp3_timeout", "v1_cp3_live_locked",
+             "v1_cp4_live_locked", "pq_v1_cp4_job_live", "handle_v1_cp4", "v1_cp4_result_ready",
              "handle_v1_cp3_start", "handle_v1_cp3_finished_c", "v1_cp3_result_ready",
              "handle_v1_cp2_start", "v1_cp2_security_changed", "handle_v1_control",
              "connected", "disconnected", "ccc_config_changed")
@@ -329,9 +330,10 @@ def native_cp3(tmp_path_factory):
     source = (firmware / "mlkem_session.c").read_text()
     state += source[source.index("static uint32_t v1_cp3_epoch"):source.index("#endif", source.index("static uint32_t v1_cp3_epoch"))]
     (build / "cp3_state.inc").write_text(state)
-    names = ("v1_cp3_start_result", "v1_cp3_finished_result", "v1_cp3_job_complete_locked",
+    names = ("v1_cp4_result", "v1_cp3_start_result", "v1_cp3_finished_result", "v1_cp3_job_complete_locked",
              "pq_mlkem_session_reset_v1_cp3", "pq_mlkem_session_submit_v1_cp3",
              "pq_mlkem_session_submit_v1_cp3_finished_c", "pq_mlkem_session_commit_v1_cp3",
+             "pq_mlkem_session_submit_v1_cp4", "pq_mlkem_session_commit_v1_cp4",
              "pq_mlkem_session_submit_v1_cp2", "pq_mlkem_session_reset_v1_cp2")
     (build / "cp3_worker.inc").write_text("\n".join(production_function(source, n) for n in names))
     command = [shutil.which("gcc"), "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
@@ -341,6 +343,7 @@ def native_cp3(tmp_path_factory):
                "-DMLK_CONFIG_INTERNAL_API_QUALIFIER=static"]
     for path in (build, native, firmware, mlkem): command += ["-I", str(path)]
     command += [str(native / "cp3_lifecycle.c"), str(firmware / "pq_v1_cp3.c"),
+                str(firmware / "pq_v1_cp4.c"),
                 str(firmware / "pq_v1_frame.c"), str(mlkem / "mlkem_native.c"), "-lbcrypt"]
     exe, dll = build / "cp3.exe", build / "cp3.dll"
     for output, extra in ((exe, []), (dll, ["-shared"])):

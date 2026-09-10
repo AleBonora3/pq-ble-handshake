@@ -8,6 +8,10 @@
 static bool payload_size_valid(uint8_t subtype, size_t payload_len)
 {
 	switch (subtype) {
+	case PQ_V1_APP_C2P:
+	case PQ_V1_APP_P2C:
+		return payload_len >= PQ_V1_CP4_PAYLOAD_OVERHEAD &&
+			payload_len <= PQ_V1_CP4_PAYLOAD_OVERHEAD + PQ_V1_CP4_MAX_PLAINTEXT;
 	case PQ_V1_START_CP3:
 		return payload_len == PQ_V1_CP3_SESSION_ID_SIZE;
 	case PQ_V1_READY_CP3:
@@ -55,6 +59,10 @@ int pq_v1_parse_frame(
 	if (!payload_size_valid(frame[5], declared)) {
 		return -ENOTSUP;
 	}
+	if ((frame[5] == PQ_V1_APP_C2P || frame[5] == PQ_V1_APP_P2C) &&
+	    declared != PQ_V1_CP4_PAYLOAD_OVERHEAD + ((size_t)frame[17] << 8) + frame[18]) {
+		return -EMSGSIZE;
+	}
 
 	*subtype = frame[5];
 	*payload = frame + PQ_V1_FRAME_HEADER_SIZE;
@@ -72,6 +80,10 @@ int pq_v1_encode_frame(
 	}
 	if (!payload_size_valid(subtype, payload_len)) {
 		return -ENOTSUP;
+	}
+	if ((subtype == PQ_V1_APP_C2P || subtype == PQ_V1_APP_P2C) &&
+	    payload_len != PQ_V1_CP4_PAYLOAD_OVERHEAD + ((size_t)payload[9] << 8) + payload[10]) {
+		return -EMSGSIZE;
 	}
 	if (output_capacity < PQ_V1_FRAME_HEADER_SIZE + payload_len) {
 		return -ENOBUFS;

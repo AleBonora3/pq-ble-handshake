@@ -434,7 +434,7 @@ async def _run_v1(
         result.security_info = info
         result.total_ms = _ms(total_started)
         logger.info("v1.0 %s state: %s (%s)", checkpoint,
-                    "APP_SECURE" if checkpoint == "CP3" else "L4_GATT_VERIFIED", scenario)
+                    "APP_SECURE" if checkpoint in ("CP3", "CP4") else "L4_GATT_VERIFIED", scenario)
         completed = True
         return result
     finally:
