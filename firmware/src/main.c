@@ -1289,6 +1289,12 @@ static void v1_cp4_result_ready(enum pq_mlkem_diagnostic_status status,
 		LOG_ERR("v1 CP4 FAILED; application keys cleared");
 	}
 	v1_cp3_delivery_active = false;
+	/* A retired connection's job has now drained. Release its transfer slot
+	 * so a replacement connection can submit a fresh ML-KEM ciphertext. */
+	if (v1_cp3_state == V1_CP3_IDLE && !v1_cp2_active) {
+		clear_transfer_storage_locked();
+		ciphertext_state = CIPHERTEXT_EMPTY;
+	}
 	k_mutex_unlock(&protocol_lock);
 	if (conn != NULL) { bt_conn_unref(conn); }
 }

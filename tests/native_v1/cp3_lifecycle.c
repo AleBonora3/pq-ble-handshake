@@ -62,6 +62,8 @@ static bool inject_during_decap, immediate_finished;
 static uint8_t last_wire[PQ_V1_CP4_MAX_FRAME_SIZE], central_finished[40];
 static size_t last_len;
 static bool cp4_in_worker;
+static bool cp5_disconnect_at_notify;
+static int cp5_decap_count;
 static void cp4_cancel_event(void);
 static int64_t now;
 static int v1_cp3_timeout_work;
@@ -135,6 +137,11 @@ static int bt_gatt_notify(struct bt_conn *c, const struct bt_gatt_attr *a, const
         assert(v1_cp4_pending && v1_cp4_ready);
         assert(v1_cp4_rx_c2p == v1_cp4_tx_p2c);
         if (scenario >= 130 && scenario <= 134) cp4_cancel_event();
+        if (cp5_disconnect_at_notify) {
+            cp5_disconnect_at_notify = false;
+            disconnected(&peer, 19); connected(&peer, 0);
+            peer.l4 = true; notify_enabled = true;
+        }
     }
     assert(len <= sizeof(last_wire)); memcpy(last_wire, data, len);
     last_len = len; notify_count++;
@@ -151,6 +158,7 @@ static int bt_gatt_notify(struct bt_conn *c, const struct bt_gatt_attr *a, const
 
 static int test_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {
     assert(depth == 0);
+    cp5_decap_count++;
     int ret = pqble_mlkem_dec(ss, ct, sk);
     if (inject_during_decap) cancel_event();
     if (decap_error) { memset(ss, 0xAA, 32); return -1; }
@@ -207,9 +215,15 @@ int cp3_native_decap(const uint8_t *pk, const uint8_t *sk, const uint8_t *ct,
 }
 
 #include "cp4_lifecycle.h"
+#include "cp5_lifecycle.h"
 
 int main(int argc, char **argv) {
     scenario = argc > 1 ? atoi(argv[1]) : 0;
+    if (scenario == 204) {
+        /* Fresh host process models cleared volatile DK state; L4/bond modeled separately. */
+        assert(peer.l4 && v1_cp3_state == V1_CP3_IDLE);
+        cp5_empty(); return 0;
+    }
     if (scenario == 101) {
         uint8_t early[51] = {'P','Q','V','1',0x10,0x20,0,43};
         assert(handle_v1_control(&peer, early, sizeof(early)) < 0);
@@ -292,6 +306,7 @@ int main(int argc, char **argv) {
     assert(memcmp(last_wire, expected_p, 40) == 0);
     assert(memcmp(&v1_cp3_application, &expected_app, sizeof(expected_app)) == 0);
     assert(all_zero(&v1_cp3_handshake, sizeof(v1_cp3_handshake)));
+    if (scenario >= 200) { cp5_scenario(); return 0; }
     if (scenario >= 100) { cp4_scenario(); return 0; }
     assert(handle_v1_cp3_finished_c(&peer, central_finished, 40) < 0);
     assert(handle_v1_control(&peer, start, 24) < 0);

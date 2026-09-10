@@ -1,0 +1,535 @@
+A - Cold baseline
+PC
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-cp4 --v1-unpair-first
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+16:31:05 [INFO   ] pq-ble.central.main: ==================================================
+16:31:05 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:31:05 [INFO   ] pq-ble.central.main: ==================================================
+16:31:05 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+16:31:05 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:31:05 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:31:05 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:31:07 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:31:07 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:31:07 [INFO   ] pq-ble.central.main: === v1.0 CP4: AES-256-GCM BIDIRECTIONAL DATA ===
+16:31:07 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:31:07 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+16:31:07 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+16:31:08 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+16:31:08 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+16:31:08 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+16:31:08 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+16:31:08 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] CustomPairing object acquired
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] PairingRequested handler registered
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.001s] pair_async started: kinds=CONFIRM_PIN_MATCH (8), minimum protection=ENCRYPTION_AND_AUTHENTICATION (3)
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.397s] PairingRequested received: kind=CONFIRM_PIN_MATCH (8)
+16:31:08 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.397s] PIN received: 451164; waiting for human confirmation
+
+========================================================
+  SMP NUMERIC COMPARISON (Windows shows): 451164
+  The nRF54L15 DK prints its own value on UART.
+  On the DK: BUTTON 0 = accept, BUTTON 1 = reject.
+========================================================
+Do BOTH values match? Type 'yes' to accept, 'no' to reject: yes
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.115s] human accepted
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.116s] Accept invoked
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.116s] deferral completed
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.690s] pair_async returned: status=PAIRED (0), protection_used=ENCRYPTION_AND_AUTHENTICATION
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.692s] PairingRequested handler unregistered
+16:31:12 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:31:13 [INFO   ] pq-ble.central.winrt-pairing: [pair +4.822s] Windows paired state=True protection=ENCRYPTION_AND_AUTHENTICATION
+16:31:13 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=PAIRED paired=True protection=ENCRYPTION_AND_AUTHENTICATION ceremony=CONFIRM_PIN_MATCH decision=True
+16:31:13 [INFO   ] pq-ble.central.v1-smp-l4: SMP pairing complete: PAIRED, protection ENCRYPTION_AND_AUTHENTICATION, 4825 ms (includes human time)
+16:31:13 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:31:13 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:31:13 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:31:13 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:31:14 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+16:31:14 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:31:14 [INFO   ] pq-ble.central.v1-cp3: START_CP3: SENT
+16:31:14 [INFO   ] pq-ble.central.v1-cp3: READY_CP3: RECEIVED; Transcript hash match: YES
+16:31:14 [INFO   ] pq-ble.central.v1-cp3: FINISHED_C: SENT
+16:31:14 [INFO   ] pq-ble.central.v1-cp3: FINISHED_P: RECEIVED; FINISHED_P verification on Central: PASS
+16:31:15 [INFO   ] pq-ble.central.v1-cp3: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+16:31:15 [INFO   ] pq-ble.central.v1-cp3: Application state: APP_SECURE
+16:31:15 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=0: SENT
+16:31:15 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=0: AUTHENTICATED
+16:31:15 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=1: SENT
+16:31:15 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=1: AUTHENTICATED
+16:31:16 [INFO   ] pq-ble.central.v1-cp4: Application state: APP_SECURE
+16:31:16 [INFO   ] pq-ble.central.v1-cp3: v1 CP3 Central temporary handshake secrets cleared
+16:31:16 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP4 state: APP_SECURE (cold)
+
+Scenario: cold
+Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+SMP pairing: PAIRED / ENCRYPTION_AND_AUTHENTICATION (4825 ms incl. human time)
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+SMP Security Mode 1 Level 4: VERIFIED
+ML-KEM public key: 1184 B
+ML-KEM ciphertext: 1088 B
+START_CP3: SENT
+READY_CP3: RECEIVED
+Transcript hash match: YES
+FINISHED_C: SENT
+FINISHED_C verification on DK: PASS (confirmed by valid FINISHED_P)
+FINISHED_P: RECEIVED
+FINISHED_P verification on Central: PASS
+K_APP_C2P derived
+K_APP_P2C derived
+CP4 C2P PING seq=0: SENT
+CP4 P2C PONG seq=0: AUTHENTICATED
+CP4 C2P PING seq=1: SENT
+CP4 P2C PONG seq=1: AUTHENTICATED
+Application state: APP_SECURE
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, Control OK, CCCD OK (2557 ms)
+
+PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA: PASS
+
+16:31:16 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+16:31:16 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK
+[00:51:55.215,067] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:51:55.215,406] <inf> pq_ble: Connected (generation 13)
+[00:51:55.215,434] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:51:55.215,481] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:51:55.215,487] <inf> pq_v1_sec: Cold link: waiting for Central custom pairing; PQ GATT gate CLOSED
+[00:51:55.422,888] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:51:57.523,127] <inf> pq_v1_sec: Incoming SMP: peer IO=0x01 auth=0x2d max_key=16
+[00:51:57.523,160] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:51:57.598,384] <inf> pq_v1_sec: Numeric Comparison requested: 3C:55:76:FB:9B:38 (public)
+[00:51:57.598,415] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> NUMERIC_COMPARISON
+[00:51:57.598,430] <inf> pq_v1_sec: ========================================
+[00:51:57.598,434] <inf> pq_v1_sec: NUMERIC COMPARISON VALUE: 451164
+[00:51:57.598,438] <inf> pq_v1_sec: Compare with the Windows Python console PIN. Release buttons first.
+[00:51:57.598,442] <inf> pq_v1_sec: BUTTON 0 = ACCEPT    BUTTON 1 = REJECT
+[00:51:57.598,446] <inf> pq_v1_sec: Timeout: 60000 ms
+[00:51:57.598,450] <inf> pq_v1_sec: ========================================
+[00:52:01.758,759] <inf> pq_v1_sec: Numeric Comparison ACCEPTED by operator (451164): 0
+[00:52:02.053,485] <inf> pq_v1_sec: v1.0 security state: NUMERIC_COMPARISON -> L4_SECURED
+[00:52:02.053,532] <inf> pq_v1_sec: Security changed: 3C:55:76:FB:9B:38 (public)
+[00:52:02.053,537] <inf> pq_v1_sec: Security level = L4
+[00:52:02.053,554] <inf> pq_v1_sec: Secure Connections = YES
+[00:52:02.053,569] <inf> pq_v1_sec: Authenticated link = YES
+[00:52:02.053,574] <inf> pq_v1_sec: Encryption key size = 16 octets
+[00:52:02.053,578] <inf> pq_v1_sec: PQ GATT gate: OPEN (authenticated Security Mode 1 Level 4)
+[00:52:02.193,626] <inf> pq_v1_sec: SMP pairing complete: 3C:55:76:FB:9B:38 (public)
+[00:52:02.193,641] <inf> pq_v1_sec: Bond created = YES
+[00:52:02.278,345] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:52:02.368,358] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:52:02.458,362] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:52:02.548,368] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:52:02.578,368] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:52:02.743,400] <inf> pq_ble: Notifications ENABLED
+[00:52:02.773,404] <inf> pq_ble: Control write: len=8
+[00:52:02.773,522] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:52:02.803,373] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:52:02.833,381] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:52:02.863,386] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:52:02.908,390] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:52:02.938,387] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:52:03.073,632] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:52:03.073,653] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:52:03.178,407] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:52:03.283,412] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:52:03.388,418] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:52:03.420,348] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:52:03.420,509] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:52:03.448,439] <inf> pq_ble: Control write: len=8
+[00:52:03.448,557] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:52:03.478,745] <inf> pq_ble: Control write: len=24
+[00:52:03.479,212] <inf> pq_ble: START_CP3 accepted: L4_SECURED -> CP3_CRYPTO_BUSY
+[00:52:03.555,750] <inf> mlkem_session: v1 CP3 decapsulation + transcript + HKDF: PASS; SS_MLKEM cleared
+[00:52:03.555,778] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 decapsulation + transcript + HKDF
+[00:52:03.555,784] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:52:03.556,063] <inf> mlkem_session: Unused crypto-thread stack: 4376 B
+[00:52:03.556,067] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24296 B
+[00:52:03.556,383] <inf> pq_ble: READY_CP3 queued: 40 B; WAIT_FINISHED_C
+[00:52:03.583,816] <inf> pq_ble: Control write: len=40
+[00:52:03.583,976] <inf> pq_ble: FINISHED_C accepted: WAIT_FINISHED_C -> FINISHED_P_BUSY
+[00:52:03.585,382] <inf> mlkem_session: FINISHED_C verification on DK: PASS
+[00:52:03.585,404] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 FINISHED + application key derivation
+[00:52:03.585,415] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:52:03.585,694] <inf> mlkem_session: Unused crypto-thread stack: 4376 B
+[00:52:03.585,699] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24296 B
+[00:52:03.586,014] <inf> pq_ble: FINISHED_P queued: 40 B
+[00:52:03.586,020] <inf> pq_ble: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+[00:52:03.586,024] <inf> pq_ble: CP3 handshake secrets cleared; Application state: APP_SECURE
+[00:52:04.634,317] <inf> pq_ble: Control write: len=51
+[00:52:04.635,826] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:52:04.724,321] <inf> pq_ble: Control write: len=51
+[00:52:04.725,826] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:52:08.998,805] <inf> pq_ble: Notifications DISABLED
+[00:52:08.998,843] <inf> pq_ble: Disconnected (reason 19)
+[00:52:08.998,869] <inf> pq_v1_sec: v1.0 security state: L4_SECURED -> DISCONNECTED
+[00:52:08.998,877] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+
+
+B — Bonded baseline
+PC
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-cp4
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+16:32:25 [INFO   ] pq-ble.central.main: ==================================================
+16:32:25 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:32:25 [INFO   ] pq-ble.central.main: ==================================================
+16:32:25 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+16:32:25 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:32:25 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:32:26 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:32:28 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:32:28 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:32:28 [INFO   ] pq-ble.central.main: === v1.0 CP4: AES-256-GCM BIDIRECTIONAL DATA ===
+16:32:28 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:32:28 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=True can_pair=False protection=ENCRYPTION_AND_AUTHENTICATION
+16:32:28 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: bonded reconnection
+16:32:28 [INFO   ] pq-ble.central.v1-smp-l4: Bonded reconnect: pre-L4 probes skipped (Windows restores encryption with the stored LTK on the first protected access)
+16:32:28 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:32:28 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:32:29 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:32:29 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:32:30 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+16:32:30 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:32:30 [INFO   ] pq-ble.central.v1-cp3: START_CP3: SENT
+16:32:30 [INFO   ] pq-ble.central.v1-cp3: READY_CP3: RECEIVED; Transcript hash match: YES
+16:32:30 [INFO   ] pq-ble.central.v1-cp3: FINISHED_C: SENT
+16:32:30 [INFO   ] pq-ble.central.v1-cp3: FINISHED_P: RECEIVED; FINISHED_P verification on Central: PASS
+16:32:31 [INFO   ] pq-ble.central.v1-cp3: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+16:32:31 [INFO   ] pq-ble.central.v1-cp3: Application state: APP_SECURE
+16:32:31 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=0: SENT
+16:32:31 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=0: AUTHENTICATED
+16:32:32 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=1: SENT
+16:32:32 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=1: AUTHENTICATED
+16:32:33 [INFO   ] pq-ble.central.v1-cp4: Application state: APP_SECURE
+16:32:33 [INFO   ] pq-ble.central.v1-cp3: v1 CP3 Central temporary handshake secrets cleared
+16:32:33 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP4 state: APP_SECURE (bonded)
+
+Scenario: bonded
+SMP pairing: ALREADY_PAIRED / ENCRYPTION_AND_AUTHENTICATION
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+SMP Security Mode 1 Level 4: VERIFIED
+ML-KEM public key: 1184 B
+ML-KEM ciphertext: 1088 B
+START_CP3: SENT
+READY_CP3: RECEIVED
+Transcript hash match: YES
+FINISHED_C: SENT
+FINISHED_C verification on DK: PASS (confirmed by valid FINISHED_P)
+FINISHED_P: RECEIVED
+FINISHED_P verification on Central: PASS
+K_APP_C2P derived
+K_APP_P2C derived
+CP4 C2P PING seq=0: SENT
+CP4 P2C PONG seq=0: AUTHENTICATED
+CP4 C2P PING seq=1: SENT
+CP4 P2C PONG seq=1: AUTHENTICATED
+Application state: APP_SECURE
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, Control OK, CCCD OK (3288 ms)
+
+PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA: PASS
+
+16:32:33 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+16:32:33 [INFO   ] pq-ble.central.client: Disconnected.
+
+DK
+[00:53:16.193,930] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:53:16.195,383] <inf> pq_ble: Connected (generation 15)
+[00:53:16.195,412] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:53:16.195,457] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:53:16.195,464] <inf> pq_v1_sec: Stored DK bond found: restoring authenticated L4
+[00:53:16.195,468] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:53:16.195,620] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:53:16.195,627] <inf> pq_v1_sec: SMP security procedure started
+[00:53:16.449,979] <inf> pq_ble: Notifications ENABLED
+[00:53:16.450,015] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> L4_SECURED
+[00:53:16.450,077] <inf> pq_v1_sec: Security changed: 3C:55:76:FB:9B:38 (public)
+[00:53:16.450,083] <inf> pq_v1_sec: Security level = L4
+[00:53:16.450,100] <inf> pq_v1_sec: Secure Connections = YES
+[00:53:16.450,115] <inf> pq_v1_sec: Authenticated link = YES
+[00:53:16.450,120] <inf> pq_v1_sec: Encryption key size = 16 octets
+[00:53:16.450,124] <inf> pq_v1_sec: PQ GATT gate: OPEN (authenticated Security Mode 1 Level 4)
+[00:53:16.539,777] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:53:17.709,932] <inf> pq_ble: Control write: len=8
+[00:53:17.710,055] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:53:17.799,903] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:53:17.889,915] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:53:17.979,920] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:53:18.069,925] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:53:18.159,930] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:53:18.475,184] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:53:18.475,206] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:53:18.789,969] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:53:19.104,985] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:53:19.420,002] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:53:19.511,935] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:53:19.512,096] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:53:19.600,030] <inf> pq_ble: Control write: len=8
+[00:53:19.600,147] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:53:19.690,337] <inf> pq_ble: Control write: len=24
+[00:53:19.690,805] <inf> pq_ble: START_CP3 accepted: L4_SECURED -> CP3_CRYPTO_BUSY
+[00:53:19.704,276] <inf> mlkem_session: v1 CP3 decapsulation + transcript + HKDF: PASS; SS_MLKEM cleared
+[00:53:19.704,312] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 decapsulation + transcript + HKDF
+[00:53:19.704,317] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:53:19.704,596] <inf> mlkem_session: Unused crypto-thread stack: 4376 B
+[00:53:19.704,601] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24296 B
+[00:53:19.704,911] <inf> pq_ble: READY_CP3 queued: 40 B; WAIT_FINISHED_C
+[00:53:19.825,412] <inf> pq_ble: Control write: len=40
+[00:53:19.825,579] <inf> pq_ble: FINISHED_C accepted: WAIT_FINISHED_C -> FINISHED_P_BUSY
+[00:53:19.845,397] <inf> mlkem_session: FINISHED_C verification on DK: PASS
+[00:53:19.845,426] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 FINISHED + application key derivation
+[00:53:19.845,431] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:53:19.845,710] <inf> mlkem_session: Unused crypto-thread stack: 4376 B
+[00:53:19.845,714] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24296 B
+[00:53:19.846,030] <inf> pq_ble: FINISHED_P queued: 40 B
+[00:53:19.846,035] <inf> pq_ble: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+[00:53:19.846,039] <inf> pq_ble: CP3 handshake secrets cleared; Application state: APP_SECURE
+[00:53:20.905,917] <inf> pq_ble: Control write: len=51
+[00:53:20.922,015] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:53:21.040,407] <inf> pq_ble: Control write: len=51
+[00:53:21.041,912] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:53:25.315,406] <inf> pq_ble: Notifications DISABLED
+[00:53:25.315,444] <inf> pq_ble: Disconnected (reason 19)
+[00:53:25.315,472] <inf> pq_v1_sec: v1.0 security state: L4_SECURED -> DISCONNECTED
+[00:53:25.315,479] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+
+C — Tre reconnect bonded consecutivi
+OK passed
+
+D — Reboot DK mantenendo il bond
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-cp4
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+16:34:35 [INFO   ] pq-ble.central.main: ==================================================
+16:34:35 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:34:35 [INFO   ] pq-ble.central.main: ==================================================
+16:34:35 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+16:34:35 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:34:35 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:34:36 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:34:39 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:34:39 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:34:39 [INFO   ] pq-ble.central.main: === v1.0 CP4: AES-256-GCM BIDIRECTIONAL DATA ===
+16:34:39 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:34:39 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=True can_pair=False protection=ENCRYPTION_AND_AUTHENTICATION
+16:34:39 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: bonded reconnection
+16:34:39 [INFO   ] pq-ble.central.v1-smp-l4: Bonded reconnect: pre-L4 probes skipped (Windows restores encryption with the stored LTK on the first protected access)
+16:34:39 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:34:39 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:34:40 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:34:40 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:34:41 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+16:34:41 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:34:41 [INFO   ] pq-ble.central.v1-cp3: START_CP3: SENT
+16:34:41 [INFO   ] pq-ble.central.v1-cp3: READY_CP3: RECEIVED; Transcript hash match: YES
+16:34:42 [INFO   ] pq-ble.central.v1-cp3: FINISHED_C: SENT
+16:34:42 [INFO   ] pq-ble.central.v1-cp3: FINISHED_P: RECEIVED; FINISHED_P verification on Central: PASS
+16:34:43 [INFO   ] pq-ble.central.v1-cp3: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+16:34:43 [INFO   ] pq-ble.central.v1-cp3: Application state: APP_SECURE
+16:34:43 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=0: SENT
+16:34:43 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=0: AUTHENTICATED
+16:34:43 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=1: SENT
+16:34:43 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=1: AUTHENTICATED
+16:34:44 [INFO   ] pq-ble.central.v1-cp4: Application state: APP_SECURE
+16:34:44 [INFO   ] pq-ble.central.v1-cp3: v1 CP3 Central temporary handshake secrets cleared
+16:34:44 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP4 state: APP_SECURE (bonded)
+
+Scenario: bonded
+SMP pairing: ALREADY_PAIRED / ENCRYPTION_AND_AUTHENTICATION
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+SMP Security Mode 1 Level 4: VERIFIED
+ML-KEM public key: 1184 B
+ML-KEM ciphertext: 1088 B
+START_CP3: SENT
+READY_CP3: RECEIVED
+Transcript hash match: YES
+FINISHED_C: SENT
+FINISHED_C verification on DK: PASS (confirmed by valid FINISHED_P)
+FINISHED_P: RECEIVED
+FINISHED_P verification on Central: PASS
+K_APP_C2P derived
+K_APP_P2C derived
+CP4 C2P PING seq=0: SENT
+CP4 P2C PONG seq=0: AUTHENTICATED
+CP4 C2P PING seq=1: SENT
+CP4 P2C PONG seq=1: AUTHENTICATED
+Application state: APP_SECURE
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, Control OK, CCCD OK (3478 ms)
+
+PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA: PASS
+
+16:34:44 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+16:34:44 [INFO   ] pq-ble.central.client: Disconnected.
+
+
+DK
+[00:00:17.694,991] <inf> pq_ble: MTU updated: TX=23, RX=23
+[00:00:17.696,430] <inf> pq_ble: Connected (generation 1)
+[00:00:17.696,458] <inf> pq_v1_sec: v1.0 security state: DISCONNECTED -> CONNECTED_UNSECURED
+[00:00:17.696,503] <inf> pq_v1_sec: BLE connected: 3C:55:76:FB:9B:38 (public)
+[00:00:17.696,510] <inf> pq_v1_sec: Stored DK bond found: restoring authenticated L4
+[00:00:17.696,514] <inf> pq_v1_sec: Requesting BT_SECURITY_L4 (authenticated LE Secure Connections)
+[00:00:17.696,663] <inf> pq_v1_sec: v1.0 security state: CONNECTED_UNSECURED -> SMP_PAIRING
+[00:00:17.696,670] <inf> pq_v1_sec: SMP security procedure started
+[00:00:17.944,454] <inf> pq_ble: Notifications ENABLED
+[00:00:17.944,489] <inf> pq_v1_sec: v1.0 security state: SMP_PAIRING -> L4_SECURED
+[00:00:17.944,543] <inf> pq_v1_sec: Security changed: 3C:55:76:FB:9B:38 (public)
+[00:00:17.944,549] <inf> pq_v1_sec: Security level = L4
+[00:00:17.944,565] <inf> pq_v1_sec: Secure Connections = YES
+[00:00:17.944,580] <inf> pq_v1_sec: Authenticated link = YES
+[00:00:17.944,585] <inf> pq_v1_sec: Encryption key size = 16 octets
+[00:00:17.944,589] <inf> pq_v1_sec: PQ GATT gate: OPEN (authenticated Security Mode 1 Level 4)
+[00:00:18.034,251] <inf> pq_ble: MTU updated: TX=527, RX=247
+[00:00:19.249,409] <inf> pq_ble: Control write: len=8
+[00:00:19.249,532] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:00:19.339,380] <inf> pq_ble: Public-key read: offset=0, len=246
+[00:00:19.429,392] <inf> pq_ble: Public-key read: offset=246, len=246
+[00:00:19.564,400] <inf> pq_ble: Public-key read: offset=492, len=246
+[00:00:19.654,404] <inf> pq_ble: Public-key read: offset=738, len=246
+[00:00:19.744,409] <inf> pq_ble: Public-key read: offset=984, len=246
+[00:00:20.059,662] <inf> pq_ble: Ciphertext state: RECEIVING (total fragments 5)
+[00:00:20.059,683] <inf> pq_ble: Ciphertext fragment 1/5 stored (243-byte payload)
+[00:00:20.374,449] <inf> pq_ble: Ciphertext fragment 2/5 stored (243-byte payload)
+[00:00:20.689,466] <inf> pq_ble: Ciphertext fragment 3/5 stored (243-byte payload)
+[00:00:21.049,483] <inf> pq_ble: Ciphertext fragment 4/5 stored (243-byte payload)
+[00:00:21.141,425] <inf> pq_ble: Ciphertext fragment 5/5 stored (116-byte payload)
+[00:00:21.141,586] <inf> pq_ble: Ciphertext state: CT_READY (1088 bytes)
+[00:00:21.229,511] <inf> pq_ble: Control write: len=8
+[00:00:21.229,629] <inf> pq_ble: SEC_INFO sent: level L4, SC=1, authenticated=1, key=16, gate=OPEN, state=L4_SECURED
+[00:00:21.319,818] <inf> pq_ble: Control write: len=24
+[00:00:21.320,285] <inf> pq_ble: START_CP3 accepted: L4_SECURED -> CP3_CRYPTO_BUSY
+[00:00:21.333,618] <inf> mlkem_session: v1 CP3 decapsulation + transcript + HKDF: PASS; SS_MLKEM cleared
+[00:00:21.333,654] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 decapsulation + transcript + HKDF
+[00:00:21.333,659] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:21.333,937] <inf> mlkem_session: Unused crypto-thread stack: 4408 B
+[00:00:21.333,941] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24264 B
+[00:00:21.334,248] <inf> pq_ble: READY_CP3 queued: 40 B; WAIT_FINISHED_C
+[00:00:21.409,892] <inf> pq_ble: Control write: len=40
+[00:00:21.410,053] <inf> pq_ble: FINISHED_C accepted: WAIT_FINISHED_C -> FINISHED_P_BUSY
+[00:00:21.473,458] <inf> mlkem_session: FINISHED_C verification on DK: PASS
+[00:00:21.473,486] <inf> mlkem_session: Cumulative crypto-thread stack high-water mark: after v1 CP3 FINISHED + application key derivation
+[00:00:21.473,491] <inf> mlkem_session: Configured crypto-thread stack: 28672 B
+[00:00:21.473,769] <inf> mlkem_session: Unused crypto-thread stack: 4408 B
+[00:00:21.473,774] <inf> mlkem_session: Estimated cumulative crypto-thread peak (configured - unused): 24264 B
+[00:00:21.474,086] <inf> pq_ble: FINISHED_P queued: 40 B
+[00:00:21.474,092] <inf> pq_ble: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+[00:00:21.474,095] <inf> pq_ble: CP3 handshake secrets cleared; Application state: APP_SECURE
+[00:00:22.580,398] <inf> pq_ble: Control write: len=51
+[00:00:22.581,893] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:00:22.715,485] <inf> pq_ble: Control write: len=51
+[00:00:22.716,975] <inf> pq_ble: CP4 PING authenticated; PONG queued; Application state: APP_SECURE
+[00:00:27.034,892] <inf> pq_ble: Notifications DISABLED
+[00:00:27.034,929] <inf> pq_ble: Disconnected (reason 19)
+[00:00:27.034,955] <inf> pq_v1_sec: v1.0 security state: L4_SECURED -> DISCONNECTED
+[00:00:27.034,963] <inf> pq_v1_sec: v1.0 security context invalidated on disconnect
+
+
+
+E — Restart del Central
+OK
+
+F — Cancella tutto e ritorna cold
+(.venv) PS C:\pq_ble> python -m src.central.main --v1-smp-l4-mlkem --v1-cp4 --v1-unpair-first
+liboqs-python faulthandler is disabled
+C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+  from oqs.oqs import (
+16:36:19 [INFO   ] pq-ble.central.main: ==================================================
+16:36:19 [INFO   ] pq-ble.central.main: PQ-BLE-HANDSHAKE — Central (Client)
+16:36:19 [INFO   ] pq-ble.central.main: ==================================================
+16:36:19 [INFO   ] pq-ble.central.main: Device: PQ-BLE-Device | Demo: False | Phase 2 E2E: False | Phase 3 Secure: False | Phase 5 Auth PQ: False | Phase 6 C2P: False | Phase 6 Bidi: False | Phase 7 Hybrid E2E: False | Phase 7 Auth Hybrid: False | MTU: auto
+16:36:19 [INFO   ] pq-ble.central.main: Scanning for peripheral 'PQ-BLE-Device'...
+16:36:19 [INFO   ] pq-ble.central.client: Scanning for 'PQ-BLE-Device' (15s timeout)...
+16:36:19 [INFO   ] pq-ble.central.client: Found PQ-BLE-Device (C0:48:FF:F5:9D:B8), connecting...
+16:36:21 [INFO   ] pq-ble.central.client: Connected. MTU: 247
+16:36:21 [WARNING] pq-ble.central.client: Custom service 12345678-1234-1234-1234-123456789abc not found — it may appear after connection.
+16:36:21 [INFO   ] pq-ble.central.main: === v1.0 CP4: AES-256-GCM BIDIRECTIONAL DATA ===
+16:36:21 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Windows bond state: paired=False can_pair=True protection=NONE
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Scenario: cold pairing
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+16:36:21 [INFO   ] pq-ble.central.v1-smp-l4: Pre-L4 gating: all 4 PQ GATT operations denied
+16:36:21 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:36:21 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] CustomPairing object acquired
+16:36:21 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.000s] PairingRequested handler registered
+16:36:21 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.002s] pair_async started: kinds=CONFIRM_PIN_MATCH (8), minimum protection=ENCRYPTION_AND_AUTHENTICATION (3)
+16:36:22 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.344s] PairingRequested received: kind=CONFIRM_PIN_MATCH (8)
+16:36:22 [INFO   ] pq-ble.central.winrt-pairing: [pair +0.345s] PIN received: 592010; waiting for human confirmation
+
+========================================================
+  SMP NUMERIC COMPARISON (Windows shows): 592010
+  The nRF54L15 DK prints its own value on UART.
+  On the DK: BUTTON 0 = accept, BUTTON 1 = reject.
+========================================================
+Do BOTH values match? Type 'yes' to accept, 'no' to reject: yes
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.204s] human accepted
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.205s] Accept invoked
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.207s] deferral completed
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.446s] pair_async returned: status=PAIRED (0), protection_used=NONE
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.447s] PairingRequested handler unregistered
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: Pairing identity: address=C0:48:FF:F5:9D:B8 device_id=BluetoothLE#BluetoothLE3c:55:76:fb:9b:38-c0:48:ff:f5:9d:b8
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: [pair +5.455s] Windows paired state=True protection=ENCRYPTION_AND_AUTHENTICATION
+16:36:27 [INFO   ] pq-ble.central.winrt-pairing: Pairing result: status=PAIRED paired=True protection=ENCRYPTION_AND_AUTHENTICATION ceremony=CONFIRM_PIN_MATCH decision=True
+16:36:27 [INFO   ] pq-ble.central.v1-smp-l4: SMP pairing complete: PAIRED, protection ENCRYPTION_AND_AUTHENTICATION, 5461 ms (includes human time)
+16:36:28 [INFO   ] pq-ble.central.client: Subscribed to data notifications.
+16:36:28 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:36:28 [INFO   ] pq-ble.central.client: Read public key: 1184 bytes (MTU=247)
+16:36:28 [INFO   ] pq-ble.central.client: Writing ciphertext: 1088 bytes in 5 fragments (negotiated MTU=247, logical frame=247, payload=243)
+16:36:29 [INFO   ] pq-ble.central.client: Ciphertext written [OK] (5 fragments)
+16:36:29 [INFO   ] pq-ble.central.v1-cp3: DK security attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+16:36:29 [INFO   ] pq-ble.central.v1-cp3: START_CP3: SENT
+16:36:29 [INFO   ] pq-ble.central.v1-cp3: READY_CP3: RECEIVED; Transcript hash match: YES
+16:36:29 [INFO   ] pq-ble.central.v1-cp3: FINISHED_C: SENT
+16:36:29 [INFO   ] pq-ble.central.v1-cp3: FINISHED_P: RECEIVED; FINISHED_P verification on Central: PASS
+16:36:30 [INFO   ] pq-ble.central.v1-cp3: K_APP_C2P derived; K_APP_P2C derived (values never logged)
+16:36:30 [INFO   ] pq-ble.central.v1-cp3: Application state: APP_SECURE
+16:36:30 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=0: SENT
+16:36:30 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=0: AUTHENTICATED
+16:36:30 [INFO   ] pq-ble.central.v1-cp4: CP4 C2P PING seq=1: SENT
+16:36:30 [INFO   ] pq-ble.central.v1-cp4: CP4 P2C PONG seq=1: AUTHENTICATED
+16:36:31 [INFO   ] pq-ble.central.v1-cp4: Application state: APP_SECURE
+16:36:31 [INFO   ] pq-ble.central.v1-cp3: v1 CP3 Central temporary handshake secrets cleared
+16:36:31 [INFO   ] pq-ble.central.v1-smp-l4: v1.0 CP4 state: APP_SECURE (cold)
+
+Scenario: cold
+Pre-L4 public-key-read: DENIED (ATT Insufficient Authentication)
+Pre-L4 ciphertext-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 control-write: DENIED (ATT Insufficient Authentication)
+Pre-L4 secure-data-cccd: DENIED (ATT Insufficient Authentication)
+SMP pairing: PAIRED / ENCRYPTION_AND_AUTHENTICATION (5461 ms incl. human time)
+DK attestation: level=L4 SC=YES authenticated=YES key=16 gate=OPEN profile=0x10
+SMP Security Mode 1 Level 4: VERIFIED
+ML-KEM public key: 1184 B
+ML-KEM ciphertext: 1088 B
+START_CP3: SENT
+READY_CP3: RECEIVED
+Transcript hash match: YES
+FINISHED_C: SENT
+FINISHED_C verification on DK: PASS (confirmed by valid FINISHED_P)
+FINISHED_P: RECEIVED
+FINISHED_P verification on Central: PASS
+K_APP_C2P derived
+K_APP_P2C derived
+CP4 C2P PING seq=0: SENT
+CP4 P2C PONG seq=0: AUTHENTICATED
+CP4 C2P PING seq=1: SENT
+CP4 P2C PONG seq=1: AUTHENTICATED
+Application state: APP_SECURE
+Post-L4 PQ GATT: Public Key 1184 B, Ciphertext 5 fragments, Control OK, CCCD OK (2800 ms)
+
+PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA: PASS
+
+16:36:31 [INFO   ] pq-ble.central.client: CP1 link disconnected from C0:48:FF:F5:9D:B8 (classified by the active test)
+16:36:31 [INFO   ] pq-ble.central.client: Disconnected.
