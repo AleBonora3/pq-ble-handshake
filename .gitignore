@@ -1,11 +1,16 @@
 # Python
 __pycache__/
-.pytest-temp/
 *.py[cod]
 *.egg-info/
 dist/
 *.so
-.pytest*
+
+# Pytest / Ruff local artifacts
+/.pytest/
+/.pytest_cache/
+/.pytest_*
+/.pytest-*
+/.ruff_cache/
 
 # Virtualenv
 venv/
@@ -31,8 +36,8 @@ liboqs/install/
 firmware/build/
 firmware/build*/
 
-# Benchmark results (generati)
-# benchmarks/results/*.json
+# Benchmark results (generated)
+benchmarks/results/post_v1/
 
 # Keys (non committare chiavi reali!)
 data/keys/*
@@ -49,5 +54,3 @@ report/*.out.ps
 report/*.synctex.gz
 report/*.pdf
 report/*.toc
-liboqs/
-liboqs-python/

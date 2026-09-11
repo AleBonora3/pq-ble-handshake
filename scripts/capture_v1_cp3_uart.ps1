@@ -6,7 +6,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $serial = [System.IO.Ports.SerialPort]::new($Port, 115200, 'None', 8, 'One')
 $serial.ReadTimeout = 200
-$capture = [System.IO.StreamWriter]::new($Log, $false, [System.Text.UTF8Encoding]::new($false))
+$logStream = [System.IO.File]::Open($Log, [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+$capture = [System.IO.StreamWriter]::new($logStream, [System.Text.UTF8Encoding]::new($false))
 $capture.AutoFlush = $true
 try {
     $serial.Open()

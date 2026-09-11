@@ -23,6 +23,7 @@ from ..common.constants import (
     FRAGMENT_HEADER_SIZE,
 )
 from ..common.fragmentation import fragment_data
+from . import measurement as measure
 
 logger = logging.getLogger("pq-ble.central.client")
 
@@ -46,15 +47,17 @@ class BLECentralClient:
         """
         logger.info(f"Scanning for '{self._device_name}' (%ds timeout)...", timeout)
 
-        self._device = await BleakScanner.find_device_by_name(
-            self._device_name, timeout=timeout
-        )
+        with measure.phase("scan"):
+            self._device = await BleakScanner.find_device_by_name(
+                self._device_name, timeout=timeout
+            )
 
         if self._device is None:
             logger.error("Device '%s' not found.", self._device_name)
             return False
 
         logger.info("Found %s (%s), connecting...", self._device.name, self._device.address)
+        measure.mark("device_found")
 
         self.clear_v1_cp3()
         self._client = BleakClient(
@@ -64,7 +67,11 @@ class BLECentralClient:
                 "use_cached_services": False,
             },
         )
-        await self._client.connect()
+        measure.mark("connection_request")
+        with measure.phase("connect_and_service_discovery"):
+            await self._client.connect()
+        measure.mark("connect_services_ready")
+        measure.observe_mtu(self._client)
 
         # MTU is negotiated automatically by the BLE stack during
         # connection. We read the negotiated value for fragmentation.
@@ -100,7 +107,8 @@ class BLECentralClient:
         if old_client is not None:
             await old_client.disconnect()
         logger.info("CP1 reconnect to original peer %s", self._device.address)
-        peer = await BleakScanner.find_device_by_address(self._device.address, timeout=timeout)
+        with measure.phase("reconnect_scan"):
+            peer = await BleakScanner.find_device_by_address(self._device.address, timeout=timeout)
         if peer is None:
             logger.error("Original CP1 peer did not resume advertising")
             return False
@@ -110,7 +118,11 @@ class BLECentralClient:
             disconnected_callback=self._on_v1_disconnect,
             winrt={"use_cached_services": False},
         )
-        await self._client.connect()
+        measure.mark("reconnection_request")
+        with measure.phase("reconnect_and_service_discovery"):
+            await self._client.connect()
+        measure.mark("reconnect_services_ready")
+        measure.observe_mtu(self._client)
         return self._client.is_connected
 
     def _on_v1_disconnect(self, client: BleakClient):
@@ -162,7 +174,10 @@ class BLECentralClient:
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
 
-        data = await self._client.read_gatt_char(CHAR_PUBKEY_UUID)
+        measure.mtu(self.mtu_size)
+        with measure.phase("public_key_read"):
+            data = await measure.io("read", "public_key",
+                                    self._client.read_gatt_char(CHAR_PUBKEY_UUID))
         logger.info("Read public key: %d bytes (MTU=%d)",
                      len(data), self.mtu_size)
         return data
@@ -194,6 +209,7 @@ class BLECentralClient:
         # fragment that the peripheral must reject. Keep the established wire
         # format and cap only the logical frame size.
         negotiated_mtu = self.mtu_size
+        measure.mtu(negotiated_mtu)
         mtu = min(negotiated_mtu, BLE_MTU) if negotiated_mtu > 23 else BLE_MTU
         fragment_payload = mtu - FRAGMENT_HEADER_SIZE
 
@@ -205,7 +221,8 @@ class BLECentralClient:
         )
 
         for i, frag in enumerate(fragments):
-            await self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, frag)
+            await measure.io("write", "ciphertext",
+                self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, frag), len(frag))
             logger.debug("  Fragment %d/%d sent (%d bytes)",
                          i + 1, len(fragments), len(frag))
 
@@ -217,7 +234,8 @@ class BLECentralClient:
 
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
-        await self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, fragment)
+        await measure.io("write", "ciphertext",
+            self._client.write_gatt_char(CHAR_CIPHERTEXT_UUID, fragment), len(fragment))
 
     # Backward-compatible alias
     async def write_ciphertext(self, data: bytes) -> None:
@@ -228,7 +246,8 @@ class BLECentralClient:
         """Send a control message (e.g., SAS confirmation)."""
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
-        await self._client.write_gatt_char(CHAR_CONTROL_UUID, data)
+        await measure.io("write", "control",
+            self._client.write_gatt_char(CHAR_CONTROL_UUID, data), len(data))
 
     async def write_secure_data(self, data: bytes) -> None:
         """Write one encrypted application frame to Secure Data."""
@@ -239,11 +258,8 @@ class BLECentralClient:
         if not data:
             raise ValueError("Secure Data write cannot be empty")
 
-        await self._client.write_gatt_char(
-            CHAR_DATA_UUID,
-            data,
-            response=True,
-        )
+        await measure.io("write", "data", self._client.write_gatt_char(
+            CHAR_DATA_UUID, data, response=True), len(data))
 
         logger.info(
             "Secure Data write completed: %d bytes",
@@ -259,7 +275,9 @@ class BLECentralClient:
         """
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
-        await self._client.start_notify(CHAR_DATA_UUID, callback)
+        await measure.io("subscribe", "data", self._client.start_notify(
+            CHAR_DATA_UUID, measure.notification_callback(callback)))
+        measure.mark("subscription_ready")
         self._v1_notify_link = self._client
         logger.info("Subscribed to data notifications.")
 
@@ -267,7 +285,8 @@ class BLECentralClient:
         """Unsubscribe from data notifications."""
         self.clear_v1_cp3()
         if self._client and self._client.is_connected:
-            await self._client.stop_notify(CHAR_DATA_UUID)
+            await measure.io("unsubscribe", "data",
+                self._client.stop_notify(CHAR_DATA_UUID))
 
     @property
     def is_connected(self) -> bool:

@@ -47,6 +47,7 @@ from ..common.constants import (
 from ..common.session import SecureChannel
 
 from .ble_client import BLECentralClient
+from . import measurement as measure
 
 
 logger = logging.getLogger(
@@ -373,9 +374,10 @@ async def run_phase7_authenticated_hybrid(
             len(public_key),
         )
 
-        private_key = (
-            generate_p256_private_key()
-        )
+        with measure.phase("p256_keygen"):
+            private_key = (
+                generate_p256_private_key()
+            )
 
         central_public_key = (
             serialize_p256_public_key(
@@ -388,9 +390,10 @@ async def run_phase7_authenticated_hybrid(
             len(central_public_key),
         )
 
-        ciphertext, shared_secret = (
-            encapsulate(public_key)
-        )
+        with measure.phase("mlkem_encapsulate"):
+            ciphertext, shared_secret = (
+                encapsulate(public_key)
+            )
 
         ciphertext = bytes(ciphertext)
 
@@ -431,9 +434,10 @@ async def run_phase7_authenticated_hybrid(
             central_public_key,
         )
 
-        await client.write_fragmented_ciphertext(
-            ciphertext
-        )
+        with measure.phase("ciphertext_transfer"):
+            await client.write_fragmented_ciphertext(
+                ciphertext
+            )
 
         logger.info(
             "ML-KEM ciphertext transport: PASS"
@@ -442,6 +446,7 @@ async def run_phase7_authenticated_hybrid(
         await client.send_control(
             start7
         )
+        measure.mark("start_sent")
 
         logger.info(
             "START7_AUTH written: %d B",
@@ -454,6 +459,7 @@ async def run_phase7_authenticated_hybrid(
             "READY7_AUTH",
         )
 
+        measure.mark("ready_received")
         _check_error_frame(
             raw_ready
         )
@@ -474,12 +480,13 @@ async def run_phase7_authenticated_hybrid(
             len(peripheral_public_key),
         )
 
-        ss_ecdh = bytearray(
-            derive_p256_ecdh_shared_secret(
-                private_key,
-                peripheral_public_key,
+        with measure.phase("p256_ecdh"):
+            ss_ecdh = bytearray(
+                derive_p256_ecdh_shared_secret(
+                    private_key,
+                    peripheral_public_key,
+                )
             )
-        )
 
         private_key = None
 
@@ -487,25 +494,27 @@ async def run_phase7_authenticated_hybrid(
             "P-256 ECDH: PASS"
         )
 
-        transcript_hash = (
-            compute_phase7_transcript_hash(
-                session_id,
-                public_key,
-                ciphertext,
-                central_public_key,
-                peripheral_public_key,
+        with measure.phase("transcript"):
+            transcript_hash = (
+                compute_phase7_transcript_hash(
+                    session_id,
+                    public_key,
+                    ciphertext,
+                    central_public_key,
+                    peripheral_public_key,
+                )
             )
-        )
 
         logger.info(
             "Canonical v0.7 transcript: PASS"
         )
 
-        keys = derive_phase7_keys(
-            bytes(ss_mlkem),
-            bytes(ss_ecdh),
-            transcript_hash,
-        )
+        with measure.phase("hybrid_hkdf"):
+            keys = derive_phase7_keys(
+                bytes(ss_mlkem),
+                bytes(ss_ecdh),
+                transcript_hash,
+            )
 
         ss_mlkem[:] = (
             b"\x00" *
@@ -521,26 +530,29 @@ async def run_phase7_authenticated_hybrid(
             keys.application
         )
 
-        finished_c = bytearray(
-            compute_phase7_finished_c(
-                keys.finished_c,
-                transcript_hash,
+        with measure.phase("finished_c_generate"):
+            finished_c = bytearray(
+                compute_phase7_finished_c(
+                    keys.finished_c,
+                    transcript_hash,
+                )
             )
-        )
 
-        expected_finished_p = bytearray(
-            compute_phase7_finished_p(
-                keys.finished_p,
-                transcript_hash,
+        with measure.phase("finished_p_expected_generate"):
+            expected_finished_p = bytearray(
+                compute_phase7_finished_p(
+                    keys.finished_p,
+                    transcript_hash,
+                )
             )
-        )
 
-        sas = format_phase7_sas(
-            compute_phase7_sas(
-                keys.sas,
-                transcript_hash,
+        with measure.phase("sas_compute_format"):
+            sas = format_phase7_sas(
+                compute_phase7_sas(
+                    keys.sas,
+                    transcript_hash,
+                )
             )
-        )
 
         keys = None
 
@@ -556,10 +568,11 @@ async def run_phase7_authenticated_hybrid(
             )
             negative_checked = True
 
-        if not await _confirm_sas(
-            sas,
-            sas_callback,
-        ):
+        measure.mark("auth_prompt_ready")
+        with measure.phase("interactive_wait"):
+            confirmed = await _confirm_sas(sas, sas_callback)
+        measure.mark("auth_decision_returned")
+        if not confirmed:
             if negative_test == "sas-reject":
                 await _require_preauth_rejection(
                     client, preauth_wire, notifications, quiet_timeout,
@@ -593,6 +606,7 @@ async def run_phase7_authenticated_hybrid(
             "Central FINISHED sent"
         )
 
+        measure.mark("finished_c_sent")
         raw_finished = await _receive(
             notifications,
             notification_timeout,
@@ -623,15 +637,17 @@ async def run_phase7_authenticated_hybrid(
                 f"Invalid FINISHED_P: {exc}"
             ) from exc
 
-        if not hmac.compare_digest(
-            received_finished_p,
-            expected_finished_p,
-        ):
-            raise Phase7AuthError(
-                "Peripheral FINISHED "
-                "verification failed"
-            )
+        with measure.phase("finished_p_verify"):
+            if not hmac.compare_digest(
+                received_finished_p,
+                expected_finished_p,
+            ):
+                raise Phase7AuthError(
+                    "Peripheral FINISHED "
+                    "verification failed"
+                )
 
+        measure.mark("finished_p_verified")
         expected_finished_p[:] = (
             b"\x00" *
             len(expected_finished_p)
@@ -661,11 +677,12 @@ async def run_phase7_authenticated_hybrid(
         # Only now may the Central activate application
         # traffic derived from K_app.
         #
-        traffic_keys = (
-            derive_phase7_traffic_keys(
-                bytes(application_key)
+        with measure.phase("application_traffic_kdf"):
+            traffic_keys = (
+                derive_phase7_traffic_keys(
+                    bytes(application_key)
+                )
             )
-        )
 
         c2p_key_buffer = bytearray(
             traffic_keys.central_to_peripheral
@@ -721,6 +738,7 @@ async def run_phase7_authenticated_hybrid(
         #   PING 1 -> PONG 1
         #   PING 2 -> PONG 2
         #
+        measure.mark("app_secure")
         rounds = 3
 
         for round_index in range(rounds):
@@ -737,6 +755,8 @@ async def run_phase7_authenticated_hybrid(
             # ---------------------------------------------
             # Central -> Peripheral
             # ---------------------------------------------
+            measure.mark("application_request")
+            measure.mtu(client.mtu_size)
             c2p_wire = c2p_channel.encrypt(
                 ping,
                 msg_type=MSG_TYPE_DATA,
@@ -873,6 +893,7 @@ async def run_phase7_authenticated_hybrid(
                     f"got {plaintext!r}"
                 )
 
+            measure.mark("application_response_authenticated")
             logger.info(
                 "Round %d P->C: seq=%d, "
                 "plaintext=%s, wire=%d B, "

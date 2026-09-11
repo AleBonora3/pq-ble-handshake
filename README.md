@@ -392,7 +392,7 @@ These are implemented mechanisms supported by tests and the stated hardware obse
 
 The next major research task is a controlled evaluation of **v0.7 application-level ML-KEM + P-256 hybrid establishment** against **v1.0 SMP Level 4 + ML-KEM application protection**.
 
-The [post-v1 evaluation plan](docs/research/milestones/v1.0-smp-l4-mlkem-final.md#post-v1-comparative-evaluation) supports repeated latency measurements, protocol/GATT overhead, fragmentation, FLASH/RAM, crypto-worker stack usage, cold/bonded behavior, and further negative/security experiments. The checkpoint documents also identify MTU-dependent transport behavior and the need to separate cryptographic work, BLE transport, and human confirmation time.
+The [post-v1.0 measurement framework and operator guide](docs/research/post-v1-experimental-evaluation.md) provides repeated-run collection, resource reports, per-run UART/PCAP correlation, existing negative-test paths, and JSON/CSV/Markdown analysis. See its [implementation and audit report](docs/research/post-v1-implementation-report.md) for validation results. The checkpoint documents also identify MTU-dependent transport behavior and the need to separate cryptographic work, BLE transport, and human confirmation time.
 
 **These comparative measurements are future work.** Existing one-shot hardware timings include different scheduling, transport, or human-interaction effects; they do not establish a performance ranking. The earlier [benchmark results](benchmarks/results/README.md) measure PC-side cryptographic operations, AES-GCM CPU throughput, and fragmentation/reassembly. They exclude real BLE scan/connection/GATT costs and are not the v0.7-versus-v1.0 hardware study.
 
@@ -428,7 +428,7 @@ The frozen release tags remain available, including `v0.7-authenticated-hybrid-s
 | [v0.7 positive log](docs/research/logs/v0.7-positive-test.txt) / [negative log](docs/research/logs/v0.7-negative-tests.txt) | Recorded physical-baseline validation |
 | [Research logs](docs/research/logs/) / [milestone archive](docs/research/milestones/) | Earlier experiments and their original evidence |
 
-Documentation is chronological and contains stale status text. In particular, the final v1.0 milestone retains an earlier checkpoint table/completion condition that conflicts with its later CP5 acceptance and final release decision. Earlier [protocol](docs/protocol-spec.md), [security](docs/security-analysis.md), [testing](docs/testing-guide.md), [test-results](docs/test-results.md), and [firmware](firmware/README.md) documents also predate parts of the current implementation. Read their claims in checkpoint context; the current source, release history, final acceptance sections, and linked logs establish the status summarized here.
+Documentation is chronological; the final v1.0 checkpoint table now reflects CP5 completion and the separate post-v1.0 evaluation. Earlier [protocol](docs/protocol-spec.md), [security](docs/security-analysis.md), [testing](docs/testing-guide.md), [test-results](docs/test-results.md), and [firmware](firmware/README.md) documents also predate parts of the current implementation. Read their claims in checkpoint context; the current source, release history, final acceptance sections, and linked logs establish the status summarized here.
 
 ## Author
 

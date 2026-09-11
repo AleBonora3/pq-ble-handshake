@@ -8,6 +8,7 @@ import secrets
 from ..common.v1_cp3 import clear
 from ..common.v1_cp4 import CentralApplication
 from .v1_cp3 import V1CP3Result, _cp3_exchange
+from . import measurement as measure
 from .v1_smp_mlkem import V1Error, _run_v1
 
 logger = logging.getLogger("pq-ble.central.v1-cp4")
@@ -54,6 +55,8 @@ async def _cp4_exchange(client, notifications, notification_handler, *,
                 try:
                     require_live()
                     challenge = bytearray(secrets.token_bytes(16))
+                    measure.mark("application_request")
+                    measure.mtu(client.mtu_size)
                     frame = app.encrypt_ping(challenge, client.mtu_size)
                     reply = asyncio.get_running_loop().create_future()
                     # A blocked/failed write retires the already-consumed nonce.
@@ -63,6 +66,7 @@ async def _cp4_exchange(client, notifications, notification_handler, *,
                     raw = await asyncio.wait_for(reply, notification_timeout)
                     require_live()
                     app.accept_pong(raw, challenge, client.mtu_size)
+                    measure.mark("application_response_authenticated")
                     reply = None
                     logger.info("CP4 P2C PONG seq=%d: AUTHENTICATED", seq)
                     result.authenticated_rounds += 1

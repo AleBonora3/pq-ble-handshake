@@ -4,7 +4,9 @@ param(
     [string]$Toolchain = 'C:\ncs\toolchains\0b393f9e1b',
     [switch]$Incremental,
     [switch]$Flash,
-    [string]$SerialNumber = '1057790967'
+    [string]$SerialNumber = '1057790967',
+    [string]$BuildDirectory = '',
+    [string]$LogDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -23,6 +25,15 @@ $env:CCACHE_DISABLE = '1'
 $buildName = if ($Profile -eq 'v1') { 'build_v1_cp3' } else { 'build_v07_cp3_check' }
 $buildDir = Join-Path $repoRoot "firmware\$buildName"
 $logDir = Join-Path $repoRoot 'firmware\build_cp3_logs'
+if ($BuildDirectory) { $buildDir = [IO.Path]::GetFullPath($BuildDirectory) }
+if ($LogDirectory) { $logDir = [IO.Path]::GetFullPath($LogDirectory) }
+# west --pristine may recursively replace the build directory. Keep custom
+# experiment targets within firmware/build* and outside any existing evidence.
+$firmwareRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'firmware')) + '\'
+if (-not $buildDir.StartsWith($firmwareRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    -not ([IO.Path]::GetFileName($buildDir).StartsWith('build'))) {
+    throw 'Build directory must be a firmware/build* directory in this checkout'
+}
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $configArgs = @('-DCONF_FILE=prj.conf', '-DDEBUG_THREAD_INFO=Off', '-Dfirmware_DEBUG_THREAD_INFO=Off')
 if ($Profile -eq 'v1') { $configArgs += '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf' }

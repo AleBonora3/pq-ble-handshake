@@ -15,6 +15,7 @@ from ..common.v1_smp_mlkem import (
     is_authenticated_level4,
 )
 from .v1_smp_mlkem import V1CP1Result, V1Error, _run_v1
+from . import measurement as measure
 
 logger = logging.getLogger("pq-ble.central.v1-cp3")
 CP3_TIMEOUT = 30.0
@@ -85,6 +86,7 @@ async def _exchange(client, notifications, notification_handler, *,
         info = parse_sec_info(raw)
         if not is_authenticated_level4(info):
             raise V1Error(f"CP3 requires strict Level 4 ({info.describe()})")
+        measure.mark("security_ready_attested")
         logger.info("DK security attestation: %s", info.describe())
         return raw, info
 
@@ -113,17 +115,20 @@ async def _exchange(client, notifications, notification_handler, *,
         if len(pk) != PK_SIZE:
             raise V1Error("ML-KEM public key must be 1184 bytes")
         result.public_key_len = len(pk)
-        ct, raw_secret = encapsulate(pk)
+        with measure.phase("mlkem_encapsulate"):
+            ct, raw_secret = encapsulate(pk)
         secret = raw_secret if isinstance(raw_secret, bytearray) else bytearray(raw_secret)
         del raw_secret
         if len(ct) != CT_SIZE or len(secret) != SS_SIZE:
             raise V1Error("invalid ML-KEM-768 ciphertext/shared-secret size")
         require_same_link()
-        result.ciphertext_fragments = await client.write_fragmented_ciphertext(ct) or 0
+        with measure.phase("ciphertext_transfer"):
+            result.ciphertext_fragments = await client.write_fragmented_ciphertext(ct) or 0
         require_same_link()
         sec, info = await attest()  # exact SECOND attestation goes into T0
         start = encode_v1_frame(V1_START_CP3, secrets.token_bytes(16))
-        session.begin(secret, sec, pk, ct, start)
+        with measure.phase("transcript_hkdf_finished_keys"):
+            session.begin(secret, sec, pk, ct, start)
         await asyncio.sleep(0)
         require_same_link()
         if not notifications.empty():
@@ -131,9 +136,12 @@ async def _exchange(client, notifications, notification_handler, *,
         await client.send_control(start)
         require_same_link()
         result.start_sent = True
+        measure.mark("start_sent")
         logger.info("START_CP3: SENT")
         ready = await receive(V1_READY_CP3, "READY_CP3")
-        finished_c = session.accept_ready(ready)
+        measure.mark("ready_received")
+        with measure.phase("ready_verify_finished_c"):
+            finished_c = session.accept_ready(ready)
         result.transcript_match = True
         logger.info("READY_CP3: RECEIVED; Transcript hash match: YES")
         await asyncio.sleep(0)
@@ -143,9 +151,13 @@ async def _exchange(client, notifications, notification_handler, *,
         await client.send_control(finished_c)
         require_same_link()
         result.finished_c_sent = True
+        measure.mark("finished_c_sent")
         logger.info("FINISHED_C: SENT")
         finished_p = await receive(V1_FINISHED_P, "FINISHED_P")
-        session.accept_finished_p(finished_p)
+        with measure.phase("finished_p_verify_app_kdf"):
+            session.accept_finished_p(finished_p)
+        measure.mark("finished_p_verified")
+        measure.mark("app_secure")
         clear(secret)
         logger.info("FINISHED_P: RECEIVED; FINISHED_P verification on Central: PASS")
         # Reject duplicate/unsolicited replies before reporting success.

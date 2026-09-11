@@ -44,6 +44,7 @@ from ..common.v1_smp_mlkem import (
     parse_v1_frame,
 )
 from . import winrt_pairing
+from . import measurement as measure
 
 
 logger = logging.getLogger("pq-ble.central.v1-smp-l4")
@@ -339,6 +340,7 @@ async def _run_v1(
                 raise V1Error("Windows still reports the device as paired after unpair")
 
         scenario = "bonded" if state.is_paired else "cold"
+        measure.scenario(scenario)
         result = result_type(
             scenario=scenario,
             security_info=V1SecurityInfo(0, False, False, False, 0, 0),
@@ -368,6 +370,7 @@ async def _run_v1(
             )
 
         if scenario == "cold":
+            measure.mark("pairing_api_start")
             pairing_started = time.perf_counter()
             if negative_test == "just-works":
                 logger.warning("TEST ONLY: offering CONFIRM_ONLY with minimum ENCRYPTION; "
@@ -379,6 +382,7 @@ async def _run_v1(
                 outcome = await pairing_backend.pair_numeric_comparison(
                     client, confirm_numeric_comparison, timeout=pairing_timeout
                 )
+            measure.mark("pairing_api_returned")
             result.pairing_ms = _ms(pairing_started)
             result.pairing_status = outcome.status
             result.pairing_protection = outcome.protection_level

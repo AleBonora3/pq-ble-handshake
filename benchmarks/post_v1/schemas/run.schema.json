@@ -1,0 +1,769 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "git_commit": {
+          "type": "string"
+        },
+        "git_tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "type": "string"
+        },
+        "git_dirty": {
+          "type": "boolean"
+        },
+        "central_source_sha256": {
+          "type": "string"
+        },
+        "benchmark_source_sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "git_commit",
+        "git_tag",
+        "branch",
+        "git_dirty",
+        "central_source_sha256",
+        "benchmark_source_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "central_os": {
+          "type": "string"
+        },
+        "python_version": {
+          "type": "string"
+        },
+        "bleak_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "liboqs_python_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cryptography_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "liboqs_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "central_os",
+        "python_version",
+        "bleak_version",
+        "liboqs_python_version",
+        "cryptography_version",
+        "liboqs_version"
+      ],
+      "additionalProperties": false
+    },
+    "experiment": {
+      "type": "object",
+      "properties": {
+        "setup_id": {
+          "type": "string"
+        },
+        "board": {
+          "type": "string",
+          "enum": [
+            "nrf54l15dk/nrf54l15/cpuapp"
+          ]
+        },
+        "dk_serial": {
+          "type": "string"
+        },
+        "central_id": {
+          "type": "string"
+        },
+        "bluetooth_adapter": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "usb_setup": {
+          "type": "string"
+        },
+        "sniffer_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sniffer_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "connection_parameters": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_flashed_elf_sha256": {
+          "type": "string",
+          "pattern": "[0-9a-f]{64}"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_id",
+        "board",
+        "dk_serial",
+        "central_id",
+        "bluetooth_adapter",
+        "location",
+        "usb_setup",
+        "sniffer_id",
+        "sniffer_version",
+        "connection_parameters",
+        "firmware_flashed_elf_sha256",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "protocol_profile": {
+      "type": "string",
+      "enum": [
+        "v07",
+        "v10"
+      ]
+    },
+    "firmware_profile": {
+      "type": "string",
+      "enum": [
+        "v07",
+        "v10"
+      ]
+    },
+    "scenario": {
+      "type": "string",
+      "enum": [
+        "v07_hybrid",
+        "v10_cold",
+        "v10_bonded"
+      ]
+    },
+    "observed_scenario": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "cold",
+        "bonded",
+        "hybrid",
+        null
+      ]
+    },
+    "resource_metadata": {
+      "type": "object",
+      "properties": {
+        "record": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "elf_sha256": {
+          "type": "string"
+        },
+        "firmware_source_sha256": {
+          "type": "string"
+        },
+        "ncs_version": {
+          "type": "string"
+        },
+        "zephyr_version": {
+          "type": "string"
+        },
+        "config_sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record",
+        "sha256",
+        "elf_sha256",
+        "firmware_source_sha256",
+        "ncs_version",
+        "zephyr_version",
+        "config_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warmup": {
+      "type": "boolean"
+    },
+    "measurement_kind": {
+      "type": "string",
+      "enum": [
+        "latency",
+        "negative"
+      ]
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "failure_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "device_found",
+              "connection_request",
+              "connect_services_ready",
+              "reconnection_request",
+              "reconnect_services_ready",
+              "subscription_ready",
+              "start_sent",
+              "ready_received",
+              "auth_prompt_ready",
+              "auth_decision_returned",
+              "finished_c_sent",
+              "finished_p_verified",
+              "app_secure",
+              "application_request",
+              "application_response_authenticated",
+              "security_ready_attested",
+              "pairing_api_start",
+              "pairing_api_returned",
+              "run_start",
+              "run_end"
+            ]
+          },
+          "offset_ns": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "offset_ns"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "phase_timings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "scan",
+              "connect_and_service_discovery",
+              "reconnect_scan",
+              "reconnect_and_service_discovery",
+              "public_key_read",
+              "p256_keygen",
+              "mlkem_encapsulate",
+              "p256_ecdh",
+              "transcript",
+              "hybrid_hkdf",
+              "ciphertext_transfer",
+              "interactive_wait",
+              "transcript_hkdf_finished_keys",
+              "ready_verify_finished_c",
+              "finished_p_verify_app_kdf",
+              "finished_c_generate",
+              "finished_p_expected_generate",
+              "sas_compute_format",
+              "application_traffic_kdf",
+              "finished_p_verify"
+            ]
+          },
+          "start_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "start_ns",
+          "end_ns",
+          "complete"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "crypto_timings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "scan",
+              "connect_and_service_discovery",
+              "reconnect_scan",
+              "reconnect_and_service_discovery",
+              "public_key_read",
+              "p256_keygen",
+              "mlkem_encapsulate",
+              "p256_ecdh",
+              "transcript",
+              "hybrid_hkdf",
+              "ciphertext_transfer",
+              "interactive_wait",
+              "transcript_hkdf_finished_keys",
+              "ready_verify_finished_c",
+              "finished_p_verify_app_kdf",
+              "finished_c_generate",
+              "finished_p_expected_generate",
+              "sas_compute_format",
+              "application_traffic_kdf",
+              "finished_p_verify"
+            ]
+          },
+          "start_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "start_ns",
+          "end_ns",
+          "complete"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gatt_operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "subscribe",
+              "unsubscribe",
+              "notification"
+            ]
+          },
+          "characteristic": {
+            "type": "string",
+            "enum": [
+              "public_key",
+              "ciphertext",
+              "control",
+              "data"
+            ]
+          },
+          "start_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "value_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "operation",
+          "characteristic",
+          "start_ns",
+          "end_ns",
+          "success",
+          "value_bytes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gatt_counters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_value_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "attempts",
+          "completed",
+          "completed_value_bytes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "mtu_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "offset_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "offset_ns",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "att_mtu": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "expected_mtu": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "derived": {
+      "type": "object",
+      "properties": {
+        "secure_wall_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "secure_machine_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "pc_interactive_wait_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connection_to_l4_attested_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "start_to_ready_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "finished_exchange_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "application_rtt_ms": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "secure_wall_ms",
+        "secure_machine_ms",
+        "pc_interactive_wait_ms",
+        "connection_to_l4_attested_ms",
+        "start_to_ready_ms",
+        "finished_exchange_ms",
+        "application_rtt_ms"
+      ],
+      "additionalProperties": false
+    },
+    "workload": {
+      "type": "object",
+      "properties": {
+        "rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "payload_bytes_per_direction": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frame_bytes_per_direction": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "rounds",
+        "payload_bytes_per_direction",
+        "frame_bytes_per_direction"
+      ],
+      "additionalProperties": false
+    },
+    "pcap_filename": {
+      "type": "string"
+    },
+    "pcap_available": {
+      "type": "boolean"
+    },
+    "pcap_expected": {
+      "type": "boolean"
+    },
+    "negative_result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "test_name": {
+          "type": "string"
+        },
+        "precondition": {
+          "type": "string"
+        },
+        "injected_fault": {
+          "type": "string"
+        },
+        "expected_behavior": {
+          "type": "string"
+        },
+        "observed_behavior": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "session_invalidated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "keys_cleared": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "traffic_rejected": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reconnect_needed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "log": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "test_name",
+        "precondition",
+        "injected_fault",
+        "expected_behavior",
+        "observed_behavior",
+        "verdict",
+        "session_invalidated",
+        "keys_cleared",
+        "traffic_rejected",
+        "reconnect_needed",
+        "log"
+      ],
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fragment_counters": {
+      "type": "object",
+      "properties": {
+        "ciphertext_write_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ciphertext_write_completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "public_key_application_fragments": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "public_key_att_read_blob_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ciphertext_write_attempts",
+        "ciphertext_write_completed",
+        "public_key_application_fragments",
+        "public_key_att_read_blob_count"
+      ]
+    },
+    "peer_address": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "timestamp",
+    "provenance",
+    "environment",
+    "experiment",
+    "protocol_profile",
+    "firmware_profile",
+    "scenario",
+    "observed_scenario",
+    "resource_metadata",
+    "command",
+    "iteration",
+    "warmup",
+    "measurement_kind",
+    "success",
+    "failure_reason",
+    "events",
+    "phase_timings",
+    "crypto_timings",
+    "gatt_operations",
+    "gatt_counters",
+    "mtu_observations",
+    "att_mtu",
+    "expected_mtu",
+    "derived",
+    "workload",
+    "pcap_filename",
+    "pcap_available",
+    "pcap_expected",
+    "negative_result",
+    "notes",
+    "fragment_counters",
+    "peer_address"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Post-v1.0 raw hardware run"
+}

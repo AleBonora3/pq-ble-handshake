@@ -1,0 +1,14 @@
+{
+  "setup_id": "REPLACE_WITH_FIXED_SETUP_ID",
+  "board": "nrf54l15dk/nrf54l15/cpuapp",
+  "dk_serial": "1057790967",
+  "central_id": "REPLACE_WITH_PC_ID",
+  "bluetooth_adapter": "REPLACE_WITH_ADAPTER_AND_DRIVER",
+  "location": "REPLACE_WITH_POSITION_AND_DISTANCE",
+  "usb_setup": "REPLACE_WITH_PORTS_CABLES_POWER",
+  "sniffer_id": null,
+  "sniffer_version": "4.1.1 (verify dongle firmware)",
+  "connection_parameters": null,
+  "firmware_flashed_elf_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "notes": "TEMPLATE ONLY: copy, edit, and identify the exact flashed build. No secrets."
+}
