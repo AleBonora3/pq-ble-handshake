@@ -177,6 +177,13 @@ async def one_run(args, iteration, warmup, metadata, firmware, *, client_factory
                     raise RuntimeError("mtu_mismatch")
                 # Real execution imports oqs; querying its version now cannot add an import side effect.
                 await runner(client, args)
+
+                # v0.7 has a single fixed scenario. Record it directly rather
+                # than relying exclusively on ContextVar propagation through
+                # the Windows/Bleak async path.
+                if args.scenario == "v07_hybrid":
+                    recorder.observed_scenario = "hybrid"
+
                 if args.negative:
                     raise RuntimeError("negative_test_returned_positive")
                 record["success"], record["failure_reason"] = True, None
