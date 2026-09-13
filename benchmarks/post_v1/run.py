@@ -190,6 +190,13 @@ async def one_run(args, iteration, warmup, metadata, firmware, *, client_factory
             except (Phase7NegativeTestPassed, V1NegativeTestPassed):
                 if args.negative is None:
                     raise
+
+                # v0.7 has one fixed scenario. Negative tests terminate
+                # through Phase7NegativeTestPassed before the normal
+                # post-run scenario assignment can execute.
+                if args.scenario == "v07_hybrid":
+                    recorder.observed_scenario = "hybrid"
+
                 record["success"], record["failure_reason"] = True, None
             except BaseException as exc:
                 if record["failure_reason"] == "not_started":
