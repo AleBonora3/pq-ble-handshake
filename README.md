@@ -186,7 +186,7 @@ Full milestone:
 | Classical authentication | Application SAS + FINISHED | LE Secure Connections Numeric Comparison + bonding |
 | Application P-256 ECDH | Yes | No |
 | ML-KEM | ML-KEM-768 | ML-KEM-768 |
-| Application KDF input | `SS_MLKEM || SS_ECDH` | `SS_MLKEM` only |
+| Application KDF input | `SS_MLKEM \|\| SS_ECDH` | `SS_MLKEM` only |
 | SMP secret mixed into app KDF | N/A | No |
 | BLE link encryption | No SMP | Yes |
 | Application confirmation | FINISHED | `FINISHED_C` / `FINISHED_P` |
