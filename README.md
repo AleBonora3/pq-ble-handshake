@@ -1,241 +1,488 @@
 # PQ-BLE-HANDSHAKE
 
-PQ-BLE-HANDSHAKE is a research proof of concept for post-quantum protected communication over Bluetooth Low Energy on resource-constrained embedded hardware.
+**Post-quantum protected communication over Bluetooth Low Energy on resource-constrained embedded hardware.**
 
-## Current status
+PQ-BLE-HANDSHAKE is a research proof of concept built around a **Windows PC Central** and an **nRF54L15 DK Peripheral**. It contains two completed, hardware-validated BLE/PQ protocol architectures and a completed experimental comparison between them:
 
-**v1.0 — COMPLETE / HARDWARE VALIDATED through CP1–CP5.**
+- **v0.7** — application-level hybrid **ML-KEM-768 + ephemeral P-256 ECDH**, application SAS/FINISHED authentication, and AES-256-GCM traffic;
+- **v1.0** — **BLE Security Mode 1 Level 4 + ML-KEM-768**, transcript-bound FINISHED confirmation, and AES-256-GCM application traffic.
 
-The current architecture runs between a **Windows PC Central** and an **nRF54L15 DK Peripheral**. It provides BLE SMP Security Mode 1 Level 4, ML-KEM-768 application key establishment, transcript-bound HKDF-SHA256, bidirectional FINISHED confirmation, and a bidirectional AES-256-GCM application channel.
+Both use standard BLE GATT transport without modifying the Bluetooth stack.
 
-- **Hardware:** cold pairing, authenticated LE Secure Connections with Numeric Comparison, bonded reconnection, encrypted application traffic, and connection/session lifecycle scenarios are recorded as passed.
-- **Software:** the full suite was rerun on 2026-09-10 at `912fe85` (`v1.0`): **1064 passed, 1 skipped, 1 warning**.
-- **Firmware:** both the current v1.0 profile and the v0.7 baseline were rebuilt successfully during this audit with NCS 3.0.0.
-- **Architecture:** SMP and ML-KEM provide separate security layers. SMP key material is neither exported nor combined with the ML-KEM secret.
-- **Baseline:** the completed, hardware-validated **v0.7 application-level ML-KEM + P-256 hybrid protocol** remains available for experiments. It is still the default firmware build profile; v1.0 is selected explicitly.
-- **Next phase:** controlled comparison of the frozen v0.7 and v1.0 architectures, with repeated measurements and further security experiments.
+> [!IMPORTANT]
+> **v1.0 is complete through CP1–CP5.**
+>
+> The later comparison of frozen v0.7 and v1.0 is a separate **Post-v1.0 Comparative Evaluation**, organized as **EVAL-A through EVAL-E**.
+>
+> Historical benchmark identifiers still contain `CP6` (`PQBLE-CP6-SETUP-A`, `cp6c-*`, `cp6d-*`, etc.). In those artifacts, **CP6 is only the legacy/internal name of the post-v1.0 evaluation campaign**. It is retained for provenance and reproducibility and is not a sixth v1.0 implementation checkpoint.
 
-See the [final v1.0 milestone](docs/research/milestones/v1.0-smp-l4-mlkem-final.md) and the [hardware evidence and its scope](#hardware-validation).
+---
+
+## Status
+
+| Track | Status |
+|---|---|
+| v0.7 authenticated hybrid protocol | **COMPLETE / hardware validated** |
+| v1.0 SMP L4 + ML-KEM protocol | **COMPLETE / hardware validated through CP1–CP5** |
+| Post-v1.0 Comparative Evaluation | **COMPLETE** |
+
+### v1.0 checkpoints
+
+| Checkpoint | Goal | Status |
+|---|---|---|
+| CP1 | SMP Security Mode 1 Level 4, Numeric Comparison, bonding, strict PQ GATT gate | **PASS on real hardware** |
+| CP2 | ML-KEM-768 interoperability over authenticated L4 | **PASS on real hardware** |
+| CP3 | Canonical transcript, ML-KEM-only KDF, `FINISHED_C` / `FINISHED_P`, `APP_SECURE` | **PASS on real hardware** |
+| CP4 | Bidirectional AES-256-GCM application traffic | **PASS on real hardware** |
+| CP5 | Cold/bonded/reconnect/reboot/multi-session lifecycle validation | **PASS on real hardware** |
+
+The v1.0 release audit recorded **1064 passed, 1 skipped, 1 warning** on 2026-09-10. The warning is the known native liboqs `0.15.0` / liboqs-python `0.16.0` mismatch in the validated environment.
+
+### Post-v1.0 evaluation stages
+
+| Stage | Scope | Status |
+|---|---|---|
+| **EVAL-A** | Reproducible measurement infrastructure and provenance | **COMPLETE** |
+| **EVAL-B** | Repeated hardware latency campaign | **COMPLETE** |
+| **EVAL-C** | Firmware resources, stack high-water, GATT observations, passive BLE captures | **COMPLETE** |
+| **EVAL-D** | Hardware negative/security validation | **COMPLETE — 9/9 PASS** |
+| **EVAL-E** | Final architectural and experimental comparison | **COMPLETE** |
+
+---
 
 ## Research objective
 
-The project designs, implements, and experimentally evaluates practical ways to add post-quantum security to BLE communication on constrained embedded devices. Both implementations use standard BLE GATT transport without modifying the Bluetooth stack.
+The project investigates practical ways to add post-quantum key establishment to BLE communication on constrained embedded hardware.
 
-Two experimentally relevant architectures address this objective: v0.7 constructs authentication and a classical/PQ hybrid key schedule in the application; v1.0 delegates classical association and link protection to standard BLE SMP and adds post-quantum application key establishment. Their implementation and validation are complete; their controlled comparative evaluation is the next research phase.
+The central research comparison is between two architectures:
 
-## Protocol architectures
+1. **v0.7 — application-defined hybrid security**\
+   Classical and post-quantum contributions are combined inside the application protocol.
 
-### v1.0 — BLE SMP Level 4 + ML-KEM-768
+2. **v1.0 — layered BLE + PQ security**\
+   Standard BLE SMP Level 4 handles classical authenticated association and BLE link protection, while ML-KEM independently establishes post-quantum application key material.
 
-v1.0 is a **layered classical/post-quantum architecture**:
+The completed evaluation compares these designs in:
+
+- architecture;
+- end-to-end latency;
+- firmware FLASH/RAM;
+- crypto-worker stack use;
+- GATT/API behavior;
+- passive BLE visibility;
+- negative/security behavior.
+
+---
+
+# Protocol architectures
+
+## v1.0 — BLE SMP Level 4 + ML-KEM-768
+
+v1.0 is a **layered classical/post-quantum design**:
 
 ```text
-Application: authenticated PING/PONG
-    |
+Application PING/PONG
+        |
+        v
 AES-256-GCM application channel
-    |  separate C->P / P->C keys, IV bases, and counters
-PQ-derived application keys
-    |  transcript-bound HKDF-SHA256 + FINISHED_C / FINISHED_P
-ML-KEM-768 application key establishment
-    |
-BLE GATT: access gated on authenticated Level 4
-    |
+        |
+        | directional keys / IVs / counters
+        v
+ML-KEM-derived application keys
+        |
+        | transcript-bound HKDF-SHA256
+        | FINISHED_C / FINISHED_P
+        v
+ML-KEM-768
+        |
+        v
+protected PQ GATT
+        |
+        v
 BLE SMP Security Mode 1 Level 4
-    |  authenticated LE Secure Connections, Numeric Comparison, bonding
-BLE Link Layer: encrypted/authenticated link
+        |
+        | authenticated LE Secure Connections
+        | Numeric Comparison + bonding
+        v
+encrypted BLE link
 ```
 
-SMP uses classical P-256 internally and establishes the authenticated BLE link. The application obtains `SS_MLKEM` through ML-KEM-768 and uses **only that secret** as the input keying material for its key schedule. v1.0 has no application P-256 ECDH, no application SAS, and no `SS_MLKEM || SS_ECDH` combiner. Neither the SMP DHKey nor the Long Term Key (LTK) is exported into the application KDF.
+BLE SMP uses classical P-256 internally and provides authenticated BLE association and link protection.
 
-The firmware implements the strict L4 gate in [pq_v1_security.c](firmware/src/pq_v1_security.c). The Python protocol primitives are in [v1_cp3.py](src/common/v1_cp3.py) and [v1_cp4.py](src/common/v1_cp4.py), with corresponding firmware implementations in [pq_v1_cp3.c](firmware/src/pq_v1_cp3.c) and [pq_v1_cp4.c](firmware/src/pq_v1_cp4.c).
-
-### v0.7 — Application-level ML-KEM + P-256 hybrid
-
-v0.7 is the previous completed architecture and a retained experimental baseline. BLE SMP is intentionally disabled for this profile (`CONFIG_BT_SMP=n`). Its application protocol combines independent ML-KEM-768 and ephemeral NIST P-256 ECDH contributions:
+ML-KEM-768 provides the application-layer post-quantum shared secret:
 
 ```text
-SS_MLKEM (32 B) + SS_ECDH (32 B)
+SS_MLKEM
+```
+
+`SS_MLKEM` alone is used as the application KDF input.
+
+v1.0 therefore has:
+
+- no application P-256 ECDH;
+- no application SAS;
+- no `SS_MLKEM || SS_ECDH` combiner;
+- no export of the SMP DHKey;
+- no export or use of the BLE LTK in the application KDF.
+
+> [!NOTE]
+> v1.0 is **not** a hybrid key agreement.
+>
+> It provides classical authenticated BLE L4 below post-quantum ML-KEM application key establishment. It must not be described as providing post-quantum peer-identity authentication.
+
+Full milestone:
+
+[`docs/research/milestones/v1.0-smp-l4-mlkem-final.md`](docs/research/milestones/v1.0-smp-l4-mlkem-final.md)
+
+---
+
+## v0.7 — Application-level ML-KEM + P-256 hybrid
+
+v0.7 is the retained application-level hybrid baseline.
+
+BLE SMP is intentionally disabled:
+
+```text
+CONFIG_BT_SMP=n
+```
+
+Its application protocol combines:
+
+```text
+ML-KEM-768
+    +
+ephemeral application P-256 ECDH
     |
-length-prefixed hybrid IKM + canonical transcript
+    v
+SS_MLKEM || SS_ECDH
     |
+    v
 HKDF-SHA256
     |
-6-digit application SAS + bidirectional FINISHED
-    |
-direction-separated AES-256-GCM application traffic
+    +--> application SAS
+    +--> FINISHED
+    +--> AES-256-GCM traffic
 ```
 
-The exact hybrid input is `u16be(32) || SS_MLKEM || u16be(32) || SS_ECDH` (68 bytes). Its 2457-byte canonical transcript binds the version domain, endpoint roles, session identifier, ML-KEM public key/ciphertext, and both 65-byte P-256 public keys. Human comparison of the application SAS precedes authenticated channel activation.
+The exact hybrid KDF input is:
 
-The [v0.7 milestone](docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md) preserves CP1 hybrid primitives/KATs, CP2 BLE interoperability, CP3 authenticated bidirectional traffic, and CP4 negative validation and resource measurements. Physical validation includes three `PING 0/1/2` ↔ `PONG 0/1/2` rounds and seven negative cases. The P→C tamper/replay cases inject faults locally at the Central receiver while using a real DK session.
+```text
+u16be(32) || SS_MLKEM || u16be(32) || SS_ECDH
+```
+
+The application transcript binds the protocol domain/version, roles, session identifier, ML-KEM public key and ciphertext, and both P-256 public keys. Human comparison of the six-digit application SAS precedes FINISHED and secure-channel activation.
+
+Full milestone:
+
+[`docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md`](docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md)
+
+---
 
 ## v0.7 vs v1.0
 
-| Aspect | v0.7 application hybrid | v1.0 SMP L4 + ML-KEM |
+| Aspect | v0.7 | v1.0 |
 |---|---|---|
-| BLE SMP | Disabled | Authenticated LE Secure Connections, Level 4 |
-| Peer authentication | Interactive application SAS over the hybrid transcript, followed by FINISHED | Classical SMP Numeric Comparison/bond, followed by application FINISHED key confirmation |
-| P-256 location | Ephemeral application ECDH on both endpoints | Inside standard BLE SMP only |
-| ML-KEM | ML-KEM-768 application contribution | ML-KEM-768 application secret |
-| Secret combination | ML-KEM and application ECDH secrets combined in hybrid HKDF | SMP and ML-KEM layered; SMP key material never exported or combined |
-| Authentication UI | Application SAS displayed on PC/DK UART; explicit Central confirmation | SMP Numeric Comparison on Windows and DK UART; PC confirmation and DK buttons |
-| Link protection | No SMP link encryption | SMP-authenticated, encrypted BLE link |
-| Application AEAD | Direction-separated AES-256-GCM | Direction-separated AES-256-GCM |
-| Bonding | No SMP bonds; no completed DK application-session resumption | Persistent SMP bonds; fresh application session on every connection |
-| Main research role | Completed application-level hybrid baseline | Current completed layered architecture |
+| BLE SMP | Disabled | Security Mode 1 Level 4 |
+| Classical authentication | Application SAS + FINISHED | LE Secure Connections Numeric Comparison + bonding |
+| Application P-256 ECDH | Yes | No |
+| ML-KEM | ML-KEM-768 | ML-KEM-768 |
+| Application KDF input | `SS_MLKEM || SS_ECDH` | `SS_MLKEM` only |
+| SMP secret mixed into app KDF | N/A | No |
+| BLE link encryption | No SMP | Yes |
+| Application confirmation | FINISHED | `FINISHED_C` / `FINISHED_P` |
+| Application AEAD | AES-256-GCM | AES-256-GCM |
+| Replay protection | Strict directional sequence numbers | Strict directional sequence numbers |
+| Bonding | No SMP bonds | Persistent SMP bonding |
+| Session after reconnect | Fresh hybrid session | Fresh ML-KEM/application session even when bond persists |
 
-## v1.0 protocol flow
+---
 
-1. **Connect and establish L4.** A cold connection first probes Public Key read, Ciphertext write, Control write, and Secure Data CCCD subscription; all must be denied. Windows requests `CONFIRM_PIN_MATCH` with `ENCRYPTION_AND_AUTHENTICATION`. The operator compares the Windows and DK values and confirms both. A bonded connection restores authenticated L4 using the stored bond.
-2. **Check protected GATT access.** Subscribe to Secure Data notifications and exchange `SEC_QUERY` / `SEC_INFO`. The Central requires L4, Secure Connections, authentication, a 16-byte encryption key, an open PQ gate, and profile `0x10`. Firmware also checks the current connection and generation on sensitive operations.
-3. **Exchange ML-KEM material.** The Central reads the DK's 1184-byte public key, encapsulates with liboqs, and writes the 1088-byte ciphertext using the existing fragmentation transport. The hardware logs show five ciphertext fragments at negotiated ATT MTU 247. The secret is 32 bytes; the 2400-byte decapsulation key remains in DK RAM.
-4. **Bind the transcript.** After a second strict `SEC_INFO`, the Central sends `START_CP3` with a fresh 16-byte session identifier. The DK worker decapsulates, reconstructs the canonical transcript, and replies with `READY_CP3(TH0)`. The Central checks the transcript hash.
-5. **Confirm the keys.** The DK verifies `FINISHED_C` and queues `FINISHED_P`; application keys remain pending until that notification is successfully queued. The Central verifies `FINISHED_P` before activating its keys. Both reach `APP_SECURE`.
-6. **Exchange application data on the same connection.** CP4 sends two encrypted 16-byte random PING challenges and authenticates matching PONG responses, using sequences 0 and 1 in each direction.
-7. **Retire the session.** Disconnect or session-invalidating failure clears the owned application state. A later connection repeats ML-KEM/CP3 and starts new CP4 counters at zero, even when the SMP bond persists.
+# v1.0 flow
 
-The active CP3 transcript and schedule are:
+1. **Establish BLE L4.**\
+   Protected PQ GATT operations remain unavailable before authenticated Level 4.
 
-```text
-T0  = "PQ-BLE-HANDSHAKE-v1.0/CP3-TRANSCRIPT"
-      || SEC_INFO_frame(12) || MLKEM_public_key(1184)
-      || MLKEM_ciphertext(1088) || START_CP3_frame(24)
-TH0 = SHA256(T0)
-PRK = HKDF-Extract-SHA256(salt=TH0, IKM=SS_MLKEM)
+2. **Verify the live security state.**\
+   The Central requires L4, Secure Connections, authentication, a 16-byte encryption key, the PQ gate open, and the v1.0 profile active.
 
-K_FINISHED_C = HKDF-Expand-SHA256(PRK, D || "FINISHED-C" || TH0, 32)
-K_FINISHED_P = HKDF-Expand-SHA256(PRK, D || "FINISHED-P" || TH0, 32)
-VERIFY_C = HMAC-SHA256(K_FINISHED_C, D || "VERIFY-C" || TH0)
-TH1 = SHA256(TH0 || exact_FINISHED_C_frame)
-VERIFY_P = HMAC-SHA256(K_FINISHED_P, D || "VERIFY-P" || TH1)
-TH2 = SHA256(TH1 || exact_FINISHED_P_frame)
-K_APP_C2P = HKDF-Expand-SHA256(PRK, D || "APP-C2P" || TH2, 32)
-K_APP_P2C = HKDF-Expand-SHA256(PRK, D || "APP-P2C" || TH2, 32)
+3. **Exchange ML-KEM material.**\
+   The Central reads the **1184 B** ML-KEM-768 public key, encapsulates, and writes the **1088 B** ciphertext. The validated MTU 247 path uses five ciphertext fragments.
 
-D = ASCII "PQ-BLE-HANDSHAKE-v1.0/" (without a terminating NUL)
-```
+4. **Bind the transcript.**\
+   The Central sends `START_CP3`; the DK decapsulates on the crypto worker and returns `READY_CP3`.
 
-`SEC_INFO_frame` is the exact second attestation on the Central and the canonical live-L4 representation reconstructed by the DK. `READY_CP3` synchronizes transcript hashes; FINISHED provides explicit key confirmation. Each FINISHED carries 32 bytes of HMAC verification data in a 40-byte PQV1 frame.
+5. **Confirm keys.**\
+   `FINISHED_C` and `FINISHED_P` provide explicit bidirectional key confirmation before `APP_SECURE`.
 
-The standalone CP2 `START_V1` / `READY_V1` exchange remains a **TEST-ONLY HMAC diagnostic** for ML-KEM interoperability. The complete CP3/CP4 path uses its own START/READY messages and does not use that diagnostic as FINISHED.
+6. **Exchange application data.**\
+   CP4 uses independent AES-256-GCM keys and 64-bit counters for C→P and P→C.
 
-## v1.0 checkpoints
+7. **Retire state on disconnect/failure.**\
+   A new connection establishes fresh ML-KEM/application state even when the BLE bond is reused.
 
-| Checkpoint | Purpose | Software status | Hardware status |
-|---|---|---|---|
-| CP1 | SMP L4, Numeric Comparison, persistent bonds, strict GATT gate | PASS: security/framing, WinRT and native lifecycle tests | PASS: cold/bonded, pre-L4 denials, explicit PC rejection |
-| CP2 | ML-KEM-768 over L4; TEST-ONLY shared-secret agreement diagnostic | PASS: primitives, interoperability and lifecycle | PASS: cold and bonded |
-| CP3 | Canonical transcript, ML-KEM-only HKDF, bidirectional FINISHED | PASS: KATs, C/Python agreement and failure/lifecycle tests | PASS: cold and bonded, `APP_SECURE` |
-| CP4 | Bidirectional AES-256-GCM application data | PASS: framing, AEAD, sequencing, replay and invalidation | PASS: cold and bonded, two PING/PONG rounds |
-| CP5 | Connection/session lifecycle and stale-work cleanup | PASS: 17 dedicated lifecycle tests plus full regression | PASS recorded: cold/bonded, repeated reconnects, reboot, Central restart, bond reset |
+See the v1.0 milestone for the exact transcript, HKDF labels, FINISHED construction, and state machines.
 
-CP1–CP5 complete the implementation and lifecycle-validation track. The later CP6 security/comparison campaign is a separate experimental phase. See [research evidence](#research-evidence) for checkpoint-specific records.
+---
 
-## Secure application traffic
+# Secure application traffic
 
-The current CP4 format is defined by [pq_v1_frame.h](firmware/src/pq_v1_frame.h), [pq_v1_cp4.h](firmware/src/pq_v1_cp4.h), and the matching [Python implementation](src/common/v1_cp4.py). Multi-byte integers use big-endian encoding; sizes below are bytes.
+The v1.0 CP4 frame is:
 
 ```text
 PQV1 | version | subtype | payload_len | seq | msg_type | plaintext_len | ciphertext | tag
-  4       1         1          2          8       1             2             N        16
-<------------- 8-byte header ----------><---------------- payload ---------------------->
+  4       1         1          2          8       1            2              N        16
 ```
 
-| Field | Meaning |
-|---|---|
-| Magic / version | ASCII `PQV1` / `0x10` |
-| Subtype | `APP_C2P = 0x20` via Control write; `APP_P2C = 0x21` via Secure Data notification |
-| `payload_len` | `27 + N`, excluding the 8-byte header |
-| `seq` | Unsigned 64-bit directional sequence number |
-| `msg_type` | `PING = 0x01`, `PONG = 0x02` |
-| `plaintext_len` | `N`; ciphertext has the same length |
-| `tag` | Full 16-byte AES-GCM authentication tag |
+Properties:
 
-Frame overhead is **35 bytes**. The parser/crypto helpers bound `N` to 128 bytes, but the active application accepts exactly **16-byte PING/PONG challenges**: each validated frame is **51 bytes**, requiring ATT MTU **54 or greater**. Hardware runs used MTU **247**. CP4 has no application-frame fragmentation; it rejects an insufficient MTU.
+- AES-256-GCM;
+- 16-byte tag;
+- session- and direction-bound AAD;
+- separate C→P / P→C keys and IV bases;
+- strict 64-bit directional sequence numbers;
+- duplicates, gaps, replay, and reordering rejected;
+- `UINT64_MAX` reserved.
 
-For each direction `dir = C2P` or `P2C`:
+Frame overhead is **35 B**.
+
+The active v1.0 hardware workload uses a 16-byte application challenge, producing a **51 B** protected frame. Minimum ATT MTU is **54**; hardware runs used **247**.
+
+---
+
+# Post-v1.0 Comparative Evaluation
+
+The completed comparison uses frozen v0.7 and v1.0 protocol baselines.
+The [evaluation guide](docs/research/post-v1-comparative-evaluation.md) records
+EVAL-A through EVAL-E completion and the reproducibility methodology.
+
+For reproducibility, existing benchmark internals keep their original CP6 naming:
 
 ```text
-IV_dir = HMAC-SHA256(
-    K_APP_dir, "PQ-BLE-HANDSHAKE-v1.0/IV-" || dir || session_id || 0x01
-)[0:12]
-
-nonce = IV_dir XOR (0x00000000 || u64be(seq))
-
-AAD = "PQ-BLE-HANDSHAKE-v1.0/CP4-AAD" || session_id(16)
-      || exact_PQV1_header(8) || u64be(seq) || msg_type(1) || u16be(N)
+benchmarks/post_v1/
+PQBLE-CP6-SETUP-A
+cp6c-...
+cp6d-...
 ```
 
-`dir` in the IV label is ASCII. The IV construction is the one-block HKDF-Expand form with the directional application key as its input PRK. IV bases and nonces are derived locally and are not transmitted. The AAD binds the session, direction, version/header, sequence, message type, and length.
+**CP6 in benchmark artifacts means only the historical benchmark campaign identifier.**
 
-The Central owns `tx_c2p` / `rx_p2c`; the DK owns `rx_c2p` / `tx_p2c`. Receivers require `received_seq == expected_rx_seq`: no replay window, duplicates, gaps, or reordering are accepted. The terminal value `UINT64_MAX` is reserved to prevent wraparound.
+The public/documentation naming is now:
 
-The Central consumes a transmit sequence before sending; send failure invalidates the session. The DK commits counter advancement after successful authentication, PONG generation, live-session checks, and notification queueing. Authentication, sequence, or fatal transport/lifecycle failure invalidates the application session rather than continuing with ambiguous state. Software/native tests exercise these failure paths; hardware logs demonstrate the positive sequence progression and reset across sessions.
+```text
+Post-v1.0 Comparative Evaluation
+EVAL-A -> EVAL-B -> EVAL-C -> EVAL-D -> EVAL-E
+```
 
-## Hardware and software environment
+No protocol checkpoint was added after v1.0 CP5.
 
-| Component | Verified environment / implementation |
+---
+
+## Final latency results
+
+Retained successful strata:
+
+| Scenario | n | Mean `secure_machine_ms` | Median |
+|---|---:|---:|---:|
+| v0.7 hybrid | 30 | **3584.773 ms** | **3091.119 ms** |
+| v1.0 bonded | 30 | **5446.180 ms** | **5459.655 ms** |
+| v1.0 cold | 5 | unavailable as pure machine time | unavailable |
+
+The measured v1.0 bonded mean is approximately **51.9% higher** than the v0.7 mean.
+
+This is an **end-to-end implementation result**, not a primitive-cryptography comparison.
+
+Central ML-KEM encapsulation was effectively unchanged:
+
+```text
+v0.7 mean:        0.653 ms
+v1.0 bonded mean: 0.638 ms
+```
+
+The larger observed differences appear mainly in host/BLE/GATT phases such as public-key read and ciphertext transport. The result must therefore **not** be summarized as “ML-KEM is slower in v1.0”.
+
+For the five cold v1.0 runs:
+
+```text
+secure_wall_ms mean   = 8333.861 ms
+secure_wall_ms median = 6650.285 ms
+```
+
+Cold wall time includes interactive Numeric Comparison. A complete machine-only cold timing boundary was not available.
+
+### Application RTT caveat
+
+The frozen workloads differ:
+
+```text
+v0.7: 3 x 6 B PING/PONG, 43 B protected frame
+v1.0: 2 x 16 B challenge/response, 51 B protected frame
+```
+
+Application RTT is therefore **not** a matched-payload cross-profile benchmark.
+
+---
+
+## Firmware resources
+
+| Metric | v0.7 | v1.0 | Delta |
+|---|---:|---:|---:|
+| FLASH | **225,652 B** | **279,428 B** | **+53,776 B (+23.8%)** |
+| RAM | **106,048 B** | **109,464 B** | **+3,416 B (+3.2%)** |
+| Crypto-worker stack allocation | 28,672 B | 28,672 B | 0 |
+| Observed crypto-worker peak | **24,264 B** | **24,264 B** | 0 |
+
+The observed peak is about **84.6%** of the configured worker stack, leaving **4,408 B** headroom in the measured runs.
+
+---
+
+## Passive BLE observations
+
+### v0.7 dedicated capture
+
+```text
+run:       cp6c-v07-hybrid-20260913T115408
+packets:   716
+duration:  8.145325 s
+ATT:       95
+SMP:       0
+```
+
+The connection was followed through `LL_TERMINATE_IND`. The ATT-level trace exposes the GATT transport because SMP link encryption is disabled.
+
+Observed **4710 LL payload bytes** are not total over-the-air bytes or airtime.
+
+### v1.0 cold
+
+```text
+packets:   512
+duration:  7.605352 s
+ATT:       50
+SMP:       9
+```
+
+The sniffer observed the LE Secure Connections pairing sequence up to the transition into encrypted link traffic.
+
+### v1.0 bonded
+
+```text
+packets:   37
+duration:  0.945367 s
+ATT:       0
+SMP:       1
+```
+
+Without the LTK, the passive sniffer cannot decode later ATT/GATT traffic after BLE link encryption.
+
+The v1.0 captures therefore demonstrate the **link-layer visibility difference**; they are not complete total-traffic or airtime measurements.
+
+---
+
+## Negative/security validation
+
+Final hardware result:
+
+```text
+v0.7: 7/7 PASS
+v1.0: 2/2 PASS
+total: 9/9 PASS
+```
+
+v0.7 validates:
+
+- SAS rejection;
+- corrupted `FINISHED_C`;
+- application access before FINISHED;
+- C→P AES-GCM tamper;
+- C→P replay;
+- P→C local-copy tamper;
+- P→C local-copy replay.
+
+The two P→C tests are **receiver-local Central checks**, not over-the-air BLE packet injection.
+
+v1.0 validates:
+
+- all four protected PQ GATT operations denied before L4;
+- explicit PC Numeric Comparison rejection leaves the peer unpaired and protected PQ GATT inaccessible after reconnect.
+
+Milestone:
+
+[`docs/research/milestones/eval-d-hardware-negative-validation.md`](docs/research/milestones/eval-d-hardware-negative-validation.md)
+
+---
+
+## Final interpretation
+
+The experiment shows a trade-off rather than a single winner.
+
+**v0.7**
+
+- lower measured machine-time latency;
+- lower FLASH and RAM footprint;
+- classical/PQ hybrid and authentication logic implemented in the application layer.
+
+**v1.0**
+
+- higher measured footprint and end-to-end overhead;
+- standard BLE L4 handles classical association and link protection;
+- ML-KEM independently supplies post-quantum application key establishment;
+- cleaner separation between BLE security and PQ application cryptography;
+- encrypted BLE link hides post-encryption ATT/GATT from a passive observer without the LTK.
+
+The comparison does **not** justify saying that v1.0 is slower because of ML-KEM, nor that either design dominates every dimension.
+
+Final analysis:
+
+[`docs/research/milestones/eval-e-final-comparative-analysis.md`](docs/research/milestones/eval-e-final-comparative-analysis.md)
+
+---
+
+# Hardware and software environment
+
+| Component | Validated environment |
 |---|---|
-| Peripheral | Nordic nRF54L15 DK; board target `nrf54l15dk/nrf54l15/cpuapp` |
-| Firmware SDK | nRF Connect SDK **3.0.0** |
-| RTOS | Zephyr **4.0.99**, build version **v4.0.99-ncs1** |
-| Toolchain | Zephyr SDK **0.17.0** |
-| Central | Windows PC; current audited `.venv`: Python **3.13.3**, Bleak **3.0.2** |
-| Python cryptography | `cryptography` **50.0.1**; liboqs **0.15.0** / liboqs-python **0.16.0** |
-| Test runner | pytest **9.1.1**, pytest-asyncio **1.4.0** |
-| Embedded ML-KEM | Vendored **mlkem-native v2.0.0**, portable C, ML-KEM-768 |
-| Embedded crypto API | PSA Crypto through Nordic `nrf_security`: SHA-256/HMAC, HKDF construction, AES-GCM and production randomness; P-256 support for SMP or the v0.7 application |
-| Historical passive capture | nRF52840 Dongle with nRF Sniffer/Wireshark; not the protocol Peripheral |
+| Peripheral | Nordic nRF54L15 DK |
+| Board | `nrf54l15dk/nrf54l15/cpuapp` |
+| nRF Connect SDK | **3.0.0** |
+| Zephyr | **4.0.99 / v4.0.99-ncs1** |
+| Central | Windows PC |
+| Python | **3.13.3** |
+| Bleak | **3.0.2** |
+| liboqs-python | **0.16.0** |
+| native liboqs | **0.15.0** in the audited environment |
+| ATT MTU | **247** |
+| Passive sniffer | nRF52840 USB Dongle |
+| Capture stack | Nordic nRF Sniffer 4.1.1 / Wireshark-TShark 4.4.7 / Npcap 1.80 |
 
-These are observed versions, not a dependency lock. [requirements.txt](requirements.txt) specifies minimum Python package versions; [REQUIREMENTS.md](REQUIREMENTS.md) contains broader historical setup notes. The liboqs/wrapper mismatch is present in the validated environment and produces the single test warning. Exact older benchmark environments are recorded with their results.
+The validated v1.0 pairing path uses Windows WinRT custom pairing. Equivalent real-hardware validation is not claimed for other host OS backends.
 
-The [vendoring record](firmware/third_party/mlkem-native/VENDORED.md) pins mlkem-native to commit `d1b2fe782888bdb761a50336012923180be7f502`. The firmware supplies PSA-generated random coins to its deterministic API at startup; deterministic KAT inputs are test fixtures.
+---
 
-Firmware profiles are deliberately separate:
+# Firmware profiles
 
-| Profile | Configuration | Relevant settings |
+| Profile | Configuration | Purpose |
 |---|---|---|
-| v0.7, default | [prj.conf](firmware/prj.conf) | `PQ_PROFILE_V07_HYBRID`; `CONFIG_BT_SMP=n` |
-| v1.0, explicit | `prj.conf` + [v1_smp_l4_mlkem.conf](firmware/v1_smp_l4_mlkem.conf) | `CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM=y`, `CONFIG_BT_SMP=y`, `CONFIG_BT_SMP_SC_ONLY=y`, MITM enforcement, 16-byte minimum encryption key, bonding and settings persistence |
+| v0.7 | `firmware/prj.conf` | Hybrid application baseline, SMP disabled |
+| v1.0 | `prj.conf` + `firmware/v1_smp_l4_mlkem.conf` | SMP L4 + ML-KEM layered architecture |
 
-The v1.0 fragment overrides the baseline SMP setting. Both profiles share the GATT layout and a **28,672-byte crypto worker stack**. Expensive cryptographic operations execute on that worker, outside GATT callbacks. Profile selection and handshake/UI deadlines are defined in [Kconfig](firmware/Kconfig).
-
-## Repository structure
+Important v1.0 BLE settings include:
 
 ```text
-pq-ble-handshake/
-├── README.md
-├── REQUIREMENTS.md / requirements.txt
-├── firmware/
-│   ├── src/                       GATT, crypto worker, v0.x and v1.0 protocols
-│   ├── third_party/mlkem-native/  pinned embedded ML-KEM implementation
-│   ├── CMakeLists.txt / Kconfig
-│   ├── prj.conf                   default v0.7 profile
-│   └── v1_smp_l4_mlkem.conf        explicit v1.0 overlay
-├── src/
-│   ├── central/                   BLE client, WinRT pairing, protocol runners
-│   └── common/                    framing, cryptography, legacy session helpers
-├── tests/
-│   └── native_v1/                 host adapters exercising firmware C logic
-├── docs/
-│   ├── research/milestones/       checkpoint specifications and conclusions
-│   ├── research/logs/             recorded PC/DK validation output
-│   ├── captures/                  historical BLE packet captures
-│   └── images/                    capture screenshots
-├── scripts/                       setup, build and UART capture helpers
-├── benchmarks/results/            earlier CPU/primitive benchmark artifacts
-├── report/                        LaTeX research report and figures
-├── experimental/                  historical Python Peripheral prototype
-└── data/keys/                     legacy local session-store location
+CONFIG_BT_SMP=y
+CONFIG_BT_SMP_SC_ONLY=y
+CONFIG_BT_SMP_ENFORCE_MITM=y
+CONFIG_BT_SMP_MIN_ENC_KEY_SIZE=16
+CONFIG_BT_BONDABLE=y
+CONFIG_BT_SETTINGS=y
+CONFIG_SETTINGS=y
 ```
 
-The hardware Peripheral is `firmware/`. The experimental Python Peripheral and older Python session-resumption framework are separate historical paths, not v1.0 hardware features.
+Both profiles use the nRF54L15 DK crypto worker and vendored `mlkem-native`.
 
-## Build and run
+---
 
-### Python Central setup
+# Build and run
 
-From the repository root, on Windows:
+## Python environment
 
 ```powershell
 python -m venv .venv
@@ -243,194 +490,204 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-The native **liboqs shared library must also be installed and discoverable**; the Python wrapper alone is insufficient. [setup_windows.ps1](scripts/setup_windows.ps1) contains the repository's MSVC/CMake liboqs setup procedure, and [setup.sh](scripts/setup.sh) provides the historical Linux procedure. The Windows helper creates `venv/`, whereas the audited environment uses `.venv/`; use the environment that contains your installed dependencies. Fresh setup scripts are not pinned reproductions of the version table above.
+The native liboqs shared library must also be installed and discoverable.
 
-The validated v1.0 pairing path uses Windows WinRT custom pairing. Linux/macOS support in the shared BLE client does not establish equivalent v1.0 hardware validation.
-
-### v1.0 SMP-L4 firmware
-
-From an initialized **nRF Connect SDK 3.0.0** environment:
+## v1.0 firmware
 
 ```powershell
 cd firmware
-west build -d build_v1_fix -b nrf54l15dk/nrf54l15/cpuapp -p always -- `
-  '-DCONF_FILE=prj.conf' '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf'
-west flash -d build_v1_fix
+
+west build -d build_v1 `
+    -b nrf54l15dk/nrf54l15/cpuapp `
+    -p always -- `
+    '-DCONF_FILE=prj.conf' `
+    '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf'
+
+west flash -d build_v1
+```
+
+Cold v1.0 CP4 run:
+
+```powershell
 cd ..
+
+python -m src.central.main `
+    --v1-smp-l4-mlkem `
+    --v1-cp4 `
+    --v1-unpair-first `
+    --log-level DEBUG
 ```
 
-Alternatively, the checked-in Windows helper loads the Nordic toolchain environment and builds the current sources:
+For a bonded run, preserve the existing bond.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_v1_cp3.ps1 -Profile v1
-```
+Focused v1.0 runners remain available for CP1, CP2, CP3, and CP4 research testing. CP5 is a lifecycle campaign rather than a separate wire-protocol mode.
 
-Despite its historical filename, this helper includes the current CP4/CP5 code and uses `firmware/build_v1_cp3/`. Its default paths are `C:\ncs\v3.0.0` and `C:\ncs\toolchains\0b393f9e1b`; override `-NcsRoot` and `-Toolchain` for another installation. Its optional `-Flash` uses `-SerialNumber` to select the DK.
-
-Run the full application path:
-
-```powershell
-python -m src.central.main --v1-smp-l4-mlkem --v1-cp4
-```
-
-For cold pairing, clear DK bonds with **BUTTON 3 while disconnected**, then remove the Windows bond through the explicit test option:
-
-```powershell
-python -m src.central.main --v1-smp-l4-mlkem --v1-cp4 --v1-unpair-first
-```
-
-Compare the six-digit Windows value with the DK UART output. On the DK, **BUTTON 0 accepts** and **BUTTON 1 rejects**; the PC also requires explicit confirmation. Retain both bonds and repeat the ordinary CP4 command for bonded reconnection. Each invocation creates a new application session and runs two PING/PONG rounds before disconnecting.
-
-Expected successful completion:
-
-```text
-PQ-BLE V1.0 CP4 AES-256-GCM BIDIRECTIONAL DATA: PASS
-```
-
-Checkpoint runners remain available: `--v1-smp-l4-mlkem` alone exercises CP1, `--v1-cp2` selects the TEST-ONLY interoperability diagnostic, and `--v1-cp3` selects transcript/FINISHED without application data. CP5 is a lifecycle campaign using the CP4 runner; there is no separate `--v1-cp5` mode.
-
-### v0.7 baseline firmware and Central
-
-Build the baseline without the v1.0 configuration fragment:
+## v0.7 firmware
 
 ```powershell
 cd firmware
-west build -b nrf54l15dk/nrf54l15/cpuapp -p always
-west flash
+
+west build -d build_v07 `
+    -b nrf54l15dk/nrf54l15/cpuapp `
+    -p always
+
+west flash -d build_v07
+
 cd ..
+
 python -m src.central.main --phase7-auth-hybrid
 ```
 
-The Windows build helper also supports `-Profile v07`, which explicitly clears the extra configuration fragment. Use a separate baseline build configuration when switching profiles.
+---
 
-Compare the application SAS with the DK UART and confirm it at the Central. A successful run ends with:
+# Testing
 
-```text
-PQ-BLE PHASE7 AUTHENTICATED HYBRID SECURE CHANNEL E2E: PASS
-```
-
-The v0.7 negative runner accepts `--phase7-negative-test-only MODE` with `sas-reject`, `finished-c`, `pre-auth`, `c2p-tamper`, `c2p-replay`, `p2c-tamper`, or `p2c-replay`. See the [v0.7 milestone](docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md) for their procedures and interpretations.
-
-## Testing
-
-Run software regression from the repository root with the Python environment active:
+From the repository root:
 
 ```powershell
 python -m pytest -q
-python -m compileall -q src tests
+python -m compileall -q src tests benchmarks
 git diff --check
 ```
 
-**Verified audit result, 2026-09-10: 1064 passed, 1 skipped, 1 warning (49.19 s).** The skipped case tests unavailable-WinRT handling and is intentionally skipped on Windows. The warning is the liboqs 0.15.0 / liboqs-python 0.16.0 mismatch.
+The v1.0 release audit recorded:
 
-The successful audit used a fresh workspace temporary directory after an existing directory denied access:
-
-```powershell
-python -m pytest -q -ra --tb=short --maxfail=1 `
-  --basetemp=C:\pq_ble\.pytest_readme_audit_20260910 `
-  -o cache_dir=C:\pq_ble\.pytest_readme_cache
+```text
+1064 passed
+1 skipped
+1 warning
 ```
 
-Adapt these absolute paths to your checkout and choose a fresh temporary directory if an existing one has incompatible permissions. Native tests require host GCC; some PSA adapters use Windows BCrypt. Other environments can have different skip counts.
+Hardware validation is separate from software regression and includes real BLE pairing/bonding, ML-KEM transport, DK decapsulation, FINISHED, AES-GCM application traffic, lifecycle tests, passive captures, and the post-v1.0 comparative campaign.
 
-The suite includes earlier-protocol regressions, deterministic vectors, real liboqs/mlkem-native interoperability, C/Python framing and crypto checks, modeled BLE/WinRT behavior, and native firmware lifecycle tests. These tests do not reproduce radio pairing or persistent hardware bonds; those require the separate manual E2E campaign.
+---
 
-## Hardware validation
+# Repository structure
 
-The recorded platform is **Windows Central ↔ BLE ↔ nRF54L15 DK**. CP1 passed on 2026-09-08, CP2 on 2026-09-09, and CP3–CP5 on 2026-09-10.
+```text
+pq-ble-handshake/
+├── README.md
+├── REQUIREMENTS.md / requirements.txt
+│
+├── firmware/
+│   ├── src/                         v0.7 / v1.0 Peripheral implementation
+│   ├── third_party/mlkem-native/
+│   ├── prj.conf                     v0.7 profile
+│   └── v1_smp_l4_mlkem.conf         v1.0 overlay
+│
+├── src/
+│   ├── central/                     BLE / WinRT / protocol runners
+│   └── common/                      framing and crypto helpers
+│
+├── tests/
+│   └── native_v1/
+│
+├── benchmarks/
+│   ├── post_v1/                     comparative-evaluation harness
+│   └── results/                     measurement artifacts
+│
+├── docs/
+│   ├── research/milestones/
+│   ├── research/logs/
+│   ├── captures/
+│   └── images/
+│
+├── scripts/
+├── report/
+├── experimental/                    historical Python Peripheral paths
+└── data/keys/                       legacy session-store location
+```
 
-| Evidence | Recorded result and scope |
-|---|---|
-| [CP1 logs](docs/research/logs/v1_cp1_1-tests.txt) | Four pre-L4 GATT denials; real Numeric Comparison; L4/SC/authentication with 16-byte link key; bond creation/reconnection; explicit PC NC rejection |
-| [CP2 logs](docs/research/logs/v1_cp2_test.txt) | Cold/bonded ML-KEM encapsulation/decapsulation and matching TEST-ONLY diagnostic |
-| [CP3 logs](docs/research/logs/v1_cp3-tests.txt) | Cold/bonded transcript agreement, both FINISHED verifications, directional key derivation and `APP_SECURE` |
-| [CP4 logs](docs/research/logs/v1_cp4_tests.txt) | Cold/bonded bidirectional AES-256-GCM; sequence 0 and 1; DK authentication and PONG queueing |
-| [CP5 campaign](docs/research/logs/v1_cp5_tests.txt) | Cold/bonded baselines, three bonded reconnects, DK reboot retaining the bond, Central restart, bond clearing and return to cold pairing |
+The hardware Peripheral is `firmware/`. Historical Python Peripheral/session-resumption paths are not part of the v1.0 hardware architecture.
 
-CP5 records all scenarios as passed. Its cold/bonded baselines and DK reboot have detailed PC/DK transcripts; bond reset has a detailed Central transcript. The three consecutive reconnects and Central restart are retained as brief operator `OK` confirmations, with fuller conclusions in the final milestone. Their archival detail is therefore less complete than the other scenarios.
+---
 
-The recorded new sessions repeat ML-KEM/CP3 and restart application counters at zero. Lifecycle cleanup, stale-callback isolation, and the CP5 fix that releases a retired CP4 worker's transfer slot are additionally covered by software/native tests. Hardware positive traces alone do not demonstrate every injected failure case.
+# Evidence and reproducibility
 
-**Firmware build audit (2026-09-10):** the Windows helper was run with `-Profile v1 -Incremental` and `-Profile v07 -Incremental`. Both builds succeeded and generated `merged.hex`.
+The project distinguishes:
 
-| Audit build | FLASH used / region | RAM used / region |
-|---|---:|---:|
-| v1.0 | 279,428 B / 1420 KB | 109,464 B / 188 KB |
-| v0.7 baseline at current HEAD | 225,652 B / 1428 KB | 106,048 B / 188 KB |
+1. software regression;
+2. firmware builds/resource reports;
+3. real Windows ↔ nRF54L15 DK protocol runs;
+4. passive nRF52840/Wireshark observations;
+5. post-v1.0 comparative measurements.
 
-These are incremental build observations using the helper's configuration, including disabled `DEBUG_THREAD_INFO`, not pristine release benchmarks. Existing deprecated Bluetooth API/buffer settings and `void main(void)` warnings remain. Local build logs are generated under `firmware/build_cp3_logs/`.
+Raw evaluation artifacts are stored under:
 
-The CP3 milestone records successful v1.0 and v0.7 regression builds; the CP4 milestone records build, flash and boot success. The historical v0.7 release recorded **225,788 B FLASH**, **106,560 B RAM**, and a maximum observed **24,264 B** crypto-worker stack peak. These remain historical build observations, not matched v0.7/v1.0 benchmark results. The CP4 milestone explicitly lacks a recorded CP4 memory report.
+```text
+benchmarks/results/post_v1/
+```
 
-The CP1 Windows `CONFIRM_ONLY` attempt failed closed, but its automated `just-works` result was **inconclusive**: an actual on-air BLE Just Works association was not demonstrated. Historical [packet captures](docs/captures/) document earlier GATT transport; they are not packet-level proof of the completed v1.0 channel. Hardware was not reflashed or rerun during this README audit.
+The benchmark dataset preserves original run IDs and CP6 labels for traceability.
 
-## Security properties
+The documentation layer uses **EVAL-A through EVAL-E** to avoid confusing the comparison campaign with the v1.0 CP1–CP5 implementation checkpoints.
 
-| Layer | Implemented property | Boundary |
-|---|---|---|
-| BLE SMP Level 4 | Authenticated LE Secure Connections, human Numeric Comparison for cold pairing, bond restoration, encrypted/authenticated link | **Classical P-256; not post-quantum** |
-| Firmware GATT gate | Sensitive operations require the current authenticated L4 connection, SC flag and 16-byte encryption key | Uses both GATT permissions and live runtime checks |
-| ML-KEM-768 | Post-quantum application key-establishment secret | Peer association/authentication comes from SMP in v1.0 |
-| Transcript and FINISHED | Bind key derivation to the application exchange and explicitly confirm possession of the derived keys | No independent PQ identity authentication or SMP-secret channel binding |
-| AES-256-GCM | Application-payload confidentiality/integrity, with session/direction/header binding in AAD | Protects the application messages, not all BLE metadata |
-| Sequence and lifecycle checks | Strict ordered reception, replay rejection, nonce discipline, invalidation on fatal failures and stale connection work | Fresh application state is required on reconnection |
+---
 
-These are implemented mechanisms supported by tests and the stated hardware observations, not a formal security proof. In v0.7, application SAS and the hybrid transcript provide the interactive authentication mechanism instead of SMP; the two authentication ceremonies must not be conflated.
+# Security scope and limitations
 
-## Limitations / threat model
+This repository is a research proof of concept, not a Bluetooth SIG standard or production security product.
 
-- This is a research proof of concept, not production-certified software or a new Bluetooth standard. Validation concerns the stated Windows/DK setup, not a broad interoperability certification.
-- The design assumes trusted endpoints, secure randomness, and correct human comparison. It does not address endpoint compromise, radio jamming, physical key extraction, or concealment of BLE traffic metadata.
-- v1.0 does not make the whole BLE stack post-quantum secure. SMP peer authentication remains classical; there is no ML-DSA/certificate-based PQ identity authentication, and ML-KEM alone does not authenticate a peer.
-- The DK generates its ML-KEM key pair **once at boot** and reuses it until reboot. A new application session uses fresh encapsulation randomness and a fresh session identifier, not a newly generated DK key pair. Per-session ML-KEM forward secrecy against later compromise of that decapsulation key is not claimed.
-- SMP bonds persist; v1.0 application keys and counters do not. The historical Python session store is not hardware application-session resumption for either completed architecture.
-- The current v1.0 application is a two-round, 16-byte PING/PONG demonstrator with strict sequencing. General application messaging, recovery/retransmission policies and broader MTU/platform evaluation require further work.
-- Owned firmware secret buffers are cleared; Python cleanup is best effort and cannot guarantee erasure of immutable or library-internal copies.
-- No formal protocol verification, experimental physical side-channel resistance, fault-injection assessment, or completed energy campaign is claimed. The later comparative/security campaign remains pending.
+Important boundaries:
 
-## Experimental comparison / next phase
+- v1.0 BLE peer authentication remains classical because LE Secure Connections uses P-256;
+- ML-KEM provides post-quantum application key establishment, not post-quantum identity authentication;
+- v1.0 never combines SMP secret material with `SS_MLKEM`;
+- v0.7 and v1.0 are different architectures and should not both be described as hybrid key agreements;
+- application RTT is not directly comparable because the frozen workloads differ;
+- passive v1.0 captures become opaque after BLE encryption without the LTK;
+- GATT/API counters are not ATT/LL packet counts or radio airtime;
+- no energy measurements were performed;
+- side-channel resistance was not experimentally characterized;
+- negative tests validate implemented failure paths but are not a formal security proof;
+- human SAS/Numeric Comparison is research interaction, not an unattended deployment UX.
 
-The next major research task is a controlled evaluation of **v0.7 application-level ML-KEM + P-256 hybrid establishment** against **v1.0 SMP Level 4 + ML-KEM application protection**.
+---
 
-The [post-v1.0 measurement framework and operator guide](docs/research/post-v1-experimental-evaluation.md) provides repeated-run collection, resource reports, per-run UART/PCAP correlation, existing negative-test paths, and JSON/CSV/Markdown analysis. See its [implementation and audit report](docs/research/post-v1-implementation-report.md) for validation results. The checkpoint documents also identify MTU-dependent transport behavior and the need to separate cryptographic work, BLE transport, and human confirmation time.
+# Version history
 
-**These comparative measurements are future work.** Existing one-shot hardware timings include different scheduling, transport, or human-interaction effects; they do not establish a performance ranking. The earlier [benchmark results](benchmarks/results/README.md) measure PC-side cryptographic operations, AES-GCM CPU throughput, and fragmentation/reassembly. They exclude real BLE scan/connection/GATT costs and are not the v0.7-versus-v1.0 hardware study.
+```text
+v0.7
+application hybrid
+ML-KEM-768 + application P-256 ECDH
+        |
+        v
+hardware-validated authenticated channel
+        |
+        v
+v1.0
+BLE SMP Security Mode 1 Level 4
++
+ML-KEM-768
++
+FINISHED
++
+AES-256-GCM
+        |
+        v
+CP1 -> CP5 COMPLETE
+        |
+        v
+Post-v1.0 Comparative Evaluation
+EVAL-A -> EVAL-E COMPLETE
+```
 
-## Project evolution
+Earlier protocol milestones remain in the repository for research traceability.
 
-| Milestone | Completed contribution |
-|---|---|
-| v0.1 | BLE/GATT transport proof of concept |
-| [v0.2](docs/research/milestones/v0.2-mlkem-ondevice.md) | On-device ML-KEM-768 integration and deterministic self-test |
-| [v0.3](docs/research/milestones/v0.3-mlkem-ble-e2e.md) | Real BLE liboqs Central ↔ mlkem-native DK interoperability |
-| [v0.4](docs/research/milestones/v0.4-pq-secure-channel.md) | Pure-PQ HKDF/AES-GCM secure channel |
-| [v0.5](docs/research/milestones/v0.5-authenticated-pq-handshake.md) | Transcript, application SAS and bidirectional FINISHED |
-| [v0.6](docs/research/milestones/v0.6-bidirectional-secure-channel.md) | Authenticated bidirectional application traffic |
-| [v0.7 CP1–CP4](docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md) | Application P-256/ML-KEM hybrid primitives, interoperability, authenticated channel, seven negative cases and final resource observations; historical release suite: 495 passed |
-| v1.0 CP1 | SMP Level 4 foundation and real Numeric Comparison |
-| v1.0 CP2 | ML-KEM interoperability over L4 |
-| v1.0 CP3 | ML-KEM-only transcript/key schedule and FINISHED |
-| v1.0 CP4 | Bidirectional AES-256-GCM application channel |
-| v1.0 CP5 | Multi-session lifecycle validation and retired-worker cleanup; tagged `v1.0` at `912fe85` |
+---
 
-The frozen release tags remain available, including `v0.7-authenticated-hybrid-secure-channel` and `v1.0`.
+# Final result
 
-## Research evidence
+The project now provides:
 
-| Record | Purpose |
-|---|---|
-| [v1.0 final milestone](docs/research/milestones/v1.0-smp-l4-mlkem-final.md#cp5--lifecycle-and-multi-session-validation) | CP5 lifecycle specification, scenario acceptance and final completion decision |
-| [CP1 hardware-fix audit](docs/research/milestones/v1.0-cp1-hardware-fix-audit.md) | Pairing/gating fixes, observations and limits |
-| [CP1/CP2 milestone](docs/research/milestones/v1.0-smp-l4-mlkem.md) | Foundational SMP/ML-KEM specification and checkpoint evidence |
-| [CP3 milestone](docs/research/milestones/v1.0-smp-l4-mlkem-cp3-pass.md) | Exact transcript, HKDF and FINISHED specification; software/build/hardware results |
-| [CP4 milestone](docs/research/milestones/v1.0-smp-l4-mlkem-cp4-pass.md) | Exact AEAD frame, IV/nonce/AAD and cold/bonded validation |
-| [v0.7 milestone](docs/research/milestones/v0.7-authenticated-hybrid-secure-channel.md) | Hybrid specification, public KAT vectors, checkpoint history and measurements |
-| [v0.7 positive log](docs/research/logs/v0.7-positive-test.txt) / [negative log](docs/research/logs/v0.7-negative-tests.txt) | Recorded physical-baseline validation |
-| [Research logs](docs/research/logs/) / [milestone archive](docs/research/milestones/) | Earlier experiments and their original evidence |
+- two completed real-hardware BLE/PQ protocol implementations;
+- a validated layered v1.0 architecture;
+- a retained v0.7 application-level hybrid baseline;
+- a reproducible comparative benchmark framework;
+- repeated latency/resource/radio observations;
+- **9/9 hardware negative/security tests PASS**;
+- a final architectural comparison.
 
-Documentation is chronological; the final v1.0 checkpoint table now reflects CP5 completion and the separate post-v1.0 evaluation. Earlier [protocol](docs/protocol-spec.md), [security](docs/security-analysis.md), [testing](docs/testing-guide.md), [test-results](docs/test-results.md), and [firmware](firmware/README.md) documents also predate parts of the current implementation. Read their claims in checkpoint context; the current source, release history, final acceptance sections, and linked logs establish the status summarized here.
+The measured results show that **v0.7 is lighter and faster in the current implementation**, while **v1.0 provides a cleaner integration with standard BLE security and authenticated BLE link protection beneath ML-KEM-derived application security**.
 
-## Author
-
-Alessio Bonora
-
+For continued development, **v1.0 is the architectural baseline**; v0.7 remains the experimental hybrid reference.

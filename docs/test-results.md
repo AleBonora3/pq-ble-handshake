@@ -1,6 +1,13 @@
 # Test Results
 
-Risultati aggiornati della validazione del progetto **PQ-BLE-HANDSHAKE**.
+> [!NOTE]
+> This document preserves historical material about the earlier implementation stages through v1.0 CP1.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](research/post-v1-comparative-evaluation.md).
+
+Risultati storici della validazione del progetto **PQ-BLE-HANDSHAKE**.
 
 Comando riproducibile per eseguire la suite Python:
 
@@ -27,7 +34,7 @@ La suite attiva valida la parte crittografica, la frammentazione GATT, la logica
 
 **CP1 SMP-L4 foundation: real hardware PASS** on the Windows PC and
 nRF54L15 DK. Results are recorded in the preserved
-[raw PC/DK log](research/logs/v1.0-1-tests.txt) and the operator's hardware report.
+[raw PC/DK log](research/logs/v1_cp1_1-tests.txt) and the operator's hardware report.
 
 | Run | Result |
 |---|---|

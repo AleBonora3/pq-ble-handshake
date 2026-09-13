@@ -1,5 +1,12 @@
 # Decisioni Progettuali — Rationale
 
+> [!NOTE]
+> This document preserves historical material about early design rationale.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](research/post-v1-comparative-evaluation.md).
+
 ## 1. Perché ML-KEM-768 e non ML-KEM-512 o ML-KEM-1024?
 
 - **ML-KEM-512**: NIST security category 1 (equivalente AES-128). Più veloce (pk=800B, ct=768B) ma sicurezza insufficiente per "store-now-decrypt-later".

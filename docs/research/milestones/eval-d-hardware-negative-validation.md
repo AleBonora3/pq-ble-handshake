@@ -1,13 +1,20 @@
-# CP6-D — Hardware Negative / Security Validation
+# EVAL-D — Hardware Negative / Security Validation
 
-**Project:** PQ-BLE Handshake  
-**Milestone:** CP6-D  
-**Status:** COMPLETE — 9/9 negative tests PASS  
-**Date:** 2026-09-13  
+**Project:** PQ-BLE Handshake\
+**Milestone:** EVAL-D\
+**Status:** COMPLETE — 9/9 negative tests PASS\
+**Date:** 2026-09-13\
 
 ## 1. Scope
 
-CP6-D validates fail-closed behavior and selected authentication, tamper, replay, and pre-authentication properties of the two frozen protocol profiles on real hardware.
+This is part of the completed [Post-v1.0 Comparative Evaluation](../post-v1-comparative-evaluation.md), separate from v1.0 implementation and validation, which completed at CP5.
+
+> [!NOTE]
+> Historical benchmark artifacts retain the CP6 identifier for provenance and
+> reproducibility. In those artifacts, CP6 refers only to the post-v1.0 comparative
+> evaluation campaign and is not a v1.0 implementation checkpoint.
+
+EVAL-D validates fail-closed behavior and selected authentication, tamper, replay, and pre-authentication properties of the two frozen protocol profiles on real hardware.
 
 The campaign covers:
 
@@ -26,13 +33,13 @@ These tests are qualitative negative/security checks. They are not latency sampl
 - Bleak: `3.0.2`
 - Expected ATT MTU: `247`
 
-Frozen firmware evidence used during the broader CP6 campaign:
+Frozen firmware evidence used during the Post-v1.0 Comparative Evaluation:
 
 - v0.7 ELF SHA-256: `4be5399d35a920e777fca2c23003cba9c93f5598ce5aefe77da1931bba614e91`
 - v0.7 merged.hex SHA-256: `a76f42eda90eaf75656d6db54fee0ac854083a30a425caca5f77f48f0e9736c1`
 - v1.0 ELF SHA-256: `a843bd955966e6ea13dad8287f51fe4c8ec6733359e5b6262111ea482905b243`
 
-The v1.0 firmware hash was re-checked before the v1.0 CP6-D tests.
+The v1.0 firmware hash was re-checked before the v1.0 EVAL-D tests.
 
 ## 3. Evidence model
 
@@ -42,7 +49,7 @@ Each valid negative test produces a dedicated run directory under:
 
 The primary machine-readable evidence is `run.json`, accompanied by `central.log`.
 
-A successful CP6-D negative test requires:
+A successful EVAL-D negative test requires:
 
 - `measurement_kind == "negative"`
 - `success == true`
@@ -142,11 +149,11 @@ Notable excluded attempts include:
 - an early `finished-c` attempt that failed in the Windows/Bleak connection path with `OSError` before SAS, fault injection, or any negative-test behavior was reached;
 - Codex/local-shell startup attempts that selected the wrong Python environment or an invalid interpreter path and therefore never started a hardware test.
 
-Only the nine successful runs listed in Section 4 are included in the final CP6-D verdict.
+Only the nine successful runs listed in Section 4 are included in the final EVAL-D verdict.
 
 ## 7. Interpretation and limitations
 
-CP6-D demonstrates the expected behavior of the implemented negative-test paths on the tested Windows ↔ nRF54L15 DK setup.
+EVAL-D demonstrates the expected behavior of the implemented negative-test paths on the tested Windows ↔ nRF54L15 DK setup.
 
 The campaign supports the following implementation-level conclusions:
 
@@ -164,7 +171,7 @@ No energy-consumption claims are made.
 
 ## 8. Milestone conclusion
 
-**CP6-D is complete.**
+**EVAL-D is complete.**
 
 Final hardware negative/security validation result:
 
@@ -172,4 +179,4 @@ Final hardware negative/security validation result:
 - v1.0: **2/2 PASS**
 - Total: **9/9 PASS**
 
-The next milestone is **CP6-E**, which consolidates the CP6-A/CP6-B/CP6-C/CP6-D evidence into the final architectural and experimental comparison between v0.7 and v1.0.
+[EVAL-E is also complete](eval-e-final-comparative-analysis.md), consolidating the EVAL-A through EVAL-D evidence into the final architectural and experimental comparison between v0.7 and v1.0.

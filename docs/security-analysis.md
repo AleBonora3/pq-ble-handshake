@@ -1,5 +1,12 @@
 # Security Analysis — PQ-BLE-HANDSHAKE
 
+> [!NOTE]
+> This document preserves historical material about the early Python protocol and BLE transport prototype.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](research/post-v1-comparative-evaluation.md).
+
 Analisi sintetica delle proprietà di sicurezza del protocollo.
 
 ---

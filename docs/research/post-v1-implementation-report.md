@@ -1,8 +1,19 @@
 # Post-v1.0 evaluation: implementation and audit report
 
-This iteration prepares CP6-A and the hardware campaigns. It does not claim new
+> [!NOTE]
+> This is a historical implementation report describing the evaluation framework
+> when it was introduced on 2026-09-11. Its pending measurements and planned work
+> record that stage. The [Post-v1.0 Comparative Evaluation](post-v1-comparative-evaluation.md)
+> has since completed EVAL-A through EVAL-E; current results are in
+> [EVAL-D — 9/9 PASS](milestones/eval-d-hardware-negative-validation.md) and
+> [EVAL-E](milestones/eval-e-final-comparative-analysis.md).
+> Historical benchmark artifacts retain the CP6 identifier for provenance and
+> reproducibility. In those artifacts, CP6 refers only to the post-v1.0 comparative
+> evaluation campaign and is not a v1.0 implementation checkpoint.
+
+This iteration prepares EVAL-A and the hardware campaigns. It does not claim new
 BLE hardware PASS, new radio observations or a scientific performance ranking.
-The complete [operator guide](post-v1-experimental-evaluation.md) contains metric
+The complete [operator guide](post-v1-comparative-evaluation.md) contains metric
 definitions, commands, capture steps, negative-test scope and the ordered checklist.
 
 ## A. Repository audit
@@ -32,7 +43,7 @@ definitions, commands, capture steps, negative-test scope and the ordered checkl
 - Existing v0.7 seven negative paths and v1.0 CP1 pre-L4/NC rejection paths are
   reused. CP3/CP4/CP5 Python/native tests cover broader failures but are not
   reclassified as hardware measurements.
-- The final milestone's stale CP5/CP6 completion table was corrected to agree
+- The final milestone's stale completion table that incorrectly placed the comparative evaluation inside the v1.0 completion gate was corrected to agree
   with its final release decision. Protocol behavior was not changed to resolve it.
 
 Environment: Windows 11 25H2 build 26200; Python 3.13.3, Bleak 3.0.2,
@@ -80,7 +91,7 @@ Failed attempts and valid existing artifacts were retained under unique paths.
 | `.gitignore` | Keep generated post-v1 datasets separate from source commits |
 | `README.md` | Short guide/report pointer and removal of the now-corrected stale-table warning |
 | `docs/research/milestones/v1.0-smp-l4-mlkem-final.md` | Align checkpoint table with completed CP5 and independent evaluation |
-| `docs/research/post-v1-experimental-evaluation.md` | Complete methodology, commands, operator checklist and measurement limits |
+| `docs/research/post-v1-comparative-evaluation.md` | Complete methodology, commands, operator checklist and measurement limits |
 | `docs/research/post-v1-implementation-report.md` | This audit/deliverable/validation report |
 | `src/central/measurement.py` | Optional ContextVar recorder, monotonic spans, payload-free API counters, callback context preservation |
 | `src/central/ble_client.py` | Observe scan/connect/service boundary, MTU, API reads/writes/subscriptions and notifications |
@@ -178,7 +189,7 @@ python -m benchmarks.post_v1.analyze RAW_DIRECTORY --output NEW_DIRECTORY
 
 These abbreviated entries are an index, not replacements for the complete guide.
 No additional v1 CP3/CP4 fault injections were added in this infrastructure-first
-iteration; their hardware execution remains CP6-D work.
+iteration; their hardware execution remains EVAL-D work.
 
 ## G. Automated validation
 
@@ -282,7 +293,7 @@ and archive the dataset. Each hardware result is still measurement pending.
 - PC/DK/sniffer timestamps are not proven synchronized; passive captures can drop
   packets, and encrypted v1.0 application payloads can remain undecodable.
 - No validated energy measurement or conversion from bytes to energy is provided.
-- Broader v1.0 CP3/CP4 hardware fault injections remain later CP6-D work.
+- Broader v1.0 CP3/CP4 hardware fault injections remain later EVAL-D work.
 - Matched results require archiving ignored data and verifying the actual flashed
   image; source hashes/metadata alone cannot remotely attest physical firmware.
 

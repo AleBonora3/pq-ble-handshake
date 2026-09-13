@@ -1,5 +1,12 @@
 # Protocollo PQ-BLE-HANDSHAKE — Specifica Formale
 
+> [!NOTE]
+> This document preserves historical material about the early Python and Phase 2/3/5 protocol profiles.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](research/post-v1-comparative-evaluation.md).
+
 ## 1. Introduzione
 
 PQ-BLE-HANDSHAKE è un protocollo di handshake post-quantum a livello applicativo che opera sopra BLE GATT.

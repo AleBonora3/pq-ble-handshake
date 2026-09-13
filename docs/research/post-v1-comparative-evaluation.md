@@ -1,10 +1,21 @@
-# Post-v1.0 Experimental and Security Evaluation
+# Post-v1.0 Comparative Evaluation
 
-Status: CP6-A infrastructure prepared; new BLE hardware latency, negative and
-radio campaigns **measurement pending**. This work is independent of the
-completed v1.0 CP1–CP5 release. Build measurements are not hardware protocol
-measurements. The [implementation/audit report](post-v1-implementation-report.md)
-records this iteration's actual validation and changed files.
+Status: **COMPLETE — EVAL-A through EVAL-E.** This campaign is independent of
+v1.0 implementation and validation, which completed at CP5.
+[EVAL-D hardware negative validation](milestones/eval-d-hardware-negative-validation.md)
+records **v0.7: 7/7 PASS; v1.0: 2/2 PASS; total: 9/9 PASS**.
+[EVAL-E final comparison](milestones/eval-e-final-comparative-analysis.md)
+consolidates the completed architectural and experimental results.
+
+The [implementation/audit report](post-v1-implementation-report.md) and the
+framework-introduction audit/environment observations below preserve the earlier
+infrastructure work. Commands and methodology remain available for reproduction.
+Build measurements are distinct from hardware protocol measurements.
+
+> [!NOTE]
+> Historical benchmark artifacts retain the CP6 identifier for provenance and
+> reproducibility. In those artifacts, CP6 refers only to the post-v1.0 comparative
+> evaluation campaign and is not a v1.0 implementation checkpoint.
 
 ## Research question and frozen baselines
 
@@ -28,20 +39,20 @@ cryptographic keys or export payloads. No firmware/common crypto source changes
 are required. Never export ML-KEM/ECDH private/shared secrets, application or
 FINISHED keys, LTKs or SMP DHKeys for this evaluation or for Wireshark decryption.
 
-| Phase | Scope | This iteration |
+| Stage | Scope | Status |
 |---|---|---|
-| CP6-A | Reproducible measurement infrastructure | Implemented and software tested |
-| CP6-B | Repeated hardware latency | Operator campaign prepared |
-| CP6-C | Resources, project/GATT overhead, passive BLE captures | Build collector, API counters, capture methodology and offline parser |
-| CP6-D | Hardware security failures | Existing validated test paths integrated; broader faults remain planned |
-| CP6-E | Analysis and architectural comparison | JSON/CSV/Markdown aggregation; scientific conclusion pending data |
+| EVAL-A | Reproducible measurement infrastructure and provenance | **COMPLETE** |
+| EVAL-B | Repeated hardware latency | **COMPLETE** |
+| EVAL-C | Firmware resources, GATT observations, passive BLE captures | **COMPLETE** |
+| EVAL-D | Hardware negative/security validation | **COMPLETE — 9/9 PASS** |
+| EVAL-E | Final architectural and experimental comparison | **COMPLETE** |
 
-## Audit findings that affect the experiment
+## Framework-introduction audit findings
 
-The starting checkout was clean `main`, HEAD
+At framework introduction, the starting checkout was clean `main`, HEAD
 `c23e32176e4a0fce324dc93792f65c04cf7c4970`. Relevant tags are
 `v0.7-authenticated-hybrid-secure-channel` at `5b1019e` and `v1.0` at `912fe85`.
-The retained v0.7 profile at current HEAD includes later shared transport and
+The retained v0.7 profile at that HEAD includes later shared transport and
 lifecycle work; it is not byte-identical to the historical v0.7 tag. This campaign
 compares both retained profiles from the same checkout and records source/ELF
 hashes. A historical-tag experiment would be a separately identified dataset.
@@ -67,11 +78,11 @@ cycle timer**. Historical log times do not establish accurate crypto durations.
 `crypto_timings` is empty until such a measurement is independently available;
 Central crypto spans are in `phase_timings`.
 
-The final v1 milestone had an obsolete CP5/CP6 table and completion condition
+The final v1 milestone had an obsolete completion table that incorrectly placed the comparative evaluation inside the v1.0 completion gate and completion condition
 contradicting its later CP5 acceptance. These have been corrected. Prior
 milestone and hardware logs remain historical evidence, outside the new samples.
 
-## Hardware and observed environment
+## Hardware and environment recorded at framework introduction
 
 | Component | Audited value / role |
 |---|---|
@@ -84,14 +95,14 @@ milestone and hardware logs remain historical evidence, outside the new samples.
 | Test tools | pytest 9.1.1, pytest-asyncio 1.4.0; host GCC available |
 | Radio observer | nRF52840 USB Dongle, passive only; never the DUT |
 | Packet tools | Wireshark/TShark/dumpcap 4.4.7, Npcap 1.80 |
-| Nordic extcap | Personal extcap scripts report 4.1.1; dongle firmware still needs verification |
+| Nordic extcap | Personal extcap scripts report 4.1.1; dongle firmware was not verified at framework introduction |
 
 The global/system Python and protocol `.venv` are separate. The `.venv` lacks
 pyserial, which the measurement CLI does not need. The existing Nordic launcher
 uses `py -3`, whose audited packages include pyserial 3.5 and psutil 7.0.0.
 No global package installation, driver
 change, firmware flash, bond deletion or NC/SAS confirmation was performed by
-this iteration. Serial port names alone do not establish which device is present.
+the framework-introduction iteration. Serial port names alone do not establish which device is present.
 
 `tshark -D` did not expose a Nordic interface in the agent environment. Direct
 extcap inspection hit a denied write to the existing Nordic log directory
@@ -541,10 +552,11 @@ Unobservable key clearing or internal state stays null; no keys are inspected.
 Existing Python/native C tests cover malformed lengths/subtypes, duplicate START,
 wrong state, invalid/duplicate FINISHED, AEAD tags, replay/sequence gaps, stale
 connections/work and subscription/lifecycle failures (CP3/CP4/CP5/native suite).
-They are software evidence, not new hardware PASS. Explicit hardware fault paths
-for the broader v1 CP3/CP4 matrix remain a later CP6-D extension; do not improvise
-protocol changes to expose them. Historical v0.7 evidence remains separate from
-any newly collected runs.
+They remain software evidence. The completed EVAL-D hardware campaign covers
+seven v0.7 paths and the two v1.0 pre-L4/NC-rejection paths above, with **9/9 PASS**.
+Broader v1.0 CP3/CP4 hardware fault injections are outside this completed campaign's
+scope; do not improvise protocol changes to expose them. Historical v0.7 evidence
+remains separate from newly collected runs.
 
 ## Strict campaign order and acceptance
 
@@ -574,9 +586,9 @@ Expected positive output includes a unique `run_id`, the unchanged protocol's
 authenticated completion/round output, then `PASS` and `raw/<run_id>/run.json`.
 A mismatch, lost link, timeout or invalid authentication produces a failed record
 and nonzero exit; interrupted intent can remain in `pending.json`. No PCAP implies
-radio **measurement pending**, regardless of a successful protocol run.
+radio evidence is unavailable for that run, regardless of protocol success.
 
-## Limitations and pending scientific tables
+## Limitations and final results
 
 Windows scheduling and controller behavior, Python/Bleak/FFI overhead, callback
 delivery latency, cold UI on two endpoints, unsynchronized DK logs, passive packet
@@ -592,18 +604,15 @@ does not imply secret compromise. v1.0 should still reveal timing/size/direction
 connection metadata and pre-encryption SMP, while encrypted post-SMP ATT contents
 may not decode. Treat that opacity as expected link confidentiality. Never export
 BLE keys or weaken GATT/security to help decoding. Manually record the actual
-visibility observed in each capture; this task asserts no new capture outcome.
+visibility observed in each capture; final observations are recorded in
+[EVAL-E](milestones/eval-e-final-comparative-analysis.md).
 
-| Campaign metric | v0.7 | v1.0 cold | v1.0 bonded |
-|---|---|---|---|
-| Handshake latency | measurement pending | measurement pending | measurement pending |
-| Pure machine end-to-end latency | measurement pending | unresolved DK human-wait boundary | measurement pending |
-| DK crypto latency | measurement pending | measurement pending | measurement pending |
-| Authenticated app RTT | measurement pending, 6 B | measurement pending, 16 B | measurement pending, 16 B |
-| GATT/project overhead | measurement pending | measurement pending | measurement pending |
-| Observed LL traffic/visibility | measurement pending | measurement pending | measurement pending |
-| Worker stack watermark | measurement pending | measurement pending | measurement pending |
-| Energy | not performed | not performed | not performed |
+The completed latency, firmware-resource, stack and passive-capture comparison
+is recorded in [EVAL-E](milestones/eval-e-final-comparative-analysis.md), with
+hardware negative results in [EVAL-D](milestones/eval-d-hardware-negative-validation.md).
+Independent DK crypto latency and cold pure machine end-to-end latency were not
+measured; the DK human-wait boundary remains unresolved. Application RTTs retain
+the unequal 6 B / 16 B workloads. Energy measurement was not performed.
 
 ## Software validation commands
 

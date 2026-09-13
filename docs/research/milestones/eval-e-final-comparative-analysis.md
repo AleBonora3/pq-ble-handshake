@@ -1,13 +1,13 @@
-# CP6-E — Final Comparative Analysis
+# EVAL-E — Final Comparative Analysis
 
-**Project:** PQ-BLE Handshake  
-**Milestone:** CP6-E  
-**Status:** FINAL COMPARATIVE ANALYSIS  
+**Project:** PQ-BLE Handshake\
+**Milestone:** EVAL-E\
+**Status:** COMPLETE — EVAL-E final comparative analysis\
 **Analysis baseline commit:** `ebbac7f2c59bd00b461c3061a95ed0749e14ad11`
 
 ## 1. Objective
 
-CP6-E consolidates the post-v1 experimental campaign and compares the frozen **v0.7 authenticated hybrid application protocol** with **v1.0 BLE Security Mode 1 Level 4 + ML-KEM-768**.
+EVAL-E consolidates the [Post-v1.0 Comparative Evaluation](../post-v1-comparative-evaluation.md) and compares the frozen **v0.7 authenticated hybrid application protocol** with **v1.0 BLE Security Mode 1 Level 4 + ML-KEM-768**.
 
 The comparison is deliberately multi-dimensional. It does not reduce the result to a single “faster” or “more secure” ranking. Instead it evaluates:
 
@@ -17,7 +17,7 @@ The comparison is deliberately multi-dimensional. It does not reduce the result 
 4. host/GATT and passive BLE observations;
 5. hardware negative/security validation.
 
-CP6-E uses the evidence collected in CP6-A through CP6-D. No energy claims are made because energy was not measured.
+EVAL-E uses the evidence collected in EVAL-A through [EVAL-D](eval-d-hardware-negative-validation.md). v1.0 implementation and validation completed at CP5; this evaluation is a separate campaign. No energy claims are made because energy was not measured.
 
 ## 2. Architectural comparison
 
@@ -118,7 +118,7 @@ Application RTT values are therefore **not a matched-payload benchmark** and are
 | Configured crypto-thread stack | 28,672 B | 28,672 B | 0 B |
 | Observed crypto-thread peak | 24,264 B | 24,264 B | 0 B |
 
-The matched CP6-C UART measurements observed the same crypto-thread high-water mark in both profiles:
+The matched EVAL-C UART measurements observed the same crypto-thread high-water mark in both profiles:
 
 - configured: **28,672 B**
 - unused at high-water: **4,408 B**
@@ -131,7 +131,7 @@ Therefore, the larger total RAM footprint of v1.0 does not correspond to a large
 
 ### 5.1 v0.7 complete passive observation
 
-The dedicated v0.7 CP6-C capture used Access Address `0x7288a3cf` and was followed through `LL_TERMINATE_IND`.
+The dedicated v0.7 EVAL-C capture used Access Address `0x7288a3cf` and was followed through `LL_TERMINATE_IND`.
 
 Observed:
 
@@ -181,9 +181,9 @@ These captures demonstrate an architectural visibility difference:
 
 The v1.0 captures are therefore **not** suitable for total protocol traffic or airtime comparisons.
 
-## 6. CP6-D security-negative validation
+## 6. EVAL-D security-negative validation
 
-Final CP6-D result:
+Final EVAL-D result:
 
 - v0.7: **7/7 PASS**
 - v1.0: **2/2 PASS**
@@ -222,7 +222,7 @@ These tests validate the implemented negative paths. They are not a formal secur
 | RAM | Lower | +3.2% vs v0.7 |
 | Crypto-thread peak | 24,264 B | 24,264 B |
 | Passive ATT visibility | Essentially full session | Opaque after L4 encryption |
-| CP6-D negative validation | 7/7 PASS | 2/2 PASS |
+| EVAL-D negative validation | 7/7 PASS | 2/2 PASS |
 
 ## 8. Research interpretation
 
@@ -249,13 +249,13 @@ For a production-oriented BLE design, v1.0 is the cleaner architectural baseline
 4. Passive v1.0 PCAPs are incomplete as decoded protocol traces after BLE encryption because the LTK was deliberately not exported.
 5. GATT operation counts represent host/API observations rather than packet- or radio-level overhead.
 6. No energy measurements were collected.
-7. CP6-D is an implementation-level negative-test campaign, not a formal proof of cryptographic security.
+7. EVAL-D is an implementation-level negative-test campaign, not a formal proof of cryptographic security.
 
 ## 10. Conclusion
 
-The post-v1 experimental campaign is complete through CP6-E.
+The Post-v1.0 Comparative Evaluation is complete through EVAL-E.
 
-Across CP6-A–CP6-E, the project now has:
+Across EVAL-A–EVAL-E, the project now has:
 
 - reproducible measurement infrastructure and provenance;
 - repeated v0.7 and v1.0 hardware latency datasets;

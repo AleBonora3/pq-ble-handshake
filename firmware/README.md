@@ -1,5 +1,12 @@
 # PQ-BLE nRF54L15 DK firmware
 
+> [!NOTE]
+> This document preserves historical material about the earlier firmware profiles and v1.0 CP1 validation.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](../docs/research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](../docs/research/post-v1-comparative-evaluation.md).
+
 This experimental peripheral preserves the Phase 2 diagnostic and Phase 3
 secure-channel profiles and adds the v0.5 authenticated pure-PQ Phase 5
 profile. It is a research prototype, not production-ready software.

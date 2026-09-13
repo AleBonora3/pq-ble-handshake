@@ -1,5 +1,12 @@
 # Guida al Testing
 
+> [!NOTE]
+> This document preserves historical material about the earlier protocol profiles and v1.0 CP1 validation.
+> Its progress statements and future work refer to those stages.
+> Current baselines and results are recorded in the [project overview](../README.md),
+> [final v1.0 milestone](research/milestones/v1.0-smp-l4-mlkem-final.md)
+> and completed [Post-v1.0 Comparative Evaluation](research/post-v1-comparative-evaluation.md).
+
 Questa guida descrive come validare il progetto **PQ-BLE-HANDSHAKE** a tre livelli:
 
 1. test automatici Python;
@@ -10,7 +17,8 @@ Questa guida descrive come validare il progetto **PQ-BLE-HANDSHAKE** a tre livel
 
 ## Suite di test Python
 
-Il risultato corrente verificato è registrato in `docs/test-results.md`.
+I risultati storici di questa guida sono registrati in [test-results.md](test-results.md);
+lo stato corrente è nel [README](../README.md).
 
 Comando per eseguire tutti i test:
 
@@ -69,7 +77,7 @@ See [the CP1 audit](research/milestones/v1.0-cp1-hardware-fix-audit.md).
 pre-L4 gating, cold NC with matching PIN 177415, bonded reconnect without
 new NC and PC NC rejection with PIN 705752. B/C both returned authenticated
 L4, SC, key=16, gate OPEN and profile=0x10, and allowed all four PQ GATT
-operations. See the preserved [PC/DK log](research/logs/v1.0-1-tests.txt).
+operations. See the preserved [PC/DK log](research/logs/v1_cp1_1-tests.txt).
 For `nc-reject`, type `no` in the PC console for the automated verdict;
 DK-only rejection needs the UART history. A generic FAILED with no ceremony
 is inconclusive. Clear both bonds between negative scenarios as specified
@@ -129,9 +137,9 @@ python -m src.central.main --v1-smp-l4-mlkem --v1-negative just-works
 ```
 
 Procedura completa, mappa dei pulsanti e log attesi:
-[CP1 milestone](research/milestones/v1.0-smp-l4-mlkem.md#hardware-reproduction-procedure).
-Archive any new logs under new names; preserve both `v1.0-tests.txt` and
-`v1.0-1-tests.txt` in `docs/research/logs/` unchanged.
+[CP1 milestone](research/milestones/v1.0-smp-l4-mlkem.md).
+Archive any new logs under new names; preserve both `v1_cp1-tests.txt` and
+`v1_cp1_1-tests.txt` in `docs/research/logs/` unchanged.
 
 ---
 
