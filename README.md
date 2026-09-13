@@ -197,6 +197,66 @@ Full milestone:
 
 ---
 
+## Riconnessione e overhead: v0.7 vs v1.0
+
+È importante distinguere **overhead del singolo messaggio**, **overhead dell'handshake** e **overhead di riconnessione**.
+
+### Riconnessione
+
+Il primo PoC del progetto includeva un meccanismo Python di **session resumption**: la stessa session key poteva essere riutilizzata fino al primo limite tra **24 ore** e **100 resume riusciti**. Il resume applicativo richiedeva circa **30 B** di messaggi applicativi (`21 B` request + `9 B` response, prima dell'overhead GATT). Questo meccanismo appartiene però al prototipo storico e **non è una funzionalità del profilo hardware v0.7 finale**.
+
+Nel **v0.7 hardware** usato nella comparazione non esiste bonding SMP e non è stata completata una session-resumption persistente sul DK. Una nuova connessione esegue quindi nuovamente il percorso applicativo ibrido ML-KEM + P-256, SAS e FINISHED.
+
+Nel **v1.0**, invece, il bond BLE persiste. Dopo il primo pairing cold, una riconnessione bonded può ripristinare direttamente un link BLE Security Mode 1 Level 4 autenticato senza ripetere la Numeric Comparison. Il bond però **non conserva la sessione applicativa**:
+
+```text
+bond BLE persistente
+        !=
+sessione applicativa persistente
+
+bonded L4
+    ->
+nuovo ML-KEM
+    ->
+nuovo CP3
+    ->
+nuove K_APP_C2P / K_APP_P2C
+    ->
+counter CP4 da zero
+```
+
+Quindi il bonding riduce il costo di autenticazione BLE nelle riconnessioni, ma nella v1.0 attuale non elimina il nuovo handshake ML-KEM applicativo.
+
+### Overhead del singolo messaggio
+
+I due data-plane hanno formati diversi.
+
+| Profilo | Overhead applicativo fisso | Frame del workload validato |
+|---|---:|---:|
+| v0.7 | **37 B** | 6 B plaintext -> 43 B |
+| v1.0 | **35 B** | 16 B plaintext -> 51 B |
+
+Nel v0.7 l'overhead applicativo include sequence number, tipo, IV esplicito e tag AES-GCM. Nel v1.0 l'IV non viene trasmesso nel frame: viene derivato deterministicamente dalla chiave direzionale, dal `session_id` e dal sequence number. Per questo, **a parità di plaintext, il frame applicativo v1.0 è 2 B più piccolo**.
+
+Questo non significa automaticamente che v1.0 abbia meno overhead totale radio. v1.0 usa infatti anche la cifratura/autenticazione BLE Link Layer di L4, mentre v0.7 lascia SMP disabilitato. L'overhead Link Layer, la frammentazione ATT/L2CAP e le eventuali ritrasmissioni non sono inclusi nei 35/37 B.
+
+### Overhead dell'handshake e della riconnessione
+
+Architetturalmente v1.0 elimina dal protocollo applicativo il P-256 ECDH e il SAS di v0.7, ma aggiunge BLE SMP L4. In una connessione **cold** deve quindi eseguire la Numeric Comparison BLE; in una connessione **bonded** questa cerimonia non viene ripetuta.
+
+Tuttavia, anche in bonded mode v1.0 esegue un nuovo ML-KEM e una nuova sessione applicativa. Per questo i risultati misurati non supportano la frase "v1.0 ha sempre meno overhead di riconnessione":
+
+```text
+v0.7 secure_machine mean        = 3584.773 ms
+v1.0 bonded secure_machine mean = 5446.180 ms
+```
+
+Il vantaggio del bonding è quindi soprattutto la **rimozione del nuovo pairing/Numeric Comparison e il ripristino automatico del link autenticato**, non l'eliminazione dell'handshake post-quantum applicativo.
+
+Infine, i PCAP v1.0 diventano opachi dopo l'attivazione della cifratura BLE senza esportare la LTK; i dati raccolti non permettono quindi di affermare che il totale di byte over-the-air di v1.0 sia inferiore a quello di v0.7.
+
+---
+
 # v1.0 flow
 
 1. **Establish BLE L4.**\
