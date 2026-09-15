@@ -9,6 +9,24 @@ PQ-BLE-HANDSHAKE is a research proof of concept built around a **Windows PC Cent
 
 Both use standard BLE GATT transport without modifying the Bluetooth stack.
 
+The frozen, validated **v0.7/v1.0 baselines remain unchanged in behavior**.
+New **v0.8/v1.1 session-resumption extensions** are implemented and software
+validated; **hardware validation is PENDING**. v0.8 preserves the v0.7
+authenticated application data plane, and v1.1 preserves v1.0 CP4 framing.
+The historical Python PoC also had session reuse, but this new design persists
+**K_RESUME, never traffic keys**, and derives fresh directional keys for every
+resume with a fresh session ID and two fresh nonces. Ticket policy is **24 hours /
+at most 100 successful resumes**. The Peripheral ticket is currently **RAM-only**:
+DK reboot causes authenticated full-handshake fallback. A v1.1 BLE bond and
+application ticket are separate; successful bonded-L4 application resume skips
+ML-KEM. Central JSON ticket storage is local research/PoC storage, not OS secure
+storage. See the [design](docs/research/session-resumption-design.md),
+[v0.8 milestone](docs/research/milestones/v0.8-session-resumption.md),
+[v1.1 milestone](docs/research/milestones/v1.1-session-resumption.md),
+[software validation](docs/research/session-resumption-software-validation.md),
+[future hardware commands](docs/research/session-resumption-hardware-plan.md),
+and separate [Session Resumption Evaluation](benchmarks/resumption/README.md).
+
 > [!IMPORTANT]
 > **v1.0 is complete through CP1–CP5.**
 >
@@ -25,6 +43,8 @@ Both use standard BLE GATT transport without modifying the Bluetooth stack.
 | v0.7 authenticated hybrid protocol | **COMPLETE / hardware validated** |
 | v1.0 SMP L4 + ML-KEM protocol | **COMPLETE / hardware validated through CP1–CP5** |
 | Post-v1.0 Comparative Evaluation | **COMPLETE** |
+| v0.8 hybrid + session resumption | **IMPLEMENTED / SOFTWARE VALIDATED; hardware PENDING** |
+| v1.1 SMP L4 + ML-KEM + session resumption | **IMPLEMENTED / SOFTWARE VALIDATED; hardware PENDING** |
 
 ### v1.0 checkpoints
 

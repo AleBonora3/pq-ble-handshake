@@ -1,0 +1,23 @@
+#ifndef PQ_PROFILE_H_
+#define PQ_PROFILE_H_
+/* Only explicit new Kconfig choices change wire identities or domains. */
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+#define PQ_APP_VERSION 0x08U
+#define PQ_APP_DOMAIN "PQ-BLE-HANDSHAKE-v0.8"
+#define PQ_HYBRID_DOMAIN "PQ-BLE-HANDSHAKE-v0.8"
+#define PQ_HYBRID_TRAFFIC_DOMAIN "PQ-BLE-TRAFFIC-v0.8"
+#define PQ_HYBRID_VERSION 0x08U
+#elif defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+#define PQ_APP_VERSION 0x11U
+#define PQ_APP_DOMAIN "PQ-BLE-HANDSHAKE-v1.1"
+#endif
+#ifndef PQ_APP_VERSION
+#define PQ_APP_VERSION 0x10U
+#define PQ_APP_DOMAIN "PQ-BLE-HANDSHAKE-v1.0"
+#endif
+#ifndef PQ_HYBRID_DOMAIN
+#define PQ_HYBRID_DOMAIN "PQ-BLE-HANDSHAKE-v0.7"
+#define PQ_HYBRID_TRAFFIC_DOMAIN "PQ-BLE-TRAFFIC-v0.7"
+#define PQ_HYBRID_VERSION 0x07U
+#endif
+#endif

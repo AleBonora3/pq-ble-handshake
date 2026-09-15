@@ -1,0 +1,13 @@
+Command: git diff --check
+Exit code: 0
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/CMakeLists.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/Kconfig', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/main.c', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/mlkem_session.c', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/mlkem_session.h', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/pq_v1_cp3.c', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/pq_v1_cp3.h', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firmware/src/pq_v1_frame.h', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/central/main.py', LF will be replaced by CRLF the next time Git touches it

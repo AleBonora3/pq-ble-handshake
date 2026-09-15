@@ -8,6 +8,7 @@
 #include <stdbool.h>
 
 #include <psa/crypto.h>
+#include "pq_profile.h"
 
 #define PQ_PHASE7_SESSION_ID_SIZE 16U
 #define PQ_PHASE7_MLKEM_PUBLIC_KEY_SIZE 1184U
@@ -25,7 +26,7 @@
 /* PQS7 wire framing shared by CP2 and CP3. */
 #define PQ_PHASE7_FRAME_MAGIC "PQS7"
 #define PQ_PHASE7_FRAME_MAGIC_SIZE 4U
-#define PQ_PHASE7_FRAME_VERSION 0x07U
+#define PQ_PHASE7_FRAME_VERSION PQ_HYBRID_VERSION
 #define PQ_PHASE7_FRAME_HEADER_SIZE 8U
 
 /* CP2 interoperability-only subtypes. */

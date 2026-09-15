@@ -18,10 +18,17 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "pq_profile.h"
 
 #define PQ_V1_FRAME_MAGIC "PQV1"
 #define PQ_V1_FRAME_MAGIC_SIZE 4U
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+#define PQ_V1_FRAME_VERSION PQ_APP_VERSION
+#define PQ_V1_PROFILE_ID PQ_APP_VERSION
+#else
 #define PQ_V1_FRAME_VERSION 0x10U
+#define PQ_V1_PROFILE_ID 0x10U
+#endif
 #define PQ_V1_FRAME_HEADER_SIZE 8U
 
 /* CP1: security attestation. */
@@ -69,7 +76,6 @@
 #define PQ_V1_SEC_FLAG_AUTHENTICATED 0x02U
 #define PQ_V1_SEC_FLAG_GATE_OPEN 0x04U
 
-#define PQ_V1_PROFILE_ID 0x10U
 
 /* ERROR payload: status(1). */
 #define PQ_V1_ERROR_FRAME_SIZE (PQ_V1_FRAME_HEADER_SIZE + 1U)

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('v1', 'v07')][string]$Profile = 'v1',
+    [ValidateSet('v1', 'v07', 'v08', 'v11')][string]$Profile = 'v1',
     [string]$NcsRoot = 'C:\ncs\v3.0.0',
     [string]$Toolchain = 'C:\ncs\toolchains\0b393f9e1b',
     [switch]$Incremental,
@@ -22,7 +22,7 @@ foreach ($entry in $vendorEnvironment.env_vars) {
 }
 $env:ZEPHYR_BASE = Join-Path $NcsRoot 'zephyr'
 $env:CCACHE_DISABLE = '1'
-$buildName = if ($Profile -eq 'v1') { 'build_v1_cp3' } else { 'build_v07_cp3_check' }
+$buildName = switch ($Profile) { 'v1' { 'build_v1_cp3' }; 'v07' { 'build_v07_cp3_check' }; default { 'build_' + $Profile + '_resumption' } }
 $buildDir = Join-Path $repoRoot "firmware\$buildName"
 $logDir = Join-Path $repoRoot 'firmware\build_cp3_logs'
 if ($BuildDirectory) { $buildDir = [IO.Path]::GetFullPath($BuildDirectory) }
@@ -36,7 +36,9 @@ if (-not $buildDir.StartsWith($firmwareRoot, [StringComparison]::OrdinalIgnoreCa
 }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $configArgs = @('-DCONF_FILE=prj.conf', '-DDEBUG_THREAD_INFO=Off', '-Dfirmware_DEBUG_THREAD_INFO=Off')
-if ($Profile -eq 'v1') { $configArgs += '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf' }
+if ($Profile -eq 'v11') { $configArgs += '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf;v11_smp_l4_mlkem_resume.conf' }
+elseif ($Profile -eq 'v08') { $configArgs += '-DEXTRA_CONF_FILE=v08_resume_hybrid.conf' }
+elseif ($Profile -eq 'v1') { $configArgs += '-DEXTRA_CONF_FILE=v1_smp_l4_mlkem.conf' }
 else { $configArgs += '-DEXTRA_CONF_FILE=' }
 # Windows PowerShell treats native stderr (including CMake status) as ErrorRecord.
 # Judge the native exit code, rather than stopping on informational stderr.

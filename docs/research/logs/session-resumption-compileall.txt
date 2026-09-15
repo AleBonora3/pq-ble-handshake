@@ -1,0 +1,2 @@
+Command: C:/pq_ble/.venv/Scripts/python.exe -m compileall -q src tests benchmarks
+Exit code: 0

@@ -120,6 +120,15 @@ def parse_args(argv=None):
         ),
     )
     execution_mode = parser.add_mutually_exclusive_group()
+    execution_mode.add_argument("--v08-resume-hybrid", action="store_true",
+        help="v0.8: authenticated hybrid full handshake or fresh-key application resume")
+    execution_mode.add_argument("--v11-smp-l4-mlkem-resume", action="store_true",
+        help="v1.1: restore authenticated SMP L4, then app resume or full ML-KEM")
+    parser.add_argument("--resume-full", action="store_true",
+        help="New profiles only: force full authentication and replace the application ticket")
+    from .resumption import NEGATIVE_MODES
+    parser.add_argument("--resume-negative-test-only", choices=NEGATIVE_MODES,
+        help="New profiles only: explicit resume rejection/lifecycle experiment")
     execution_mode.add_argument(
         "--demo",
         action="store_true",
@@ -287,6 +296,17 @@ def parse_args(argv=None):
         help="Logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
+    new_profile = args.v08_resume_hybrid or args.v11_smp_l4_mlkem_resume
+    if (args.resume_full or args.resume_negative_test_only) and not new_profile:
+        parser.error("--resume-full / --resume-negative-test-only require v0.8 or v1.1")
+    if new_profile and (args.no_sas_confirm or args.phase3_negative or args.phase5_negative
+            or args.phase6_negative or args.phase7_negative_test_only or args.v1_negative
+            or args.v1_unpair_first or args.v1_cp2 or args.v1_cp3 or args.v1_cp4):
+        parser.error("new profiles require their own options and explicit authentication")
+    if args.resume_full and args.resume_negative_test_only:
+        parser.error("--resume-full cannot be combined with a resume negative experiment")
+    if args.resume_negative_test_only == "pre-l4" and not args.v11_smp_l4_mlkem_resume:
+        parser.error("pre-l4 requires --v11-smp-l4-mlkem-resume")
     if args.v1_cp4 and (not args.v1_smp_l4_mlkem or args.v1_cp2 or args.v1_cp3 or args.v1_negative is not None):
         parser.error("--v1-cp4 requires --v1-smp-l4-mlkem; incompatible with --v1-cp2 / --v1-cp3 / --v1-negative")
     if args.v1_cp3 and (not args.v1_smp_l4_mlkem or args.v1_cp2 or args.v1_negative is not None):
@@ -877,6 +897,32 @@ async def _confirm_numeric_comparison(pin: str) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
+async def _run_resumption_cli(args) -> int:
+    from .resumption import run_session, NegativePassed
+    from ..common.resumption import V08, V11
+    client = BLECentralClient(device_name=args.device)
+    profile = V08 if args.v08_resume_hybrid else V11
+    try:
+        if not await client.scan_and_connect(timeout=15):
+            return 1
+        result = await run_session(client, profile, force_full=args.resume_full,
+            confirm_numeric_comparison=_confirm_numeric_comparison,
+            pairing_timeout=args.v1_pairing_timeout, negative=args.resume_negative_test_only)
+        print(f"v{'0.8' if profile == V08 else '1.1'} {result.scenario} {result.path}: "
+              f"APP_SECURE, {result.rounds} authenticated round trips; ticket saved={result.ticket_saved}")
+        if result.fallback_reason:
+            print(f"Full-handshake fallback: {result.fallback_reason}")
+        return 0
+    except NegativePassed as exc:
+        print(f"Resume TEST-ONLY rejection observed: {exc}")
+        return 0
+    except Exception as exc:
+        logger.error("New-profile handshake failed: %s", exc)
+        return 1
+    finally:
+        await client.disconnect()
+
+
 async def _run_v1_smp_l4_mlkem_cli(args) -> int:
     """v1.0 CP1: own the connection; disconnect before reporting."""
 
@@ -1225,6 +1271,9 @@ async def main():
         ),
         args.mtu or "auto",
     )
+
+    if getattr(args, "v08_resume_hybrid", False) or getattr(args, "v11_smp_l4_mlkem_resume", False):
+        return await _run_resumption_cli(args)
 
     if getattr(args, "v1_smp_l4_mlkem", False):
         return await _run_v1_smp_l4_mlkem_cli(args)

@@ -31,9 +31,24 @@ config PQ_PROFILE_V10_SMP_L4_MLKEM
 	  The v0.x application-level control frames are rejected in this
 	  profile. Select with firmware/v1_smp_l4_mlkem.conf.
 
+config PQ_PROFILE_V08_RESUME_HYBRID
+	bool "v0.8: hybrid full authentication + application resumption"
+	depends on !BT_SMP
+	select PQ_RESUMPTION
+
+config PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME
+	bool "v1.1: SMP L4 + ML-KEM full authentication + application resumption"
+	depends on BT_SMP
+	select PQ_RESUMPTION
+
 endchoice
 
-if PQ_PROFILE_V10_SMP_L4_MLKEM
+config PQ_RESUMPTION
+	bool
+	help
+	  Dedicated symmetric ticket roots in RAM; never persist traffic keys.
+
+if PQ_PROFILE_V10_SMP_L4_MLKEM || PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME
 
 config PQ_V1_CP3_TIMEOUT_MS
 	int "CP3 absolute handshake deadline (milliseconds)"

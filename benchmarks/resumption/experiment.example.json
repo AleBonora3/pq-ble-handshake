@@ -1,0 +1,21 @@
+{
+  "evaluation": "Session Resumption Evaluation",
+  "status": "PLANNED_HARDWARE_NOT_RUN",
+  "historical_evaluation": "Post-v1.0 Comparative Evaluation (unchanged)",
+  "result_directory": "benchmarks/results/session_resumption",
+  "expected_att_mtu": 247,
+  "ticket_policy": {"ttl_seconds": 86400, "max_successful_resumes": 100},
+  "planned_iterations_per_noninteractive_population": 30,
+  "planned_warmup_per_ticket": 3,
+  "scenarios": [
+    {"id": "v07_full", "profile": "v0.7", "path": "full", "ble_state": "SMP_disabled"},
+    {"id": "v08_full", "profile": "v0.8", "path": "full", "ble_state": "SMP_disabled"},
+    {"id": "v08_resume", "profile": "v0.8", "path": "resume", "ble_state": "SMP_disabled"},
+    {"id": "v10_bonded_full", "profile": "v1.0", "path": "full", "ble_state": "bonded_L4"},
+    {"id": "v11_cold_full", "profile": "v1.1", "path": "full", "ble_state": "cold_Numeric_Comparison"},
+    {"id": "v11_bonded_full", "profile": "v1.1", "path": "full", "ble_state": "bonded_L4", "subpopulations": ["forced_full", "reboot_ticket_miss_fallback"]},
+    {"id": "v11_bonded_resume", "profile": "v1.1", "path": "resume", "ble_state": "bonded_L4"}
+  ],
+  "measurement_groups": ["application_control_bytes", "gatt_api_operations", "latency", "ble_radio_observations"],
+  "hardware_measurements": null
+}

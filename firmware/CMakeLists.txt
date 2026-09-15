@@ -32,6 +32,11 @@ target_sources_ifdef(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM app PRIVATE
     src/pq_v1_cp3.c
     src/pq_v1_cp4.c
 )
+target_sources_ifdef(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME app PRIVATE src/pq_v1_security.c)
+target_sources_ifdef(CONFIG_PQ_RESUMPTION app PRIVATE
+    src/pq_resume.c src/pq_resume_service.c
+    src/pq_v1_frame.c src/pq_v1_cp2.c src/pq_v1_cp3.c src/pq_v1_cp4.c
+)
 
 target_include_directories(app PRIVATE
     ${MLKEM_NATIVE_DIR}
