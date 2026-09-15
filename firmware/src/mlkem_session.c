@@ -6,6 +6,7 @@
  * exposed by this API.
  */
 
+#include "pq_v1_frame.h"
 #include "mlkem_session.h"
 #if defined(CONFIG_PQ_RESUMPTION)
 #include "pq_resume.h"
@@ -2501,7 +2502,15 @@ int pq_mlkem_session_submit_v1_cp3(
 	const uint8_t *ct, size_t ct_len, const uint8_t *sec, size_t sec_len,
 	const uint8_t *start, size_t start_len)
 {
-	static const uint8_t strict_sec[] = { 'P','Q','V','1',0x10,2,0,4,4,7,16,0x10 };
+	static const uint8_t strict_sec[] = {
+		'P', 'Q', 'V', '1',
+		PQ_V1_FRAME_VERSION,
+		PQ_V1_SEC_INFO,
+		0x00, 0x04,
+		0x04, 0x07, 0x10,
+		PQ_V1_PROFILE_ID
+	};
+	// static const uint8_t strict_sec[] = { 'P','Q','V','1',0x10,2,0,4,4,7,16,0x10 };
 	const uint8_t *payload;
 	size_t payload_len;
 	uint8_t subtype;
