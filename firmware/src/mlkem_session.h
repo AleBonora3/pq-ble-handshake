@@ -94,7 +94,7 @@ int pq_mlkem_session_init(
 
 bool pq_mlkem_session_keypair_ready(void);
 
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 int pq_mlkem_session_submit_v1_cp3(
 	const uint8_t *ciphertext, size_t ciphertext_len,
 	const uint8_t *sec_info, size_t sec_info_len,
@@ -169,6 +169,10 @@ int pq_mlkem_session_submit_phase7_finished_c(
  * already-derived pending v0.7 traffic keys to active state.
  */
 int pq_mlkem_session_commit_phase7_authenticated(void);
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+int pq_mlkem_session_install_phase8_application(const uint8_t c2p[32],
+	const uint8_t p2c[32], const uint8_t sid[16]);
+#endif
 
 
 /*

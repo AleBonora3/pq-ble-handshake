@@ -13,7 +13,7 @@ int pq_v1_cp4_iv(const uint8_t key[32], const uint8_t sid[16],
 	uint8_t direction, uint8_t iv[12])
 {
 	const char *label = direction == PQ_V1_APP_C2P ?
-		"PQ-BLE-HANDSHAKE-v1.0/IV-C2P" : "PQ-BLE-HANDSHAKE-v1.0/IV-P2C";
+		PQ_APP_DOMAIN "/IV-C2P" : PQ_APP_DOMAIN "/IV-P2C";
 	uint8_t info[64] = { 0 }, block[32] = { 0 };
 	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
 	psa_key_id_t id = 0;

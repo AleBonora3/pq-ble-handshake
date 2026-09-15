@@ -9,19 +9,19 @@
 
 LOG_MODULE_REGISTER(pq_phase7, LOG_LEVEL_INF);
 
-static const uint8_t phase7_domain[] = "PQ-BLE-HANDSHAKE-v0.7";
+static const uint8_t phase7_domain[] = PQ_HYBRID_DOMAIN;
 static const uint8_t phase7_kdf_info[] =
-	"PQ-BLE-HANDSHAKE-v0.7/hybrid-key-schedule";
+	PQ_HYBRID_DOMAIN "/hybrid-key-schedule";
 static const uint8_t phase7_sas_label[] =
-	"PQ-BLE-HANDSHAKE-v0.7/SAS";
+	PQ_HYBRID_DOMAIN "/SAS";
 static const uint8_t phase7_finished_c_label[] =
-	"PQ-BLE-HANDSHAKE-v0.7/FINISHED/C";
+	PQ_HYBRID_DOMAIN "/FINISHED/C";
 static const uint8_t phase7_finished_p_label[] =
-	"PQ-BLE-HANDSHAKE-v0.7/FINISHED/P";
+	PQ_HYBRID_DOMAIN "/FINISHED/P";
 static const uint8_t phase7_c2p_label[] =
-	"PQ-BLE-TRAFFIC-v0.7/CENTRAL-TO-PERIPHERAL";
+	PQ_HYBRID_TRAFFIC_DOMAIN "/CENTRAL-TO-PERIPHERAL";
 static const uint8_t phase7_p2c_label[] =
-	"PQ-BLE-TRAFFIC-v0.7/PERIPHERAL-TO-CENTRAL";
+	PQ_HYBRID_TRAFFIC_DOMAIN "/PERIPHERAL-TO-CENTRAL";
 
 static const uint8_t central_role[] = { 0x01U };
 static const uint8_t peripheral_role[] = { 0x02U };
@@ -935,6 +935,7 @@ out:
 	return ret;
 }
 
+#if !defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
 static const uint8_t kat_central_public_key[] = {
 	0x04, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42,
 	0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40,
@@ -1212,6 +1213,8 @@ out:
 	return ret;
 }
 
+#endif /* Frozen v0.7 KAT; new-profile vectors run in native resume tests. */
+
 int pq_phase7_self_test(void)
 {
 	int ret = production_random_p256_self_test();
@@ -1219,5 +1222,9 @@ int pq_phase7_self_test(void)
 	if (ret != 0) {
 		return ret;
 	}
+	#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	return 0;
+#else
 	return public_hybrid_kat_self_test();
+#endif
 }

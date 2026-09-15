@@ -38,11 +38,31 @@ def validate_sequence(received, expected):
         raise ValueError("CP4 replay, out-of-order sequence or sequence exhaustion")
 
 
-def derive_iv_base(key, session_id, subtype):
+def _profile_label(profile, suffix):
+    if profile == 0x10:
+        return b"PQ-BLE-HANDSHAKE-v1.0/" + suffix
+    from .resumption import domain
+    return domain(profile) + b"/" + suffix
+
+
+def _encode(profile, subtype, payload):
+    raw = encode_v1_frame(subtype, payload)
+    _profile_label(profile, b"")
+    return raw[:4] + bytes((profile,)) + raw[5:]
+
+
+def _parse(profile, raw):
+    _profile_label(profile, b"")
+    if len(raw) < 8 or raw[4] != profile:
+        raise ValueError("wrong application profile/version")
+    return parse_v1_frame(raw[:4] + b"\x10" + raw[5:])
+
+
+def derive_iv_base(key, session_id, subtype, *, profile=0x10):
     _direction(subtype)
     if len(key) != 32 or len(session_id) != 16:
         raise ValueError("invalid CP4 key/session size")
-    return bytearray(hmac.digest(key, IV_LABELS[subtype] + session_id + b"\x01", "sha256")[:IV_SIZE])
+    return bytearray(hmac.digest(key, _profile_label(profile, b"IV-C2P" if subtype == APP_C2P else b"IV-P2C") + session_id + b"\x01", "sha256")[:IV_SIZE])
 
 
 def nonce_for_sequence(iv_base, seq):
@@ -61,11 +81,11 @@ def _prefix(subtype, seq, msg_type, plaintext_len):
     return seq.to_bytes(8, "big") + bytes([msg_type]) + plaintext_len.to_bytes(2, "big")
 
 
-def encode_application_frame(subtype, seq, msg_type, ciphertext, tag):
+def encode_application_frame(subtype, seq, msg_type, ciphertext, tag, *, profile=0x10):
     if len(tag) != TAG_SIZE:
         raise ValueError("CP4 tag must be 16 bytes")
     prefix = _prefix(subtype, seq, msg_type, len(ciphertext))
-    return encode_v1_frame(subtype, prefix + ciphertext + tag)
+    return _encode(profile, subtype, prefix + ciphertext + tag)
 
 
 @dataclass(frozen=True)
@@ -77,9 +97,9 @@ class ApplicationFrame:
     tag: bytes = field(repr=False)
 
 
-def parse_application_frame(raw, expected_subtype):
+def parse_application_frame(raw, expected_subtype, *, profile=0x10):
     _direction(expected_subtype)
-    frame = parse_v1_frame(raw)
+    frame = _parse(profile, raw)
     if frame.subtype != expected_subtype:
         raise ValueError("wrong CP4 direction")
     payload = frame.payload
@@ -90,31 +110,31 @@ def parse_application_frame(raw, expected_subtype):
                             payload[8], payload[11:-TAG_SIZE], payload[-TAG_SIZE:])
 
 
-def build_aad(session_id, exact_header, seq, msg_type, plaintext_len):
+def build_aad(session_id, exact_header, seq, msg_type, plaintext_len, *, profile=0x10):
     if len(session_id) != 16 or len(exact_header) != 8:
         raise ValueError("invalid CP4 AAD session/header size")
     prefix = _prefix(exact_header[5], seq, msg_type, plaintext_len)
-    expected = b"PQV1\x10" + bytes([exact_header[5]]) + (27 + plaintext_len).to_bytes(2, "big")
+    expected = b"PQV1" + bytes((profile,)) + bytes([exact_header[5]]) + (27 + plaintext_len).to_bytes(2, "big")
     if exact_header != expected:
         raise ValueError("inconsistent CP4 AAD header")
-    return CP4_AAD_LABEL + session_id + exact_header + prefix
+    return _profile_label(profile, b"CP4-AAD") + session_id + exact_header + prefix
 
 
-def encrypt_application(key, iv_base, session_id, subtype, seq, msg_type, plaintext):
+def encrypt_application(key, iv_base, session_id, subtype, seq, msg_type, plaintext, *, profile=0x10):
     if len(key) != 32:
         raise ValueError("CP4 requires AES-256")
-    skeleton = encode_application_frame(subtype, seq, msg_type, bytes(len(plaintext)), bytes(TAG_SIZE))
-    aad = build_aad(session_id, skeleton[:8], seq, msg_type, len(plaintext))
+    skeleton = encode_application_frame(subtype, seq, msg_type, bytes(len(plaintext)), bytes(TAG_SIZE), profile=profile)
+    aad = build_aad(session_id, skeleton[:8], seq, msg_type, len(plaintext), profile=profile)
     sealed = AESGCM(key).encrypt(nonce_for_sequence(iv_base, seq), bytes(plaintext), aad)
     return skeleton[:19] + sealed
 
 
-def decrypt_application(key, iv_base, session_id, raw, expected_subtype, expected_seq):
+def decrypt_application(key, iv_base, session_id, raw, expected_subtype, expected_seq, *, profile=0x10):
     if len(key) != 32:
         raise ValueError("CP4 requires AES-256")
-    frame = parse_application_frame(raw, expected_subtype)
+    frame = parse_application_frame(raw, expected_subtype, profile=profile)
     validate_sequence(frame.seq, expected_seq)
-    aad = build_aad(session_id, raw[:8], frame.seq, frame.msg_type, len(frame.ciphertext))
+    aad = build_aad(session_id, raw[:8], frame.seq, frame.msg_type, len(frame.ciphertext), profile=profile)
     # AESGCM raises on authentication failure; unauthenticated plaintext never escapes.
     plaintext = bytearray(AESGCM(key).decrypt(nonce_for_sequence(iv_base, frame.seq),
                                            frame.ciphertext + frame.tag, aad))
@@ -131,14 +151,17 @@ class CentralApplication:
     Python/cryptography cannot guarantee erasure of internal immutable copies.
     """
 
-    def __init__(self, handshake):
+    def __init__(self, handshake, *, iv_c2p=None, iv_p2c=None):
         self.handshake = handshake
+        self.profile = getattr(handshake, "profile", 0x10)
         self.iv_c2p, self.iv_p2c = bytearray(), bytearray()
         self.tx_c2p = self.rx_p2c = 0
         try:
             self.require_secure()
-            self.iv_c2p = derive_iv_base(handshake.app_c2p, handshake.session_id, APP_C2P)
-            self.iv_p2c = derive_iv_base(handshake.app_p2c, handshake.session_id, APP_P2C)
+            self.iv_c2p = derive_iv_base(handshake.app_c2p, handshake.session_id, APP_C2P, profile=self.profile) if iv_c2p is None else bytearray(iv_c2p)
+            self.iv_p2c = derive_iv_base(handshake.app_p2c, handshake.session_id, APP_P2C, profile=self.profile) if iv_p2c is None else bytearray(iv_p2c)
+            if len(self.iv_c2p) != IV_SIZE or len(self.iv_p2c) != IV_SIZE:
+                raise ValueError("invalid supplied application IV bases")
         except BaseException:
             self.clear()
             raise
@@ -154,7 +177,7 @@ class CentralApplication:
             if len(challenge) != CHALLENGE_SIZE or FRAME_OVERHEAD + len(challenge) + 3 > mtu:
                 raise ValueError("CP4 challenge/ATT MTU invalid")
             frame = encrypt_application(self.handshake.app_c2p, self.iv_c2p,
-                self.handshake.session_id, APP_C2P, self.tx_c2p, PING, challenge)
+                self.handshake.session_id, APP_C2P, self.tx_c2p, PING, challenge, profile=self.profile)
             self.tx_c2p += 1  # Consume before transport; send failure must clear this session.
             return frame
         except BaseException:
@@ -168,7 +191,7 @@ class CentralApplication:
             if len(raw) + 3 > mtu:
                 raise ValueError("CP4 frame exceeds ATT MTU")
             plaintext = decrypt_application(self.handshake.app_p2c, self.iv_p2c,
-                self.handshake.session_id, raw, APP_P2C, self.rx_p2c)
+                self.handshake.session_id, raw, APP_P2C, self.rx_p2c, profile=self.profile)
             if not hmac.compare_digest(plaintext, challenge):
                 raise ValueError("CP4 PONG challenge mismatch")
             self.rx_p2c += 1

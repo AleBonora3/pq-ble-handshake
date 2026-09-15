@@ -38,6 +38,7 @@ firmware/build*/
 
 # Benchmark results (generated)
 benchmarks/results/post_v1/
+benchmarks/results/session_resumption/
 
 # Keys (non committare chiavi reali!)
 data/keys/*

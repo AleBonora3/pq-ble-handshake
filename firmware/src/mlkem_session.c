@@ -6,9 +6,15 @@
  * exposed by this API.
  */
 
+#include "pq_v1_frame.h"
 #include "mlkem_session.h"
+#if defined(CONFIG_PQ_RESUMPTION)
+#include "pq_resume.h"
+#include "pq_resume_service.h"
+#include "pq_v1_cp3.h"
+#endif
 #include "pq_phase6.h"
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 #include "pq_v1_cp2.h"
 #include "pq_v1_cp3.h"
 #include "pq_v1_cp4.h"
@@ -116,6 +122,9 @@ static uint8_t phase7_session_id[
 	PQ_PHASE7_SESSION_ID_SIZE
 ];
 
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+static uint8_t phase8_pending_root[32], phase8_full_th[32];
+#endif
 static bool phase7_wait_finished;
 static bool phase7_authenticated;
 
@@ -170,7 +179,7 @@ static bool worker_started;
 static bool keypair_ready;
 static bool job_pending;
 static bool job_active;
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 static uint32_t v1_cp2_epoch;
 static uint32_t pending_v1_cp2_epoch;
 static uint32_t v1_cp3_epoch, pending_v1_cp3_epoch;
@@ -247,7 +256,7 @@ static int validate_diagnostic_crc(void)
 /* Called only on the crypto worker, after ML-KEM decapsulation. The runtime
  * ML-KEM keypair and consumed job buffers stay immutable until job_done.
  * Only the public key and TEST-ONLY diagnostic leave this function. */
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 static int v1_cp4_result(size_t *wire_len, uint32_t epoch)
 {
 	struct pq_v1_cp3_application app = { 0 };
@@ -523,6 +532,9 @@ static int phase7_auth_start_result(
 	] = { 0 };
 
 	struct pq_phase7_keys keys = { 0 };
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	uint8_t full_prk[32] = {0}, resume_root[32] = {0};
+#endif
 
 	size_t public_key_len = 0U;
 	size_t ss_ecdh_len = 0U;
@@ -635,6 +647,11 @@ static int phase7_auth_start_result(
 		sizeof(hybrid_ikm),
 		&ikm_len);
 
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	if (ret == 0) { ret = pq_crypto_mac(hash, hybrid_ikm, ikm_len, full_prk); }
+	if (ret == 0) { ret = pq_resume_root(PQ_RESUME_V08, full_prk, hash, resume_root); }
+	pq_v1_cp3_clear(full_prk, sizeof(full_prk));
+#endif
 	if (ret == 0) {
 		ret = pq_phase7_derive_keys(
 			hybrid_ikm,
@@ -695,6 +712,10 @@ static int phase7_auth_start_result(
 		K_FOREVER);
 
 	if (job_epoch == phase7_epoch) {
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+		memcpy(phase8_pending_root, resume_root, 32U);
+		memcpy(phase8_full_th, hash, 32U);
+#endif
 		/*
 		 * Retain only what FINISHED needs.
 		 * K_sas itself is deliberately not retained.
@@ -760,6 +781,10 @@ static int phase7_auth_start_result(
 		"transcript + hybrid schedule + SAS");
 
 out:
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	pq_v1_cp3_clear(full_prk, sizeof(full_prk));
+	pq_v1_cp3_clear(resume_root, sizeof(resume_root));
+#endif
 	if (pq_phase7_destroy_p256_key(
 		    &private_key) != 0) {
 		LOG_ERR(
@@ -1000,7 +1025,7 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		job_active = true;
 		mode = pending_job_mode;
 
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 		if (mode == PQ_MLKEM_JOB_V1_CP3 || mode == PQ_MLKEM_JOB_V1_CP3_FINISHED_C ||
 		    mode == PQ_MLKEM_JOB_V1_CP4_C2P) {
 			job_epoch = pending_v1_cp3_epoch;
@@ -2237,7 +2262,7 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 
 			LOG_WRN("Phase 7 authenticated result canceled by session epoch change");
 		}
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 		if (mode == PQ_MLKEM_JOB_V1_CP2) {
 			if (job_epoch != v1_cp2_epoch) {
 				status = PQ_MLKEM_STATUS_INVALID_PROTOCOL_STATE;
@@ -2250,7 +2275,7 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 		{
 			job_active = false;
 		}
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 		/* CP3 inputs were erased before releasing the slot. The same worker
 		 * cannot execute the next job until this callback returns; a prompt
 		 * FINISHED_C can safely queue while READY_CP3 is being delivered. */
@@ -2280,7 +2305,7 @@ static void crypto_worker(void *unused1, void *unused2, void *unused3)
 			secure_wire_len);
 		
 		secure_clear(secure_wire, sizeof(secure_wire));
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 		if (mode == PQ_MLKEM_JOB_V1_CP2) {
 			k_mutex_lock(&session_lock, K_FOREVER);
 			job_active = false;
@@ -2347,6 +2372,10 @@ static void clear_phase6_material_locked(void)
 
 static void clear_phase7_material_locked(void)
 {
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	pq_v1_cp3_clear(phase8_pending_root, sizeof(phase8_pending_root));
+	pq_v1_cp3_clear(phase8_full_th, sizeof(phase8_full_th));
+#endif
 	pq_phase7_clear_keys(
 		&phase7_keys);
 
@@ -2452,7 +2481,7 @@ const uint8_t *pq_mlkem_session_public_key(size_t *public_key_len)
 	return public_key;
 }
 
-#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM)
+#if defined(CONFIG_PQ_PROFILE_V10_SMP_L4_MLKEM) || defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
 void pq_mlkem_session_reset_v1_cp3(void)
 {
 	k_mutex_lock(&session_lock, K_FOREVER);
@@ -2473,7 +2502,15 @@ int pq_mlkem_session_submit_v1_cp3(
 	const uint8_t *ct, size_t ct_len, const uint8_t *sec, size_t sec_len,
 	const uint8_t *start, size_t start_len)
 {
-	static const uint8_t strict_sec[] = { 'P','Q','V','1',0x10,2,0,4,4,7,16,0x10 };
+	static const uint8_t strict_sec[] = {
+		'P', 'Q', 'V', '1',
+		PQ_V1_FRAME_VERSION,
+		PQ_V1_SEC_INFO,
+		0x00, 0x04,
+		0x04, 0x07, 0x10,
+		PQ_V1_PROFILE_ID
+	};
+	// static const uint8_t strict_sec[] = { 'P','Q','V','1',0x10,2,0,4,4,7,16,0x10 };
 	const uint8_t *payload;
 	size_t payload_len;
 	uint8_t subtype;
@@ -2530,6 +2567,12 @@ int pq_mlkem_session_commit_v1_cp3(void)
 		v1_cp4_rx_c2p = v1_cp4_tx_p2c = 0U;
 		v1_cp4_pending = v1_cp4_ready = false;
 		ret = 0;
+#if defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+		ret = pq_resume_service_full(v1_cp3_application.resume_root, v1_cp3_application.full_th,
+			v1_cp3_application.c2p, v1_cp3_application.p2c, v1_cp3_session_id);
+		secure_clear(&v1_cp3_application, sizeof(v1_cp3_application));
+		v1_cp3_app_secure = false;
+#endif
 	}
 	k_mutex_unlock(&session_lock);
 	return ret;
@@ -3000,6 +3043,14 @@ int pq_mlkem_session_commit_phase7_authenticated(void)
 	/*
 	 * Fresh independent v0.7 application sequence spaces.
 	 */
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+	ret = pq_resume_service_full(phase8_pending_root, phase8_full_th,
+		phase7_traffic_keys.central_to_peripheral, phase7_traffic_keys.peripheral_to_central, phase7_session_id);
+	pq_v1_cp3_clear(phase8_pending_root, sizeof(phase8_pending_root));
+	pq_v1_cp3_clear(phase8_full_th, sizeof(phase8_full_th));
+	/* Retain the v0.7 data-plane worker, framing, random IVs and counters. */
+	if (ret != 0) { clear_phase7_material_locked(); }
+#endif
 	phase7_has_last_recv_seq = false;
 	phase7_last_recv_seq = 0U;
 	phase7_next_send_seq = 0U;
@@ -3010,6 +3061,26 @@ out:
 
 	return ret;
 }
+
+#if defined(CONFIG_PQ_PROFILE_V08_RESUME_HYBRID)
+/* Called under main's connection-generation lock after resume FINISH_P commit. */
+int pq_mlkem_session_install_phase8_application(const uint8_t c2p[32],
+	const uint8_t p2c[32], const uint8_t sid[16])
+{
+	int ret = -EBUSY;
+	k_mutex_lock(&session_lock, K_FOREVER);
+	if (keypair_ready && !job_pending && !job_active) {
+		clear_phase7_material_locked();
+		memcpy(phase7_traffic_keys.central_to_peripheral, c2p, 32U);
+		memcpy(phase7_traffic_keys.peripheral_to_central, p2c, 32U);
+		memcpy(phase7_session_id, sid, 16U);
+		phase7_authenticated = true;
+		ret = 0;
+	}
+	k_mutex_unlock(&session_lock);
+	return ret;
+}
+#endif
 
 int pq_mlkem_session_submit_phase7_c2p(
 	const uint8_t *incoming_secure_wire,

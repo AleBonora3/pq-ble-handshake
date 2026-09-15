@@ -1,0 +1,12 @@
+Command: C:/pq_ble/.venv/Scripts/python.exe -m pytest -q -ra --tb=short tests/test_resumption.py tests/test_resume_central.py tests/test_resume_native.py tests/test_resume_service.py tests/test_resume_wiring.py --basetemp=.pytest_resume_targeted_final_20260915_12 -o cache_dir=.pytest_resume_cache_20260914
+Exit code: 0
+........................................................................ [ 47%]
+........................................................................ [ 95%]
+.......                                                                  [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\oqs\__init__.py:1
+  C:\pq_ble\.venv\Lib\site-packages\oqs\__init__.py:1: UserWarning: liboqs version (major, minor) 0.15.0 differs from liboqs-python version 0.16.0
+    from oqs.oqs import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+151 passed, 1 warning in 28.18s

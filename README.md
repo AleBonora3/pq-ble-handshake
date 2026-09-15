@@ -9,6 +9,35 @@ PQ-BLE-HANDSHAKE is a research proof of concept built around a **Windows PC Cent
 
 Both use standard BLE GATT transport without modifying the Bluetooth stack.
 
+The frozen, validated **v0.7/v1.0 baselines remain unchanged in behavior**.
+Their **v0.8/v1.1 session-resumption extensions are now software validated and
+core-hardware validated** on the Windows ↔ nRF54L15 DK path. v0.8 preserves the
+v0.7 authenticated application data plane, while v1.1 preserves v1.0 CP4
+framing and keeps BLE SMP L4 mandatory.
+
+The new design persists **`K_RESUME`, never traffic keys**, and derives fresh
+directional keys for every resume from a fresh session ID and fresh Central /
+Peripheral nonces. Ticket policy is **24 hours / at most 100 successful
+resumes**. The Peripheral ticket is **RAM-only**: DK reboot loses the application
+ticket but can retain the BLE bond, causing authenticated full-handshake
+fallback. In v1.1, a BLE bond and an application ticket are separate; bonded-L4
+application resume skips ML-KEM only when a valid ticket is also present.
+
+The core hardware campaigns cover full bootstrap, repeated resume, authenticated
+application traffic, fail-closed/replay checks and recovery. v1.1 additionally
+covers DK-reboot fallback and bond deletion/new pairing. The **100-successful-
+resume** and **real 24-hour TTL** policy limits are intentionally deferred to a
+later extended hardware campaign.
+
+Central JSON ticket storage is local research/PoC storage, not OS secure storage.
+See the [design](docs/research/session-resumption-design.md),
+[v0.8 milestone](docs/research/milestones/v0.8-session-resumption.md),
+[v1.1 milestone](docs/research/milestones/v1.1-session-resumption.md),
+[software validation](docs/research/session-resumption-software-validation.md),
+[v1.1 hardware audit](docs/research/session-resumption-v11-hardware-audit.md),
+[hardware plan](docs/research/session-resumption-hardware-plan.md), and
+[Session Resumption Evaluation](benchmarks/resumption/README.md).
+
 > [!IMPORTANT]
 > **v1.0 is complete through CP1–CP5.**
 >
@@ -25,6 +54,8 @@ Both use standard BLE GATT transport without modifying the Bluetooth stack.
 | v0.7 authenticated hybrid protocol | **COMPLETE / hardware validated** |
 | v1.0 SMP L4 + ML-KEM protocol | **COMPLETE / hardware validated through CP1–CP5** |
 | Post-v1.0 Comparative Evaluation | **COMPLETE** |
+| v0.8 hybrid + session resumption | **COMPLETE / software validated / core hardware validated** |
+| v1.1 SMP L4 + ML-KEM + session resumption | **COMPLETE / software validated / core hardware validated** |
 
 ### v1.0 checkpoints
 
@@ -196,6 +227,116 @@ Full milestone:
 | Session after reconnect | Fresh hybrid session | Fresh ML-KEM/application session even when bond persists |
 
 ---
+
+
+## v0.8 / v1.1 — Application session resumption
+
+The post-baseline extensions keep the frozen v0.7/v1.0 cryptographic
+architectures but add a dedicated authenticated application-resumption layer.
+
+Common properties:
+
+```text
+persist K_RESUME
+never persist old traffic keys
+        |
+        +--> fresh session_id
+        +--> fresh nonce_C
+        +--> fresh nonce_P
+        +--> fresh directional application keys
+```
+
+The resume exchange is mutually authenticated and uses four messages:
+
+```text
+RESUME_INIT      104 B
+RESUME_ACCEPT     72 B
+RESUME_FINISH_C   40 B
+RESUME_FINISH_P   40 B
+```
+
+A successful control exchange is therefore **256 application bytes** before
+GATT/L2CAP/Link Layer overhead.
+
+Ticket policy:
+
+- 32-byte dedicated `K_RESUME`;
+- 24-hour lifetime without renewal;
+- at most 100 successful resumes;
+- failed/time-out/replayed attempts do **not** consume the successful-use count;
+- Peripheral ticket is RAM-only;
+- replay cache covers authenticated INIT pairs;
+- fresh directional traffic state is installed after every successful resume.
+
+### v0.8
+
+v0.8 keeps SMP disabled and retains the frozen v0.7 full bootstrap:
+
+```text
+ML-KEM-768
++
+ephemeral application P-256 ECDH
++
+human SAS
++
+FINISHED
+```
+
+A successful resume skips ML-KEM, application P-256 and SAS, then uses the
+unchanged v0.7 application data plane: three 6-byte `PING n` / `PONG n`
+rounds in **43 B** protected frames.
+
+Core Windows ↔ DK hardware validation covers full bootstrap, application resume,
+repeated positive recovery and negative INIT/ACCEPT/FINISH replay/authentication
+checks.
+
+### v1.1
+
+v1.1 keeps **BLE Security Mode 1 Level 4 mandatory**. The full path is:
+
+```text
+SMP L4
+-> ML-KEM-768
+-> CP3 FINISHED
+-> ticket
+-> CP4 APP_SECURE
+```
+
+A bonded resume is:
+
+```text
+restore authenticated L4
+-> authenticated application resume
+-> fresh app keys / IVs
+-> CP4 APP_SECURE
+```
+
+No SMP DHKey/LTK is mixed into `K_RESUME`.
+
+Final hardware validation demonstrates:
+
+- cold Numeric Comparison + L4 + full ML-KEM/CP3;
+- two authenticated 51 B CP4 round trips;
+- repeated bonded resume without new Numeric Comparison or ML-KEM;
+- DK reboot with BLE bond retained but RAM ticket lost;
+- controlled `RESUME_REJECT` followed by automatic full ML-KEM fallback;
+- resume again after the fallback ticket is reissued;
+- pre-L4 resume denial;
+- bad INIT MAC, duplicate INIT, tampered ACCEPT and replayed old `FINISH_C`;
+- ticket retention and successful recovery after negative attempts;
+- BLE bond deletion forces a new Numeric Comparison/full handshake and cannot
+  be bypassed by application resumption.
+
+The final v1.1 audit build records **283,488 B FLASH / 122,056 B RAM** and passed
+**502 targeted tests** plus **1290 passed / 1 skipped** in the full software
+suite. The first-CP4 hardware audit and fix are documented in
+[`docs/research/session-resumption-v11-hardware-audit.md`](docs/research/session-resumption-v11-hardware-audit.md).
+
+> [!NOTE]
+> The **100 successful resumes** and **real 24-hour TTL expiry** are deferred
+> extended/long-duration hardware tests. The core v0.8/v1.1 hardware validation
+> does not claim those two real-time limits yet.
+
 
 ## Riconnessione e overhead: v0.7 vs v1.0
 
@@ -523,6 +664,8 @@ The validated v1.0 pairing path uses Windows WinRT custom pairing. Equivalent re
 |---|---|---|
 | v0.7 | `firmware/prj.conf` | Hybrid application baseline, SMP disabled |
 | v1.0 | `prj.conf` + `firmware/v1_smp_l4_mlkem.conf` | SMP L4 + ML-KEM layered architecture |
+| v0.8 | v0.7 base + resumption profile | Frozen v0.7 full path + application resumption |
+| v1.1 | v1.0 base + `firmware/v11_smp_l4_mlkem_resume.conf` | Mandatory L4 + ML-KEM full path + application resumption |
 
 Important v1.0 BLE settings include:
 
@@ -536,7 +679,7 @@ CONFIG_BT_SETTINGS=y
 CONFIG_SETTINGS=y
 ```
 
-Both profiles use the nRF54L15 DK crypto worker and vendored `mlkem-native`.
+All four profiles use the nRF54L15 DK crypto worker and vendored `mlkem-native`.
 
 ---
 
@@ -600,6 +743,30 @@ python -m src.central.main --phase7-auth-hybrid
 
 ---
 
+
+## v0.8 / v1.1 session-resumption profiles
+
+The repository build helper selects the explicit experimental profile:
+
+```powershell
+# v0.8
+.\scripts\build_v1_cp3.ps1 -Profile v08 -BuildDirectory C:\pq_ble\firmware\build_v08
+
+python -m src.central.main --v08-resume-hybrid --resume-full
+python -m src.central.main --v08-resume-hybrid
+
+# v1.1
+.\scripts\build_v1_cp3.ps1 -Profile v11 -BuildDirectory C:\pq_ble\firmware\build_v11
+
+python -m src.central.main --v11-smp-l4-mlkem-resume --resume-full
+python -m src.central.main --v11-smp-l4-mlkem-resume
+```
+
+For v1.1, normal mode automatically chooses between bonded application resume
+and authenticated full ML-KEM fallback according to the live L4/bond/ticket
+state.
+
+
 # Testing
 
 From the repository root:
@@ -610,7 +777,7 @@ python -m compileall -q src tests benchmarks
 git diff --check
 ```
 
-The v1.0 release audit recorded:
+The frozen v1.0 release audit recorded:
 
 ```text
 1064 passed
@@ -618,7 +785,22 @@ The v1.0 release audit recorded:
 1 warning
 ```
 
-Hardware validation is separate from software regression and includes real BLE pairing/bonding, ML-KEM transport, DK decapsulation, FINISHED, AES-GCM application traffic, lifecycle tests, passive captures, and the post-v1.0 comparative campaign.
+The final v1.1 first-CP4/session-resumption audit later recorded:
+
+```text
+targeted CP3/CP4/CP5/resumption: 502 passed
+full suite:                      1290 passed, 1 skipped
+compileall:                      PASS
+git diff --check:                PASS
+```
+
+The known liboqs `0.15.0` / liboqs-python `0.16.0` version warning remains in
+the validated environment.
+
+Hardware validation is separate from software regression and now includes real
+v0.8/v1.1 session-resumption runs in addition to BLE pairing/bonding, ML-KEM
+transport, DK decapsulation, FINISHED, AES-GCM application traffic, lifecycle
+tests, passive captures, and the post-v1.0 comparative campaign.
 
 ---
 
@@ -630,20 +812,23 @@ pq-ble-handshake/
 ├── REQUIREMENTS.md / requirements.txt
 │
 ├── firmware/
-│   ├── src/                         v0.7 / v1.0 Peripheral implementation
+│   ├── src/                         v0.7 / v1.0 + v0.8 / v1.1 extensions
 │   ├── third_party/mlkem-native/
 │   ├── prj.conf                     v0.7 profile
-│   └── v1_smp_l4_mlkem.conf         v1.0 overlay
+│   ├── v1_smp_l4_mlkem.conf         v1.0 overlay
+│   └── v11_smp_l4_mlkem_resume.conf v1.1 resumption overlay
 │
 ├── src/
 │   ├── central/                     BLE / WinRT / protocol runners
 │   └── common/                      framing and crypto helpers
 │
 ├── tests/
-│   └── native_v1/
+│   ├── native_v1/
+│   └── native_resume/
 │
 ├── benchmarks/
 │   ├── post_v1/                     comparative-evaluation harness
+│   ├── resumption/                   session-resumption evaluation harness
 │   └── results/                     measurement artifacts
 │
 ├── docs/
@@ -676,6 +861,7 @@ Raw evaluation artifacts are stored under:
 
 ```text
 benchmarks/results/post_v1/
+benchmarks/results/session_resumption/
 ```
 
 The benchmark dataset preserves original run IDs and CP6 labels for traceability.
@@ -700,7 +886,9 @@ Important boundaries:
 - no energy measurements were performed;
 - side-channel resistance was not experimentally characterized;
 - negative tests validate implemented failure paths but are not a formal security proof;
-- human SAS/Numeric Comparison is research interaction, not an unattended deployment UX.
+- human SAS/Numeric Comparison is research interaction, not an unattended deployment UX;
+- Central resumption-ticket JSON storage is research/PoC storage, not OS secure storage;
+- the 100-successful-resume cap and real 24-hour TTL are not yet long-duration hardware-validated.
 
 ---
 
@@ -730,6 +918,16 @@ CP1 -> CP5 COMPLETE
         v
 Post-v1.0 Comparative Evaluation
 EVAL-A -> EVAL-E COMPLETE
+        |
+        +--------------------+
+        |                    |
+        v                    v
+v0.8                       v1.1
+v0.7 full path             v1.0 full path
++ application resume       + application resume
+        |                    |
+        v                    v
+CORE HARDWARE VALIDATED    CORE HARDWARE VALIDATED
 ```
 
 Earlier protocol milestones remain in the repository for research traceability.
@@ -740,14 +938,28 @@ Earlier protocol milestones remain in the repository for research traceability.
 
 The project now provides:
 
-- two completed real-hardware BLE/PQ protocol implementations;
-- a validated layered v1.0 architecture;
-- a retained v0.7 application-level hybrid baseline;
+- two frozen, completed real-hardware BLE/PQ baseline protocols: v0.7 and v1.0;
+- two software- and core-hardware-validated application-resumption extensions:
+  v0.8 and v1.1;
+- a validated layered v1.0/v1.1 architecture in which BLE L4 and ML-KEM remain
+  separate security layers;
+- successful real-hardware v1.1 cold full, repeated bonded resume, DK-reboot
+  fallback, negative/replay recovery and bond-deletion/new-pairing lifecycle;
+- a retained v0.7/v0.8 application-level hybrid research track;
 - a reproducible comparative benchmark framework;
 - repeated latency/resource/radio observations;
-- **9/9 hardware negative/security tests PASS**;
-- a final architectural comparison.
+- **9/9 frozen-baseline hardware negative/security tests PASS**, plus the
+  session-resumption negative/lifecycle hardware checks documented in the
+  v0.8/v1.1 milestones;
+- a final architectural comparison and a dedicated v1.1 first-CP4 hardware
+  audit.
 
-The measured results show that **v0.7 is lighter and faster in the current implementation**, while **v1.0 provides a cleaner integration with standard BLE security and authenticated BLE link protection beneath ML-KEM-derived application security**.
+The measured frozen-baseline results show that **v0.7 is lighter and faster in
+the current implementation**, while **v1.0 provides a cleaner integration with
+standard BLE security and authenticated BLE link protection beneath
+ML-KEM-derived application security**.
 
-For continued development, **v1.0 is the architectural baseline**; v0.7 remains the experimental hybrid reference.
+For continued development, **v1.1 is the active resumption-enabled extension of
+the v1.0 architectural baseline**; v1.0 remains the frozen comparison baseline
+and v0.7/v0.8 remain the application-hybrid reference track. The 100-resume and
+24-hour-TTL hardware tests remain intentionally deferred.

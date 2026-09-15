@@ -21,6 +21,9 @@
 #endif
 
 #include "pq_v1_security.h"
+#if defined(CONFIG_PQ_RESUMPTION)
+#include "pq_resume_service.h"
+#endif
 
 LOG_MODULE_REGISTER(pq_v1_sec, LOG_LEVEL_INF);
 
@@ -488,6 +491,10 @@ static void pairing_complete(struct bt_conn *conn, bool bonded)
 	struct bt_conn *pending;
 
 	log_peer("SMP pairing complete", conn);
+#if defined(CONFIG_PQ_RESUMPTION)
+	/* A newly completed SMP ceremony invalidates old application continuity. */
+	pq_resume_service_bond_changed();
+#endif
 	LOG_INF("Bond created = %s", bonded ? "YES" : "NO");
 	k_mutex_lock(&state_lock, K_FOREVER);
 	pending = clear_pending_locked(conn);
@@ -523,6 +530,9 @@ static void bond_deleted(uint8_t id, const bt_addr_le_t *peer)
 
 	bt_addr_le_to_str(peer, addr, sizeof(addr));
 	LOG_INF("Bond deleted (identity %u): %s", id, addr);
+#if defined(CONFIG_PQ_RESUMPTION)
+	pq_resume_service_bond_changed();
+#endif
 }
 
 static struct bt_conn_auth_info_cb auth_info_callbacks = {

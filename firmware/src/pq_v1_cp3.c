@@ -2,6 +2,9 @@
 #include <string.h>
 #include <psa/crypto.h>
 #include "pq_v1_cp3.h"
+#if defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+#include "pq_resume.h"
+#endif
 
 void pq_v1_cp3_clear(void *buffer, size_t len)
 {
@@ -16,7 +19,7 @@ bool pq_v1_cp3_equal(const uint8_t a[32], const uint8_t b[32])
 	return difference == 0U;
 }
 
-static int hash_parts(const uint8_t *const *parts, const size_t *sizes,
+int pq_crypto_hash_parts(const uint8_t *const *parts, const size_t *sizes,
 	size_t count, uint8_t output[32])
 {
 	psa_hash_operation_t op = PSA_HASH_OPERATION_INIT;
@@ -36,7 +39,7 @@ static int hash_parts(const uint8_t *const *parts, const size_t *sizes,
 	return 0;
 }
 
-static int mac(const uint8_t key[32], const uint8_t *data, size_t len,
+int pq_crypto_mac(const uint8_t key[32], const uint8_t *data, size_t len,
 	uint8_t output[32])
 {
 	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
@@ -78,7 +81,7 @@ int pq_v1_cp3_transcript(const uint8_t *sec, size_t sec_len,
 	    subtype != PQ_V1_SEC_INFO || (payload[1] & ~7U) != 0U ||
 	    pq_v1_parse_frame(start, start_len, &subtype, &payload, &payload_len) != 0 ||
 	    subtype != PQ_V1_START_CP3) { return -EINVAL; }
-	return hash_parts(parts, sizes, 5U, th0);
+	return pq_crypto_hash_parts(parts, sizes, 5U, th0);
 }
 
 static int labeled_mac(const uint8_t key[32], const char *label,
@@ -95,7 +98,7 @@ static int labeled_mac(const uint8_t key[32], const char *label,
 	memcpy(data + label_len, th, 32U);
 	data[label_len + 32U] = 1U;
 	/* RFC 5869: L=32 needs just T(1)=HMAC(PRK, info || 0x01). */
-	ret = mac(key, data, label_len + 32U + (expand ? 1U : 0U), output);
+	ret = pq_crypto_mac(key, data, label_len + 32U + (expand ? 1U : 0U), output);
 out:
 	pq_v1_cp3_clear(data, sizeof(data));
 	if (ret != 0) { pq_v1_cp3_clear(output, 32U); }
@@ -121,7 +124,7 @@ int pq_v1_cp3_derive(uint8_t ss[32], const uint8_t th0[32],
 	if (ss == NULL || th0 == NULL || h == NULL) { goto out; }
 	pq_v1_cp3_clear(h, sizeof(*h));
 	memcpy(h->th0, th0, 32U);
-	ret = mac(th0, ss, 32U, h->prk); /* HKDF-Extract(TH0, SS_MLKEM). */
+	ret = pq_crypto_mac(th0, ss, 32U, h->prk); /* HKDF-Extract(TH0, SS_MLKEM). */
 	pq_v1_cp3_clear(ss, 32U);
 	if (ret == 0) {
 		ret = pq_v1_cp3_expand(h->prk, PQ_V1_CP3_FINISHED_C_LABEL, th0, h->finished_c);
@@ -149,7 +152,7 @@ int pq_v1_cp3_chain(const uint8_t th[32], const uint8_t *frame,
 		pq_v1_cp3_clear(output, 32U);
 		return -EINVAL;
 	}
-	return hash_parts(parts, sizes, 2U, output);
+	return pq_crypto_hash_parts(parts, sizes, 2U, output);
 }
 
 int pq_v1_cp3_finish(struct pq_v1_cp3_handshake *h,
@@ -178,6 +181,10 @@ int pq_v1_cp3_finish(struct pq_v1_cp3_handshake *h,
 	if (ret == 0) { ret = pq_v1_cp3_chain(th1, finished_p, 40U, th2); }
 	if (ret == 0) { ret = pq_v1_cp3_expand(h->prk, PQ_V1_CP3_APP_C2P_LABEL, th2, app->c2p); }
 	if (ret == 0) { ret = pq_v1_cp3_expand(h->prk, PQ_V1_CP3_APP_P2C_LABEL, th2, app->p2c); }
+#if defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+	if (ret == 0) { ret = pq_resume_root(PQ_RESUME_V11, h->prk, th2, app->resume_root); }
+	if (ret == 0) { memcpy(app->full_th, th2, 32U); }
+#endif
 out:
 	if (h != NULL) { pq_v1_cp3_clear(h, sizeof(*h)); }
 	pq_v1_cp3_clear(verify, sizeof(verify));
