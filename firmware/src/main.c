@@ -1410,42 +1410,107 @@ static void v1_cp3_result_ready(enum pq_mlkem_job_mode mode,
 		deliver = pq_v1_encode_error(PQ_V1_STATUS_CP3_FAILURE, error, &wire_len) == 0;
 		wire = error;
 	}
-	/* Arm WAIT before queueing READY: an immediate response can be submitted
-	 * to the same worker safely. Queue failure invalidates that pending job. */
+
+	/* READY_CP3 and FINISHED_P need different delivery ordering.
+	*
+	* READY_CP3:
+	* Arm WAIT_FINISHED_C before queueing the notification, then release
+	* protocol_lock so an immediate FINISHED_C from the Central can proceed.
+	*
+	* FINISHED_P:
+	* Keep protocol_lock held across notification queueing and the local
+	* APP_SECURE commit. This prevents an immediate CP4 write from racing
+	* ahead of pq_mlkem_session_commit_v1_cp3().
+	*/
 	if (deliver && start && status == PQ_MLKEM_STATUS_SUCCESS) {
-		v1_cp3_state = V1_CP3_WAIT_FINISHED_C;
+			v1_cp3_state = V1_CP3_WAIT_FINISHED_C;
 	}
-	k_mutex_unlock(&protocol_lock);
-	if (deliver && pq_v1_security_conn_is_l4(conn) &&
-	    bt_gatt_is_subscribed(conn, &pq_service.attrs[6], BT_GATT_CCC_NOTIFY) &&
-	    bt_gatt_get_mtu(conn) >= wire_len + 3U) {
-		ret = bt_gatt_notify(conn, &pq_service.attrs[6], wire, wire_len);
+
+	if (start || status != PQ_MLKEM_STATUS_SUCCESS) {
+			/*
+			* READY_CP3 and error notifications are queued without holding
+			* protocol_lock.
+			*
+			* READY_CP3 must allow an immediate FINISHED_C to enter the
+			* normal write path.
+			*
+			* Error notifications cannot transition the peer into CP4, so
+			* there is no APP_SECURE race to serialize here.
+			*/
+			k_mutex_unlock(&protocol_lock);
+
+			if (deliver && pq_v1_security_conn_is_l4(conn) &&
+				bt_gatt_is_subscribed(conn, &pq_service.attrs[6],
+									BT_GATT_CCC_NOTIFY) &&
+				bt_gatt_get_mtu(conn) >= wire_len + 3U) {
+					ret = bt_gatt_notify(conn, &pq_service.attrs[6],
+										wire, wire_len);
+			}
+
+			k_mutex_lock(&protocol_lock, K_FOREVER);
+	} else {
+			/*
+			* Successful FINISHED_P path only.
+			*
+			* Keep protocol_lock held while FINISHED_P is queued and until
+			* the pending application keys are committed locally.
+			*
+			* If the Central immediately sends its first CP4 frame after
+			* receiving FINISHED_P, its write handler will wait for this
+			* lock and will therefore observe APP_SECURE.
+			*/
+			if (deliver && pq_v1_security_conn_is_l4(conn) &&
+				bt_gatt_is_subscribed(conn, &pq_service.attrs[6],
+									BT_GATT_CCC_NOTIFY) &&
+				bt_gatt_get_mtu(conn) >= wire_len + 3U) {
+					ret = bt_gatt_notify(conn, &pq_service.attrs[6],
+										wire, wire_len);
+			}
 	}
-	k_mutex_lock(&protocol_lock, K_FOREVER);
-	if (conn != NULL && conn == v1_cp3_conn && generation == connection_generation) {
-		if (ret != 0 || status != PQ_MLKEM_STATUS_SUCCESS || !v1_cp3_live_locked(conn, generation)) {
-			invalidate_v1_cp3_locked();
-			LOG_ERR("v1 CP3 FAILED; no active application keys");
-		} else if (start) {
-			LOG_INF("READY_CP3 queued: 40 B; WAIT_FINISHED_C");
-		} else if (pq_mlkem_session_commit_v1_cp3() == 0) {
-			v1_cp3_state = V1_CP3_APP_SECURE;
-			(void)k_work_cancel_delayable(&v1_cp3_timeout_work);
-			LOG_INF("FINISHED_P queued: 40 B");
-			LOG_INF("K_APP_C2P derived; K_APP_P2C derived (values never logged)");
-			LOG_INF("CP3 handshake secrets cleared; Application state: APP_SECURE");
-		} else { invalidate_v1_cp3_locked(); }
+
+	if (conn != NULL &&
+		conn == v1_cp3_conn &&
+		generation == connection_generation) {
+			if (ret != 0 ||
+				status != PQ_MLKEM_STATUS_SUCCESS ||
+				!v1_cp3_live_locked(conn, generation)) {
+					invalidate_v1_cp3_locked();
+					LOG_ERR("v1 CP3 FAILED; no active application keys");
+			} else if (start) {
+					LOG_INF("READY_CP3 queued: 40 B; WAIT_FINISHED_C");
+			} else if (pq_mlkem_session_commit_v1_cp3() == 0) {
+#if defined(CONFIG_PQ_PROFILE_V11_SMP_L4_MLKEM_RESUME)
+					/* The full handshake has transferred its keys to the resume
+					 * service. Release the consumed CT slot before CP4 dispatch. */
+					ciphertext_state = CIPHERTEXT_EMPTY;
+#endif
+					v1_cp3_state = V1_CP3_APP_SECURE;
+					(void)k_work_cancel_delayable(&v1_cp3_timeout_work);
+
+					LOG_INF("FINISHED_P queued: 40 B");
+					LOG_INF("K_APP_C2P derived; K_APP_P2C derived (values never logged)");
+					LOG_INF("CP3 handshake secrets cleared; Application state: APP_SECURE");
+			} else {
+					invalidate_v1_cp3_locked();
+					LOG_ERR("v1 CP3 commit FAILED; no active application keys");
+			}
 	} else if (v1_cp3_state != V1_CP3_IDLE) {
-		/* A stale generation can never retain worker-derived secrets. */
-		invalidate_v1_cp3_locked();
+			/* A stale generation can never retain worker-derived secrets. */
+			invalidate_v1_cp3_locked();
 	}
+
 	v1_cp3_delivery_active = false;
+
 	if (v1_cp3_state == V1_CP3_IDLE && !v1_cp2_active) {
-		clear_transfer_storage_locked();
-		ciphertext_state = CIPHERTEXT_EMPTY;
+			clear_transfer_storage_locked();
+			ciphertext_state = CIPHERTEXT_EMPTY;
 	}
+
 	k_mutex_unlock(&protocol_lock);
-	if (conn != NULL) { bt_conn_unref(conn); }
+
+	if (conn != NULL) {
+			bt_conn_unref(conn);
+	}
 }
 
 static ssize_t handle_v1_cp2_start(struct bt_conn *conn, uint16_t len,

@@ -229,6 +229,15 @@ def test_full_handshake_c_python_ticket_binding_and_application(native_service):
         skipped = channel.c2p.encrypt(b"PING 7")
         assert lib.service_hybrid_decrypt(skipped, len(skipped), plain) == 0
         assert lib.service_hybrid_decrypt(skipped, len(skipped), plain) != 0
+    else:
+        # Full v1.1 uses CP3 traffic keys and their CP4-derived IV bases;
+        # resumed sessions below use the separate resume KDF's IV outputs.
+        channel = app.CentralApplication(full)
+        for index in range(2):
+            challenge = bytes((index,)) * 16
+            result, pong = control(lib, channel.encrypt_ping(challenge, 247))
+            assert result == 0
+            channel.accept_pong(pong, challenge, 247)
     old_ticket = full.ticket
     lib.service_disconnect()
     assert lib.service_valid() and lib.service_zero()

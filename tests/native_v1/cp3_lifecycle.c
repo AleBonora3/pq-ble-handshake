@@ -129,10 +129,51 @@ static void cancel_event(void) {
     }
 }
 
-static int bt_gatt_notify(struct bt_conn *c, const struct bt_gatt_attr *a, const void *data, size_t len) {
+static int bt_gatt_notify(struct bt_conn *c,
+                          const struct bt_gatt_attr *a,
+                          const void *data,
+                          size_t len)
+{
+    const uint8_t *wire = data;
+    bool is_ready_cp3;
+    bool is_finished_p;
+
     (void)a;
-    assert(depth == 0 && c == &peer && c == current_conn && c->refs > 1 && c->l4);
-    if (notify_error) return -EIO;
+
+    assert(c == &peer);
+    assert(c == current_conn);
+    assert(c->refs > 1);
+    assert(c->l4);
+
+    is_ready_cp3 =
+        len == PQ_V1_READY_CP3_FRAME_SIZE &&
+        wire[5] == PQ_V1_READY_CP3;
+
+    is_finished_p =
+        len == PQ_V1_FINISHED_FRAME_SIZE &&
+        wire[5] == PQ_V1_FINISHED_P;
+
+    /*
+     * READY_CP3 must be queued without protocol_lock held so that an
+     * immediate FINISHED_C can enter the normal write path.
+     *
+     * FINISHED_P must instead be queued while protocol_lock is held.
+     * The production code keeps that lock until the pending application
+     * keys are committed and v1_cp3_state becomes APP_SECURE, preventing
+     * an immediate CP4 write from racing ahead of the local commit.
+     */
+    if (is_ready_cp3) {
+        assert(depth == 0);
+    } else if (is_finished_p) {
+        assert(depth == 1);
+    } else {
+        assert(depth == 0);
+    }
+
+    if (notify_error) {
+        return -EIO;
+    }
+
     if (len == PQ_V1_CP4_FRAME_SIZE) {
         assert(v1_cp4_pending && v1_cp4_ready);
         assert(v1_cp4_rx_c2p == v1_cp4_tx_p2c);
@@ -143,16 +184,30 @@ static int bt_gatt_notify(struct bt_conn *c, const struct bt_gatt_attr *a, const
             peer.l4 = true; notify_enabled = true;
         }
     }
-    assert(len <= sizeof(last_wire)); memcpy(last_wire, data, len);
-    last_len = len; notify_count++;
-    if (len == 40 && last_wire[5] == PQ_V1_FINISHED_P) {
-        assert(!v1_cp3_app_secure && v1_cp3_keys_pending);
+
+    assert(len <= sizeof(last_wire));
+    memcpy(last_wire, data, len);
+
+    last_len = len;
+    notify_count++;
+
+    if (is_finished_p) {
+        assert(!v1_cp3_app_secure);
+        assert(v1_cp3_keys_pending);
         assert(v1_cp3_state == V1_CP3_FINISHED_P_BUSY);
-        if (scenario == 30 || scenario == 31) cancel_event();
+
+        if (scenario == 30 || scenario == 31) {
+            cancel_event();
+        }
     }
-    if (immediate_finished && len == 40 && last_wire[5] == PQ_V1_READY_CP3) {
-        assert(handle_v1_cp3_finished_c(c, central_finished, 40) == 40);
+
+    if (immediate_finished && is_ready_cp3) {
+        assert(handle_v1_cp3_finished_c(c,
+                                        central_finished,
+                                        PQ_V1_FINISHED_FRAME_SIZE) ==
+               PQ_V1_FINISHED_FRAME_SIZE);
     }
+
     return 0;
 }
 
